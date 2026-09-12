@@ -4,7 +4,7 @@ import "package:uuid/uuid.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
-import "../../../main.dart" show toggleAppTheme, appThemeModeNotifier;
+import "../../../core/theme/theme_controller.dart";
 import "../models/course_models.dart";
 import "../../auth/screens/login_screen.dart";
 import "../../flashcards/screens/flashcards_screen.dart";
@@ -261,17 +261,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               Row(
                 children: [
-                  ValueListenableBuilder<ThemeMode>(
-                    valueListenable: appThemeModeNotifier,
-                    builder: (context, mode, _) {
-                      final currentIsDark = mode == ThemeMode.dark;
+                  ListenableBuilder(
+                    listenable: ThemeController.instance,
+                    builder: (context, _) {
+                      final currentIsDark = ThemeController.instance.isDarkMode;
                       return IconButton(
                         icon: Icon(
                           currentIsDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
                           color: currentIsDark ? const Color(0xFFF59E0B) : AppColors.primaryDark,
                         ),
                         tooltip: currentIsDark ? "Switch to Light Mode" : "Switch to Dark Mode",
-                        onPressed: () => toggleAppTheme(widget.sessionService),
+                        onPressed: () => ThemeController.instance.toggleTheme(),
                       );
                     },
                   ),

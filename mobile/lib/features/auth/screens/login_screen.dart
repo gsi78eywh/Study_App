@@ -5,7 +5,7 @@ import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
-import "../../../main.dart" show toggleAppTheme, appThemeModeNotifier;
+import "../../../core/theme/theme_controller.dart";
 import "../models/auth_models.dart";
 import "../../courses/screens/dashboard_screen.dart";
 import "register_screen.dart";
@@ -173,17 +173,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        ValueListenableBuilder<ThemeMode>(
-                          valueListenable: appThemeModeNotifier,
-                          builder: (context, mode, _) {
-                            final currentIsDark = mode == ThemeMode.dark;
+                        ListenableBuilder(
+                          listenable: ThemeController.instance,
+                          builder: (context, _) {
+                            final currentIsDark = ThemeController.instance.isDarkMode;
                             return IconButton(
                               icon: Icon(
                                 currentIsDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
                                 color: currentIsDark ? const Color(0xFFF59E0B) : AppColors.primaryDark,
                               ),
                               tooltip: currentIsDark ? "Switch to Light Mode" : "Switch to Dark Mode",
-                              onPressed: () => toggleAppTheme(widget.sessionService),
+                              onPressed: () => ThemeController.instance.toggleTheme(),
                             );
                           },
                         ),
