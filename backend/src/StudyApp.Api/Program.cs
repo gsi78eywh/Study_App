@@ -12,6 +12,7 @@ using StudyApp.Infrastructure.DocumentParsers;
 using StudyApp.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
 // Configure port: default to http://localhost:5000
 builder.WebHost.UseUrls("http://localhost:5000");
@@ -52,9 +53,15 @@ builder.Services.AddScoped<IApplicationDbContext>(provider =>
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 
-// 3. Add AI & Ingestion Services
+// 3. Add AI & Ingestion Services (Google Gemini AI Engine)
+builder.Services.AddHttpClient<GeminiAiService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(90);
+});
 builder.Services.AddScoped<IDocumentExtractor, DocumentExtractor>();
-builder.Services.AddScoped<IAiQuestionGenerator, SemanticKernelQuestionGenerator>();
+builder.Services.AddScoped<GeminiAiService>();
+builder.Services.AddScoped<IAiQuestionGenerator>(sp => sp.GetRequiredService<GeminiAiService>());
+builder.Services.AddScoped<IAiTutorService>(sp => sp.GetRequiredService<GeminiAiService>());
 
 // 4. Configure JWT Authentication
 var jwtSecret = builder.Configuration["JwtSettings:Secret"] ?? "SuperSecretKeyForStudyAppDevelopmentEnvironment2026!LongEnoughForHmac256";
@@ -295,6 +302,18 @@ app.MapGet("/", () => Results.Content("""
             <div class="endpoint-item">
                 <span class="path">/api/v1/sync</span>
                 <span class="method post">POST</span>
+            </div>
+            <div class="endpoint-item">
+                <span class="path">/api/v1/ai/tutor</span>
+                <span class="method post">POST</span>
+            </div>
+            <div class="endpoint-item">
+                <span class="path">/api/v1/ai/explain</span>
+                <span class="method post">POST</span>
+            </div>
+            <div class="endpoint-item">
+                <span class="path">/api/v1/ai/status</span>
+                <span class="method get">GET</span>
             </div>
         </div>
     </div>

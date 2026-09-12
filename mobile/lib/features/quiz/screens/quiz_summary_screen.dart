@@ -6,6 +6,7 @@ import "../../../core/theme/app_theme.dart";
 import "../../courses/models/course_models.dart";
 import "../models/quiz_models.dart";
 import "../../sync/services/sync_service.dart";
+import "../../ai_tutor/screens/ai_tutor_screen.dart";
 
 class QuizSummaryScreen extends StatefulWidget {
   final StudySetModel studySet;
@@ -150,7 +151,30 @@ class _QuizSummaryScreenState extends State<QuizSummaryScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 24),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF6366F1),
+                      side: const BorderSide(color: Color(0xFF6366F1)),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.auto_awesome_rounded, size: 20),
+                    label: const Text("Ask Gemini Tutor About This Quiz", style: TextStyle(fontWeight: FontWeight.bold)),
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => AiTutorScreen(
+                            apiClient: widget.apiClient,
+                            courses: const [],
+                            initialPrompt: "I just completed practice for '${widget.studySet.title}' with a score of ${widget.submission.score}/${widget.submission.totalQuestions}. Can you explain the core concepts of this topic and give me advice on how to master it?",
+                            initialCourseContext: widget.studySet.title,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
                   ElevatedButton(
                     onPressed: () => Navigator.of(context).pop(),
                     child: const Text("Return to Dashboard"),

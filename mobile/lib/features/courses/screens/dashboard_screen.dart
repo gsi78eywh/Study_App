@@ -13,6 +13,7 @@ import "../../notebook/screens/notebook_screen.dart";
 import "../../quiz/models/quiz_models.dart";
 import "../../quiz/screens/quiz_player_screen.dart";
 import "../../sync/services/sync_service.dart";
+import "../../ai_tutor/screens/ai_tutor_screen.dart";
 
 class DashboardScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -274,6 +275,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         onPressed: () => ThemeController.instance.toggleTheme(),
                       );
                     },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.auto_awesome_rounded, color: Color(0xFF8B5CF6)),
+                    tooltip: "Gemini AI Tutor",
+                    onPressed: () => setState(() => _currentTabIndex = 4),
                   ),
                   IconButton(
                     icon: _isSyncing
@@ -632,6 +638,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               });
             },
           ),
+          // Tab 4: Gemini AI Tutor
+          AiTutorScreen(
+            apiClient: widget.apiClient,
+            courses: _courses,
+          ),
         ],
       ),
       bottomNavigationBar: Container(
@@ -663,12 +674,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
               label: "Notebook",
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.auto_awesome_outlined),
+              icon: Icon(Icons.psychology_outlined),
               label: "AI Studio",
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.auto_awesome_rounded),
+              label: "Gemini Tutor",
             ),
           ],
         ),
       ),
+      floatingActionButton: _currentTabIndex == 0
+          ? FloatingActionButton.extended(
+              onPressed: () => setState(() => _currentTabIndex = 4),
+              backgroundColor: const Color(0xFF6366F1),
+              icon: const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
+              label: Text(
+                "Ask Gemini",
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            )
+          : null,
     );
   }
 }

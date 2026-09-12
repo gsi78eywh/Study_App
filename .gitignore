@@ -58,3 +58,7 @@ desktop.ini
 *.db
 *.db-shm
 *.db-wal
+
+appsettings.Local.json
+appsettings.Local.json
+appsettings.*.local.json
