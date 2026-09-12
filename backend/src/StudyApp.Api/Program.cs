@@ -119,6 +119,203 @@ app.UseCors("AllowMobileClient");
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Root Welcome & Health Page (so browser visits never 404)
+app.MapGet("/", () => Results.Content("""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudyApp API - Online</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b1120;
+            color: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .container {
+            max-width: 680px;
+            width: 100%;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(16, 185, 129, 0.15);
+            color: #10b981;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-size: 13px;
+            font-weight: 600;
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            margin-bottom: 20px;
+        }
+        .pulse {
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 0 rgba(16, 185, 129, 0.7);
+            animation: pulse 1.8s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 32px;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+        p.subtitle {
+            color: #94a3b8;
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 28px;
+        }
+        .btn-launch {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            background: #6366f1;
+            color: #ffffff;
+            text-decoration: none;
+            padding: 14px 28px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 16px;
+            transition: all 0.2s;
+            margin-bottom: 32px;
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+        }
+        .btn-launch:hover {
+            background: #4f46e5;
+            transform: translateY(-2px);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+        .card {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 14px;
+            padding: 18px;
+        }
+        .card-title {
+            font-size: 12px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            margin-bottom: 6px;
+        }
+        .card-value {
+            font-size: 15px;
+            font-weight: 600;
+            color: #f8fafc;
+        }
+        .endpoints {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 14px;
+            padding: 20px;
+        }
+        .endpoint-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #1e293b;
+            font-size: 13px;
+        }
+        .endpoint-item:last-child { border-bottom: none; }
+        .method {
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 11px;
+            font-family: monospace;
+        }
+        .post { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
+        .get { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .path { font-family: monospace; color: #cbd5e1; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="badge">
+            <span class="pulse"></span>
+            <span>REST API Online &amp; Healthy</span>
+        </div>
+        <h1>StudyApp C# Backend API</h1>
+        <p class="subtitle">ASP.NET Core 10 Clean Architecture engine powering AI document ingestion, active recall quiz sessions, and cross-platform synchronization.</p>
+        
+        <a href="http://localhost:3000" class="btn-launch">
+            Open Flutter Web App (Port 3000) &rarr;
+        </a>
+
+        <div class="grid">
+            <div class="card">
+                <div class="card-title">Database</div>
+                <div class="card-value">SQLite (studyapp.db)</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Default Account</div>
+                <div class="card-value">alex@example.com / Password123!</div>
+            </div>
+        </div>
+
+        <div class="endpoints">
+            <div class="card-title" style="margin-bottom: 12px;">Active API Endpoints</div>
+            <div class="endpoint-item">
+                <span class="path">/api/v1/auth/login</span>
+                <span class="method post">POST</span>
+            </div>
+            <div class="endpoint-item">
+                <span class="path">/api/v1/auth/register</span>
+                <span class="method post">POST</span>
+            </div>
+            <div class="endpoint-item">
+                <span class="path">/api/v1/auth/me</span>
+                <span class="method get">GET</span>
+            </div>
+            <div class="endpoint-item">
+                <span class="path">/api/v1/ingestion/file</span>
+                <span class="method post">POST</span>
+            </div>
+            <div class="endpoint-item">
+                <span class="path">/api/v1/ingestion/text</span>
+                <span class="method post">POST</span>
+            </div>
+            <div class="endpoint-item">
+                <span class="path">/api/v1/sync</span>
+                <span class="method post">POST</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+""", "text/html"));
+
 app.MapControllers();
 
 Console.WriteLine("=================================================");
