@@ -84,14 +84,14 @@ class _QuizSummaryScreenState extends State<QuizSummaryScreen> {
                     decoration: BoxDecoration(
                       color: AppColors.darkCard,
                       borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: badgeColor.withOpacity(0.5), width: 2),
+                      border: Border.all(color: badgeColor.withValues(alpha: 0.5), width: 2),
                     ),
                     child: Column(
                       children: [
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: badgeColor.withOpacity(0.15),
+                            color: badgeColor.withValues(alpha: 0.15),
                             shape: BoxShape.circle,
                           ),
                           child: Icon(Icons.emoji_events_rounded, color: badgeColor, size: 56),
@@ -164,3 +164,4 @@ class _QuizSummaryScreenState extends State<QuizSummaryScreen> {
     );
   }
 }
+

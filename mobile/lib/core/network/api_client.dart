@@ -1,5 +1,4 @@
-﻿import "dart:io";
-import "package:dio/dio.dart";
+﻿import "package:dio/dio.dart";
 import "../constants/api_constants.dart";
 import "../services/session_service.dart";
 
@@ -61,3 +60,4 @@ class ApiClient {
     dio.options.baseUrl = newUrl;
   }
 }
+

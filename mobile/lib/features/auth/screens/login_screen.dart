@@ -190,7 +190,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           borderRadius: BorderRadius.circular(20),
                           boxShadow: [
                             BoxShadow(
-                              color: AppColors.primary.withOpacity(0.35),
+                              color: AppColors.primary.withValues(alpha: 0.35),
                               blurRadius: 20,
                               offset: const Offset(0, 10),
                             ),
@@ -223,9 +223,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: AppColors.danger.withOpacity(0.12),
+                          color: AppColors.danger.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.danger.withOpacity(0.5)),
+                          border: Border.all(color: AppColors.danger.withValues(alpha: 0.5)),
                         ),
                         child: Row(
                           children: [
@@ -289,8 +289,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           : const Text("Sign In"),
                     ),
                     const SizedBox(height: 24),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         const Text(
                           "Don't have an account?",
@@ -321,3 +322,5 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
+
+

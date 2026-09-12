@@ -171,7 +171,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.15),
+                      color: AppColors.primary.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
@@ -208,14 +208,14 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                   if (_hasSubmittedCurrent) {
                     if (opt.isCorrect) {
                       borderColor = AppColors.accent;
-                      bgColor = AppColors.accent.withOpacity(0.15);
+                      bgColor = AppColors.accent.withValues(alpha: 0.15);
                     } else if (isSelected && !opt.isCorrect) {
                       borderColor = AppColors.danger;
-                      bgColor = AppColors.danger.withOpacity(0.15);
+                      bgColor = AppColors.danger.withValues(alpha: 0.15);
                     }
                   } else if (isSelected) {
                     borderColor = AppColors.primary;
-                    bgColor = AppColors.primary.withOpacity(0.12);
+                    bgColor = AppColors.primary.withValues(alpha: 0.12);
                   }
 
                   return Container(
@@ -278,7 +278,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                     TextButton.icon(
                       icon: const Icon(Icons.lightbulb_outline, size: 18),
                       label: Text(_revealedHintsCount < currentQ.hints.length
-                          ? "Need a hint? (${_revealedHintsCount}/${currentQ.hints.length})"
+                          ? "Need a hint? ($_revealedHintsCount/${currentQ.hints.length})"
                           : "All hints revealed"),
                       onPressed: _revealedHintsCount < currentQ.hints.length
                           ? () => setState(() => _revealedHintsCount++)
@@ -291,9 +291,9 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                     margin: const EdgeInsets.only(bottom: 8),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.warning.withOpacity(0.1),
+                      color: AppColors.warning.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.warning.withOpacity(0.4)),
+                      border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -366,3 +366,5 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
     );
   }
 }
+
+

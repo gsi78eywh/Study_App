@@ -1,8 +1,6 @@
 ﻿import "package:flutter/material.dart";
-import "package:dio/dio.dart";
 import "package:google_fonts/google_fonts.dart";
 import "package:uuid/uuid.dart";
-import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
@@ -30,9 +28,7 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   late final SyncService _syncService;
   List<CourseModel> _courses = [];
-  bool _isLoading = false;
   bool _isSyncing = false;
-  String? _statusMessage;
 
   @override
   void initState() {
@@ -98,9 +94,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _runSync() async {
     setState(() => _isSyncing = true);
     final result = await _syncService.performSync(localCourses: _courses);
+    if (!mounted) return;
     setState(() {
       _isSyncing = false;
-      _statusMessage = result.message;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -284,7 +280,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             tooltip: "Sign Out",
             onPressed: () async {
               await widget.sessionService.clear();
-              if (!mounted) return;
+              if (!context.mounted) return;
               Navigator.of(context).pushReplacement(
                 MaterialPageRoute(
                   builder: (_) => LoginScreen(
@@ -334,14 +330,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
               ),
               child: Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.2),
+                      color: AppColors.primary.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(Icons.bolt_rounded, color: AppColors.warning, size: 32),
@@ -405,9 +401,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
-                              color: courseColor.withOpacity(0.2),
+                              color: courseColor.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: courseColor.withOpacity(0.6)),
+                              border: Border.all(color: courseColor.withValues(alpha: 0.6)),
                             ),
                             child: Text(
                               course.code,
@@ -433,13 +429,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: AppColors.darkBg.withOpacity(0.5),
+                            color: AppColors.darkBg.withValues(alpha: 0.5),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: const Row(
                             children: [
                               Icon(Icons.lightbulb_outline, color: AppColors.warning, size: 20),
-                              const SizedBox(width: 12),
+                              SizedBox(width: 12),
                               Expanded(
                                 child: Text(
                                   "No study sets in this course yet. Ingest notes or lecture slides using AI Ingestion.",
@@ -474,7 +470,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: AppColors.primary.withOpacity(0.15),
+                                        color: AppColors.primary.withValues(alpha: 0.15),
                                         borderRadius: BorderRadius.circular(6),
                                       ),
                                       child: Text(
@@ -522,3 +518,4 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 }
+

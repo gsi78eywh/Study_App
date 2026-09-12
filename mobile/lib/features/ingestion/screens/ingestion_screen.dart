@@ -29,6 +29,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   final _urlController = TextEditingController();
 
   PlatformFile? _selectedFile;
+  int _fileSizeBytes = 0;
   int _targetCount = 10;
   bool _isLoading = false;
   String? _errorMessage;
@@ -50,17 +51,19 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   }
 
   Future<void> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(
+    final files = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ["pdf", "docx", "txt", "md"],
-      withData: true,
     );
 
-    if (result != null && result.files.isNotEmpty) {
+    if (files.isNotEmpty) {
+      final file = files.first;
+      final size = file.lengthSync() ?? await file.length();
       setState(() {
-        _selectedFile = result.files.first;
+        _selectedFile = file;
+        _fileSizeBytes = size;
         if (_titleController.text.isEmpty) {
-          _titleController.text = _selectedFile!.name.split('.').first;
+          _titleController.text = file.name.split('.').first;
         }
       });
     }
@@ -104,21 +107,11 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           return;
         }
 
-        MultipartFile multipartFile;
-        if (_selectedFile!.bytes != null) {
-          multipartFile = MultipartFile.fromBytes(
-            _selectedFile!.bytes!,
-            filename: _selectedFile!.name,
-          );
-        } else if (_selectedFile!.path != null) {
-          multipartFile = await MultipartFile.fromFile(
-            _selectedFile!.path!,
-            filename: _selectedFile!.name,
-          );
-        } else {
-          setState(() => _errorMessage = "Could not read selected file data.");
-          return;
-        }
+        final bytes = await _selectedFile!.readAsBytes();
+        final multipartFile = MultipartFile.fromBytes(
+          bytes,
+          filename: _selectedFile!.name,
+        );
 
         final formData = FormData.fromMap({
           "file": multipartFile,
@@ -193,9 +186,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: AppColors.danger.withOpacity(0.12),
+                    color: AppColors.danger.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.danger.withOpacity(0.5)),
+                    border: Border.all(color: AppColors.danger.withValues(alpha: 0.5)),
                   ),
                   child: Text(_errorMessage!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
                 ),
@@ -290,7 +283,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                             const SizedBox(height: 4),
                             Text(
                               _selectedFile != null
-                                  ? "${(_selectedFile!.size / 1024).toStringAsFixed(1)} KB ready for extraction"
+                                  ? "${(_fileSizeBytes / 1024).toStringAsFixed(1)} KB ready for extraction"
                                   : "Supports textbooks, syllabus, lecture handouts up to 25MB",
                               style: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 12),
                             ),
