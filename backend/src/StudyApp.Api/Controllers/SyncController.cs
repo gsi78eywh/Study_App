@@ -32,10 +32,10 @@ public class SyncController : ControllerBase
 
         var now = DateTime.UtcNow;
 
-        // 1. Process incoming offline Courses
+        // 1. Process incoming offline Courses (safely handle existing IDs)
         foreach (var c in request.Courses)
         {
-            var existing = await _context.Courses.FirstOrDefaultAsync(x => x.Id == c.Id && x.UserId == userId);
+            var existing = await _context.Courses.FirstOrDefaultAsync(x => x.Id == c.Id);
             if (existing == null)
             {
                 _context.Courses.Add(new Course
@@ -49,7 +49,7 @@ public class SyncController : ControllerBase
                     UpdatedAt = c.UpdatedAt
                 });
             }
-            else
+            else if (existing.UserId == userId)
             {
                 existing.Code = c.Code;
                 existing.Name = c.Name;

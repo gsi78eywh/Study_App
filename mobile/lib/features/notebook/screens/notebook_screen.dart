@@ -46,55 +46,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
   @override
   void initState() {
     super.initState();
-    _loadSeedNotes();
     _fetchRemoteNotes();
-  }
-
-  void _loadSeedNotes() {
-    _notes.addAll([
-      NoteItem(
-        id: "note-1",
-        courseCode: "CS301",
-        title: "Raft Consensus - State Machine Replication",
-        tags: "#Distributed #Consensus #Raft",
-        updatedAt: DateTime.now().subtract(const Duration(hours: 3)),
-        content:
-            "• Node Roles: Leader, Follower, Candidate.\n"
-            "• Terms act as logical clocks: Each term begins with an election.\n"
-            "• Election Safety: At most one leader can be elected in a given term.\n"
-            "• Leader Append-Only: A leader never overwrites or truncates its own log entries.\n"
-            "• Log Matching Invariant: If two logs contain an entry with the same index and term, then they are identical up to that point.\n\n"
-            "Key takeaway: In network partitions, minority partitions cannot commit entries because they lack quorum (majority > N/2).",
-      ),
-      NoteItem(
-        id: "note-2",
-        courseCode: "BIO102",
-        title: "Eukaryotic vs Prokaryotic Transcription",
-        tags: "#Genetics #RNA #Transcription",
-        updatedAt: DateTime.now().subtract(const Duration(days: 1)),
-        content:
-            "1. Transcription Initiation:\n"
-            "   - Prokaryotes: RNA Polymerase binds directly to promoter with Sigma factor.\n"
-            "   - Eukaryotes: Requires transcription factors (TFIID, TATA box).\n"
-            "2. Post-Transcriptional Modifications (Eukaryotes only):\n"
-            "   - 5' 7-methylguanosine cap for ribosome recognition and stability.\n"
-            "   - 3' Poly-A tail (150-250 adenines) protects against enzymatic degradation.\n"
-            "   - RNA Splicing: Spliceosome removes introns and ligates exons.",
-      ),
-      NoteItem(
-        id: "note-3",
-        courseCode: "MATH201",
-        title: "Gram-Schmidt Orthogonalization Process",
-        tags: "#LinearAlgebra #Vectors #Orthogonality",
-        updatedAt: DateTime.now().subtract(const Duration(days: 2)),
-        content:
-            "Given a linearly independent basis {v1, v2, ..., vn}:\n\n"
-            "Step 1: u1 = v1\n"
-            "Step 2: u2 = v2 - proj_{u1}(v2) = v2 - ((v2 · u1) / (u1 · u1)) u1\n"
-            "Step k: uk = vk - Σ [((vk · uj) / (uj · uj)) uj] for j = 1 to k-1\n\n"
-            "Normalize each uk by dividing by its norm: ek = uk / ||uk|| to obtain an orthonormal basis {e1, e2, ..., en}.",
-      ),
-    ]);
   }
 
   Future<void> _fetchRemoteNotes() async {
@@ -103,29 +55,27 @@ class _NotebookScreenState extends State<NotebookScreen> {
       final response = await widget.apiClient.dio.get("/api/v1/notebooks");
       if (response.statusCode == 200 && response.data is List) {
         final List list = response.data;
-        if (list.isNotEmpty) {
-          final remoteNotes = list.map((item) {
-            return NoteItem(
-              id: item["id"]?.toString() ?? UniqueKey().toString(),
-              courseCode: item["courseCode"]?.toString() ?? "GENERAL",
-              title: item["title"]?.toString() ?? "Untitled Note",
-              content: item["content"]?.toString() ?? "",
-              tags: item["tags"]?.toString() ?? "#Notes",
-              updatedAt: DateTime.tryParse(item["updatedAt"]?.toString() ?? "") ?? DateTime.now(),
-            );
-          }).toList();
+        final remoteNotes = list.map((item) {
+          return NoteItem(
+            id: item["id"]?.toString() ?? UniqueKey().toString(),
+            courseCode: item["courseCode"]?.toString() ?? "GENERAL",
+            title: item["title"]?.toString() ?? "Untitled Note",
+            content: item["content"]?.toString() ?? "",
+            tags: item["tags"]?.toString() ?? "#Notes",
+            updatedAt: DateTime.tryParse(item["updatedAt"]?.toString() ?? "") ?? DateTime.now(),
+          );
+        }).toList();
 
-          setState(() {
-            for (final r in remoteNotes) {
-              if (!_notes.any((n) => n.id == r.id)) {
-                _notes.insert(0, r);
-              }
+        setState(() {
+          for (final r in remoteNotes) {
+            if (!_notes.any((n) => n.id == r.id)) {
+              _notes.insert(0, r);
             }
-          });
-        }
+          }
+        });
       }
     } catch (_) {
-      // Backend not yet reached or offline mode; local notes continue seamlessly
+      // Offline fallback: locally created notes continue seamlessly
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -135,15 +85,15 @@ class _NotebookScreenState extends State<NotebookScreen> {
     final titleController = TextEditingController();
     final contentController = TextEditingController();
     final tagsController = TextEditingController(text: "#Lecture");
-    String selectedCourse = widget.courses.isNotEmpty ? widget.courses.first.code : "CS301";
+    String selectedCourse = widget.courses.isNotEmpty ? widget.courses.first.code : "GENERAL";
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModalState) => AlertDialog(
-          backgroundColor: AppColors.darkCard,
+          backgroundColor: ctx.surfaceColor,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text("Create Digital Lecture Note", style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+          title: Text("Create Digital Lecture Note", style: GoogleFonts.outfit(color: ctx.textPrimary, fontWeight: FontWeight.bold)),
           content: SingleChildScrollView(
             child: SizedBox(
               width: 480,
@@ -151,25 +101,27 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Row(
-                    children: [
-                      const Text("Course: ", style: TextStyle(color: AppColors.darkTextSecondary)),
-                      const SizedBox(width: 8),
-                      DropdownButton<String>(
-                        value: selectedCourse,
-                        dropdownColor: AppColors.darkCard,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                        items: widget.courses.map((c) => DropdownMenuItem(value: c.code, child: Text(c.code))).toList(),
-                        onChanged: (val) {
-                          if (val != null) setModalState(() => selectedCourse = val);
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
+                  if (widget.courses.isNotEmpty) ...[
+                    Row(
+                      children: [
+                        Text("Course: ", style: TextStyle(color: ctx.textSecondary)),
+                        const SizedBox(width: 8),
+                        DropdownButton<String>(
+                          value: widget.courses.any((c) => c.code == selectedCourse) ? selectedCourse : widget.courses.first.code,
+                          dropdownColor: ctx.surfaceColor,
+                          style: TextStyle(color: ctx.textPrimary, fontWeight: FontWeight.bold),
+                          items: widget.courses.map((c) => DropdownMenuItem(value: c.code, child: Text(c.code))).toList(),
+                          onChanged: (val) {
+                            if (val != null) setModalState(() => selectedCourse = val);
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   TextField(
                     controller: titleController,
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(color: ctx.textPrimary),
                     decoration: const InputDecoration(
                       labelText: "Note Title",
                       hintText: "e.g. Dynamic Programming & Memoization",
@@ -178,7 +130,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: tagsController,
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(color: ctx.textPrimary),
                     decoration: const InputDecoration(
                       labelText: "Tags",
                       hintText: "#Algorithms #ExamPrep",
@@ -188,7 +140,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                   TextField(
                     controller: contentController,
                     maxLines: 6,
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(color: ctx.textPrimary),
                     decoration: const InputDecoration(
                       labelText: "Lecture Notes & Key Concepts",
                       hintText: "Enter formulas, summaries, bullet points...",
@@ -254,23 +206,30 @@ class _NotebookScreenState extends State<NotebookScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.darkCard,
+        backgroundColor: ctx.surfaceColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.2),
+                color: AppColors.primary.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: Text(note.courseCode, style: const TextStyle(color: AppColors.primaryLight, fontSize: 12, fontWeight: FontWeight.bold)),
+              child: Text(
+                note.courseCode,
+                style: TextStyle(
+                  color: ctx.isDarkMode ? AppColors.primaryLight : AppColors.primaryDark,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 note.title,
-                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                style: GoogleFonts.outfit(color: ctx.textPrimary, fontWeight: FontWeight.bold, fontSize: 18),
               ),
             ),
           ],
@@ -284,7 +243,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
               const SizedBox(height: 12),
               SelectableText(
                 note.content,
-                style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.6),
+                style: TextStyle(color: ctx.textPrimary, fontSize: 14, height: 1.6),
               ),
             ],
           ),
@@ -312,6 +271,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.isDarkMode;
     final availableCourses = <String>["ALL", ...widget.courses.map((c) => c.code).toSet()];
 
     final filtered = _notes.where((n) {
@@ -344,18 +304,18 @@ class _NotebookScreenState extends State<NotebookScreen> {
                     children: [
                       Text(
                         "Digital Notebook",
-                        style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                        style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.bold, color: context.textPrimary),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        "Synchronized lecture notes, derivations & formulas",
-                        style: GoogleFonts.inter(fontSize: 13, color: AppColors.darkTextSecondary),
+                        "Personalized lecture notes, derivations & formulas",
+                        style: GoogleFonts.inter(fontSize: 13, color: context.textSecondary),
                       ),
                     ],
                   ),
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
+                      backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     ),
                     icon: const Icon(Icons.add_rounded, size: 18),
@@ -368,13 +328,13 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
               TextField(
                 onChanged: (val) => setState(() => _searchQuery = val.trim()),
-                style: const TextStyle(color: Colors.white),
+                style: TextStyle(color: context.textPrimary),
                 decoration: InputDecoration(
                   hintText: "Search notes by title, keyword, or tag...",
-                  prefixIcon: const Icon(Icons.search_rounded, color: AppColors.darkTextSecondary),
+                  prefixIcon: Icon(Icons.search_rounded, color: context.textSecondary),
                   suffixIcon: _searchQuery.isNotEmpty
                       ? IconButton(
-                          icon: const Icon(Icons.clear, color: AppColors.darkTextSecondary),
+                          icon: Icon(Icons.clear, color: context.textSecondary),
                           onPressed: () => setState(() => _searchQuery = ""),
                         )
                       : null,
@@ -382,50 +342,79 @@ class _NotebookScreenState extends State<NotebookScreen> {
               ),
               const SizedBox(height: 14),
 
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: availableCourses.map((code) {
-                    final isSelected = _selectedFilter == code;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: FilterChip(
-                        selected: isSelected,
-                        label: Text(code == "ALL" ? "All Subjects" : code),
-                        labelStyle: TextStyle(
-                          color: isSelected ? Colors.white : AppColors.darkTextSecondary,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          fontSize: 13,
+              if (availableCourses.length > 1) ...[
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: availableCourses.map((code) {
+                      final isSelected = _selectedFilter == code;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: FilterChip(
+                          selected: isSelected,
+                          label: Text(code == "ALL" ? "All Subjects" : code),
+                          labelStyle: TextStyle(
+                            color: isSelected
+                                ? Colors.white
+                                : (isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            fontSize: 13,
+                          ),
+                          selectedColor: isDark ? AppColors.primary : AppColors.primaryDark,
+                          backgroundColor: context.surfaceColor,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(
+                              color: isSelected
+                                  ? (isDark ? AppColors.primary : AppColors.primaryDark)
+                                  : context.cardBorderColor,
+                            ),
+                          ),
+                          onSelected: (_) => setState(() => _selectedFilter = code),
                         ),
-                        selectedColor: AppColors.primary,
-                        backgroundColor: AppColors.darkCard,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                          side: BorderSide(color: isSelected ? AppColors.primary : AppColors.darkCardBorder),
-                        ),
-                        onSelected: (_) => setState(() => _selectedFilter = code),
-                      ),
-                    );
-                  }).toList(),
+                      );
+                    }).toList(),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
 
               if (filtered.isEmpty)
                 Container(
                   padding: const EdgeInsets.all(40),
                   decoration: BoxDecoration(
-                    color: AppColors.darkCard,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.darkCardBorder),
+                    color: context.surfaceColor,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: context.cardBorderColor),
                   ),
                   child: Column(
                     children: [
-                      const Icon(Icons.menu_book_rounded, size: 56, color: AppColors.darkTextSecondary),
+                      Icon(Icons.menu_book_rounded, size: 56, color: context.textSecondary.withValues(alpha: 0.6)),
                       const SizedBox(height: 16),
-                      Text("No notes found", style: GoogleFonts.outfit(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
+                      Text(
+                        _notes.isEmpty ? "Your Notebook is Empty" : "No Matching Notes Found",
+                        style: GoogleFonts.outfit(fontSize: 18, color: context.textPrimary, fontWeight: FontWeight.bold),
+                      ),
                       const SizedBox(height: 8),
-                      const Text("Tap '+ New Note' to capture your first study summary.", style: TextStyle(color: AppColors.darkTextSecondary)),
+                      Text(
+                        _notes.isEmpty
+                            ? "Tap '+ New Note' to capture your first study summary, key formula, or revision takeaway."
+                            : "Try searching with a different keyword or select another subject filter.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.5),
+                      ),
+                      if (_notes.isEmpty) ...[
+                        const SizedBox(height: 18),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                          ),
+                          icon: const Icon(Icons.add_rounded, size: 18),
+                          label: const Text("Create Your First Note"),
+                          onPressed: _showAddNoteDialog,
+                        ),
+                      ],
                     ],
                   ),
                 )
@@ -435,9 +424,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
                     margin: const EdgeInsets.only(bottom: 14),
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: AppColors.darkCard,
+                      color: context.surfaceColor,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.darkCardBorder),
+                      border: Border.all(color: context.cardBorderColor),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -448,24 +437,28 @@ class _NotebookScreenState extends State<NotebookScreen> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.2),
+                                color: AppColors.primary.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
                                 note.courseCode,
-                                style: const TextStyle(color: AppColors.primaryLight, fontWeight: FontWeight.bold, fontSize: 12),
+                                style: TextStyle(
+                                  color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
                               ),
                             ),
                             Text(
                               "${note.updatedAt.month}/${note.updatedAt.day}",
-                              style: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 12),
+                              style: TextStyle(color: context.textSecondary, fontSize: 12),
                             ),
                           ],
                         ),
                         const SizedBox(height: 10),
                         Text(
                           note.title,
-                          style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                          style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary),
                         ),
                         const SizedBox(height: 6),
                         Text(
@@ -477,13 +470,15 @@ class _NotebookScreenState extends State<NotebookScreen> {
                           note.content,
                           maxLines: 3,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 13, height: 1.4),
+                          style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.4),
                         ),
                         const SizedBox(height: 12),
                         Align(
                           alignment: Alignment.centerRight,
                           child: TextButton.icon(
-                            style: TextButton.styleFrom(foregroundColor: AppColors.primaryLight),
+                            style: TextButton.styleFrom(
+                              foregroundColor: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                            ),
                             icon: const Icon(Icons.open_in_new_rounded, size: 16),
                             label: const Text("View Full Note"),
                             onPressed: () => _showNoteDetail(note),

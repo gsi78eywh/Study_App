@@ -4,6 +4,7 @@ import "package:uuid/uuid.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
+import "../../../main.dart" show toggleAppTheme, appThemeModeNotifier;
 import "../models/course_models.dart";
 import "../../auth/screens/login_screen.dart";
 import "../../flashcards/screens/flashcards_screen.dart";
@@ -32,6 +33,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _currentTabIndex = 0;
   List<CourseModel> _courses = [];
   bool _isSyncing = false;
+  bool _isLoadingCourses = true;
 
   @override
   void initState() {
@@ -40,98 +42,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
       apiClient: widget.apiClient,
       sessionService: widget.sessionService,
     );
-    _initializeDefaultData();
-    _runSync(showSnackBar: false);
+    _fetchCoursesAndSync(fullFetch: true);
   }
 
-  void _initializeDefaultData() {
-    _courses = [
-      CourseModel(
-        id: "c1111111-1111-1111-1111-111111111111",
-        code: "CS301",
-        name: "Distributed Systems & Cloud",
-        colorHex: "#6366F1",
-        createdAt: DateTime.now().subtract(const Duration(days: 5)),
-        studySets: [
-          StudySetModel(
-            id: "s1111111-1111-1111-1111-111111111111",
-            courseId: "c1111111-1111-1111-1111-111111111111",
-            title: "CAP Theorem & Consensus Protocols",
-            description: "Consistency, Availability, Partition Tolerance, Raft, Paxos, and Vector Clocks.",
-            questionCount: 8,
-            createdAt: DateTime.now().subtract(const Duration(days: 2)),
-            bulletPoints: [
-              "CAP Theorem states distributed data stores can only guarantee 2 of 3 properties.",
-              "Raft uses leader election, log replication, and safety invariants for consensus.",
-              "Vector clocks detect causal concurrent updates in distributed key-value stores.",
-            ],
-          ),
-        ],
-      ),
-      CourseModel(
-        id: "c2222222-2222-2222-2222-222222222222",
-        code: "BIO102",
-        name: "Molecular Genetics & Cellular Biology",
-        colorHex: "#10B981",
-        createdAt: DateTime.now().subtract(const Duration(days: 10)),
-        studySets: [
-          StudySetModel(
-            id: "s2222222-2222-2222-2222-222222222222",
-            courseId: "c2222222-2222-2222-2222-222222222222",
-            title: "DNA Replication & Transcription",
-            description: "Polymerase enzymes, leading/lagging strand synthesis, Okazaki fragments, mRNA processing.",
-            questionCount: 6,
-            createdAt: DateTime.now().subtract(const Duration(days: 3)),
-            bulletPoints: [
-              "DNA Polymerase III synthesizes the leading strand continuously 5 prime to 3 prime.",
-              "Okazaki fragments on the lagging strand are joined by DNA Ligase.",
-              "RNA Splicing removes non-coding introns and connects coding exons.",
-            ],
-          ),
-        ],
-      ),
-      CourseModel(
-        id: "c3333333-3333-3333-3333-333333333333",
-        code: "MATH201",
-        name: "Linear Algebra & Matrix Analysis",
-        colorHex: "#F59E0B",
-        createdAt: DateTime.now().subtract(const Duration(days: 14)),
-        studySets: [
-          StudySetModel(
-            id: "s3333333-3333-3333-3333-333333333333",
-            courseId: "c3333333-3333-3333-3333-333333333333",
-            title: "Eigenvalues, Eigenvectors & Diagonalization",
-            description: "Characteristic polynomials, eigenspaces, matrix diagonalization, and Gram-Schmidt process.",
-            questionCount: 7,
-            createdAt: DateTime.now().subtract(const Duration(days: 4)),
-            bulletPoints: [
-              "Eigenvector equation Av = lambda v defines invariant directions under matrix transformation.",
-              "An n x n matrix is diagonalizable if and only if it has n linearly independent eigenvectors.",
-              "Gram-Schmidt transforms an arbitrary basis into an orthonormal basis.",
-            ],
-          ),
-        ],
-      ),
-    ];
-  }
-
-  Future<void> _runSync({bool showSnackBar = false}) async {
+  Future<void> _fetchCoursesAndSync({bool fullFetch = false, bool showSnackBar = false}) async {
     if (!widget.sessionService.hasValidToken) {
-      if (showSnackBar && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Please sign in to sync with cloud"),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-      }
+      if (mounted) setState(() => _isLoadingCourses = false);
       return;
     }
 
     setState(() => _isSyncing = true);
-    final result = await _syncService.performSync(localCourses: _courses);
+    final result = await _syncService.performSync(
+      localCourses: _courses,
+      fullFetch: fullFetch,
+    );
     if (!mounted) return;
-    setState(() => _isSyncing = false);
+
+    setState(() {
+      _isSyncing = false;
+      _isLoadingCourses = false;
+      if (result.success && result.syncedCourses.isNotEmpty) {
+        _courses = result.syncedCourses;
+      }
+    });
 
     if (result.message.contains("401") || result.message.toLowerCase().contains("unauthorized")) {
       await widget.sessionService.clearAuth();
@@ -148,7 +81,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
-    if (showSnackBar) {
+    if (showSnackBar && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(result.message),
@@ -168,27 +101,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModalState) => AlertDialog(
-          backgroundColor: AppColors.darkCard,
+          backgroundColor: ctx.surfaceColor,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text("Create New Course", style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+          title: Text("Create New Course", style: GoogleFonts.outfit(color: ctx.textPrimary, fontWeight: FontWeight.bold)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: codeController,
-                style: const TextStyle(color: Colors.white),
+                style: TextStyle(color: ctx.textPrimary),
                 decoration: const InputDecoration(labelText: "Course Code", hintText: "e.g. CS204"),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: nameController,
-                style: const TextStyle(color: Colors.white),
+                style: TextStyle(color: ctx.textPrimary),
                 decoration: const InputDecoration(labelText: "Course Name", hintText: "e.g. Algorithms & Data Structures"),
               ),
               const SizedBox(height: 16),
               Row(
                 children: [
-                  const Text("Accent: ", style: TextStyle(color: AppColors.darkTextSecondary)),
+                  Text("Accent: ", style: TextStyle(color: ctx.textSecondary)),
                   ...["#6366F1", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4"].map((hex) {
                     final color = Color(int.parse("FF${hex.replaceAll('#', '')}", radix: 16));
                     return GestureDetector(
@@ -201,7 +134,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           color: color,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: selectedColor == hex ? Colors.white : Colors.transparent,
+                            color: selectedColor == hex ? (ctx.isDarkMode ? Colors.white : Colors.black87) : Colors.transparent,
                             width: 2,
                           ),
                         ),
@@ -218,7 +151,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: const Text("Cancel"),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 final code = codeController.text.trim();
                 final name = nameController.text.trim();
                 if (code.isEmpty || name.isEmpty) return;
@@ -236,7 +169,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   _courses.add(newCourse);
                 });
                 Navigator.pop(ctx);
-                _runSync(showSnackBar: false);
+                await _syncService.performSync(localCourses: _courses);
               },
               child: const Text("Create"),
             ),
@@ -252,39 +185,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         id: "q1",
         studySetId: set.id,
         type: QuestionTypeEnum.multipleChoice,
-        prompt: "What primary challenge does the CAP theorem address in distributed architecture?",
-        hints: const ["Think about network partitions and consistency guarantees."],
-        explanation: "The CAP theorem demonstrates that in the presence of a network partition (P), a distributed system must trade off between consistency (C) and availability (A).",
+        prompt: "Review question for: ${set.title}",
+        hints: const ["Recall the core concept introduced in this module."],
+        explanation: set.description ?? "Active recall practice session.",
         options: [
-          QuestionOptionModel(id: "o1", optionText: "Balancing consistency and availability during network partitions", isCorrect: true),
-          QuestionOptionModel(id: "o2", optionText: "Optimizing disk storage for relational databases", isCorrect: false),
-          QuestionOptionModel(id: "o3", optionText: "Preventing SQL injection vulnerabilities in web servers", isCorrect: false),
-          QuestionOptionModel(id: "o4", optionText: "Minimizing client-side battery consumption", isCorrect: false),
-        ],
-      ),
-      QuestionModel(
-        id: "q2",
-        studySetId: set.id,
-        type: QuestionTypeEnum.multipleChoice,
-        prompt: "Which enzyme is responsible for synthesizing leading strand DNA in prokaryotes?",
-        hints: const ["It has proofreading capabilities in the 3' to 5' direction."],
-        explanation: "DNA Polymerase III is the primary prokaryotic replicative enzyme synthesizing continuously 5' to 3'.",
-        options: [
-          QuestionOptionModel(id: "o21", optionText: "DNA Polymerase III", isCorrect: true),
-          QuestionOptionModel(id: "o22", optionText: "RNA Primase", isCorrect: false),
-          QuestionOptionModel(id: "o23", optionText: "DNA Topoisomerase", isCorrect: false),
-          QuestionOptionModel(id: "o24", optionText: "Helicase", isCorrect: false),
-        ],
-      ),
-      QuestionModel(
-        id: "q3",
-        studySetId: set.id,
-        type: QuestionTypeEnum.identification,
-        prompt: "Name the consensus algorithm designed as an understandable alternative to Paxos.",
-        hints: const ["Decomposes consensus into leader election, log replication, and safety."],
-        explanation: "Raft decomposes consensus into leader election, log replication, and safety.",
-        options: [
-          QuestionOptionModel(id: "o31", optionText: "Raft", isCorrect: true),
+          QuestionOptionModel(id: "o1", optionText: "Primary verified answer concept", isCorrect: true),
+          QuestionOptionModel(id: "o2", optionText: "Secondary distractor alternative", isCorrect: false),
+          QuestionOptionModel(id: "o3", optionText: "Tertiary non-applicable option", isCorrect: false),
+          QuestionOptionModel(id: "o4", optionText: "Quaternary inverted hypothesis", isCorrect: false),
         ],
       ),
     ];
@@ -315,11 +223,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildCoursesTab() {
+    final isDark = context.isDarkMode;
     final totalSets = _courses.fold<int>(0, (sum, c) => sum + c.studySets.length);
     final totalQuestions = _courses.fold<int>(
       0,
       (sum, c) => sum + c.studySets.fold<int>(0, (s, set) => s + set.questionCount),
     );
+    final studentName = widget.sessionService.fullName?.trim();
+    final displayName = (studentName != null && studentName.isNotEmpty) ? studentName : "Student";
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -335,19 +246,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      widget.sessionService.fullName != null ? "Welcome back, ${widget.sessionService.fullName} 👋" : "Welcome back, Alex 👋",
-                      style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                      "Welcome back, $displayName 👋",
+                      style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.bold, color: context.textPrimary),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      "Targeting mastery across ${_courses.length} courses",
-                      style: GoogleFonts.inter(fontSize: 13, color: AppColors.darkTextSecondary),
+                      _courses.isEmpty
+                          ? "Ready to organize your study workspace"
+                          : "Targeting mastery across ${_courses.length} courses",
+                      style: GoogleFonts.inter(fontSize: 13, color: context.textSecondary),
                     ),
                   ],
                 ),
               ),
               Row(
                 children: [
+                  ValueListenableBuilder<ThemeMode>(
+                    valueListenable: appThemeModeNotifier,
+                    builder: (context, mode, _) {
+                      final currentIsDark = mode == ThemeMode.dark;
+                      return IconButton(
+                        icon: Icon(
+                          currentIsDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                          color: currentIsDark ? const Color(0xFFF59E0B) : AppColors.primaryDark,
+                        ),
+                        tooltip: currentIsDark ? "Switch to Light Mode" : "Switch to Dark Mode",
+                        onPressed: () => toggleAppTheme(widget.sessionService),
+                      );
+                    },
+                  ),
                   IconButton(
                     icon: _isSyncing
                         ? const SizedBox(
@@ -357,10 +284,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           )
                         : const Icon(Icons.sync_rounded, color: AppColors.accent),
                     tooltip: "Sync with Cloud",
-                    onPressed: _isSyncing ? null : () => _runSync(showSnackBar: true),
+                    onPressed: _isSyncing ? null : () => _fetchCoursesAndSync(showSnackBar: true),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.logout_rounded, color: AppColors.darkTextSecondary),
+                    icon: Icon(Icons.logout_rounded, color: context.textSecondary),
                     tooltip: "Sign Out",
                     onPressed: _handleLogout,
                   ),
@@ -375,26 +302,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [
-                  AppColors.primary.withValues(alpha: 0.2),
-                  AppColors.darkCard,
-                ],
+                colors: isDark
+                    ? [
+                        AppColors.primary.withValues(alpha: 0.2),
+                        context.surfaceColor,
+                      ]
+                    : [
+                        AppColors.primaryLight.withValues(alpha: 0.12),
+                        context.surfaceColor,
+                      ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+              border: Border.all(color: context.cardBorderColor),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildStatItem("Enrolled", "${_courses.length}", "Courses", Icons.book_rounded, AppColors.primaryLight),
-                Container(height: 36, width: 1, color: AppColors.darkCardBorder),
+                _buildStatItem("Enrolled", "${_courses.length}", "Courses", Icons.book_rounded, isDark ? AppColors.primaryLight : AppColors.primaryDark),
+                Container(height: 36, width: 1, color: context.cardBorderColor),
                 _buildStatItem("Active Sets", "$totalSets", "Study Sets", Icons.auto_stories_rounded, AppColors.accent),
-                Container(height: 36, width: 1, color: AppColors.darkCardBorder),
+                Container(height: 36, width: 1, color: context.cardBorderColor),
                 _buildStatItem("Synthesized", "$totalQuestions", "Questions", Icons.psychology_rounded, AppColors.warning),
-                Container(height: 36, width: 1, color: AppColors.darkCardBorder),
-                _buildStatItem("Streak", "5 Days", "Active 🔥", Icons.local_fire_department_rounded, const Color(0xFFF97316)),
               ],
             ),
           ),
@@ -404,13 +334,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("Your Enrolled Courses", style: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+              Text("Your Enrolled Courses", style: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.bold, color: context.textPrimary)),
               Row(
                 children: [
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primaryLight,
-                      side: const BorderSide(color: AppColors.primary),
+                      foregroundColor: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                      side: BorderSide(color: isDark ? AppColors.primary : AppColors.primaryDark),
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
@@ -421,7 +351,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(width: 8),
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
+                      backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
@@ -435,11 +365,66 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 14),
 
-          if (_courses.isEmpty)
+          if (_isLoadingCourses)
+            Padding(
+              padding: const EdgeInsets.all(40),
+              child: Center(
+                child: CircularProgressIndicator(color: isDark ? AppColors.primaryLight : AppColors.primaryDark),
+              ),
+            )
+          else if (_courses.isEmpty)
             Container(
-              padding: const EdgeInsets.all(32),
-              alignment: Alignment.center,
-              child: const Text("No courses added yet. Tap '+ New Course' above.", style: TextStyle(color: AppColors.darkTextSecondary)),
+              padding: const EdgeInsets.all(36),
+              decoration: BoxDecoration(
+                color: context.surfaceColor,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: context.cardBorderColor),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.school_outlined, size: 56, color: context.textSecondary.withValues(alpha: 0.6)),
+                  const SizedBox(height: 16),
+                  Text(
+                    "Your Learning Workspace is Ready",
+                    style: GoogleFonts.outfit(fontSize: 18, color: context.textPrimary, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "You haven't created any courses yet. Add your first academic subject or upload lecture notes in AI Studio to get started.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.5),
+                  ),
+                  const SizedBox(height: 20),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: const Icon(Icons.add_rounded, size: 18),
+                        label: const Text("Create Course", style: TextStyle(fontWeight: FontWeight.bold)),
+                        onPressed: _showAddCourseDialog,
+                      ),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                          side: BorderSide(color: isDark ? AppColors.primary : AppColors.primaryDark),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: const Icon(Icons.auto_awesome, size: 18),
+                        label: const Text("Open AI Studio", style: TextStyle(fontWeight: FontWeight.bold)),
+                        onPressed: () => setState(() => _currentTabIndex = 3),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             )
           else
             ..._courses.map((course) {
@@ -449,9 +434,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 margin: const EdgeInsets.only(bottom: 20),
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: AppColors.darkCard,
+                  color: context.surfaceColor,
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppColors.darkCardBorder),
+                  border: Border.all(color: context.cardBorderColor),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -461,9 +446,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: courseColor.withValues(alpha: 0.2),
+                            color: courseColor.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: courseColor.withValues(alpha: 0.6)),
+                            border: Border.all(color: courseColor.withValues(alpha: 0.5)),
                           ),
                           child: Text(
                             course.code,
@@ -474,19 +459,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Expanded(
                           child: Text(
                             course.name,
-                            style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white),
+                            style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.bold, color: context.textPrimary),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
-                            color: AppColors.darkBg,
+                            color: context.secondaryBg,
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
-                            "${course.studySets.length} study sets",
-                            style: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 12, fontWeight: FontWeight.w500),
+                            "${course.studySets.length} sets",
+                            style: TextStyle(color: context.textSecondary, fontSize: 12, fontWeight: FontWeight.w500),
                           ),
                         ),
                       ],
@@ -496,17 +481,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: AppColors.darkBg.withValues(alpha: 0.5),
+                          color: context.secondaryBg,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Row(
                           children: [
                             const Icon(Icons.lightbulb_outline, color: AppColors.warning, size: 20),
                             const SizedBox(width: 12),
-                            const Expanded(
+                            Expanded(
                               child: Text(
-                                "No study sets yet. Use AI Studio to synthesize questions from your lecture files.",
-                                style: TextStyle(color: AppColors.darkTextSecondary, fontSize: 13),
+                                "No study sets yet. Ingest notes or lecture slides using AI Studio.",
+                                style: TextStyle(color: context.textSecondary, fontSize: 13),
                               ),
                             ),
                             TextButton(
@@ -522,9 +507,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: AppColors.darkBg,
+                            color: context.secondaryBg,
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: AppColors.darkCardBorder),
+                            border: Border.all(color: context.cardBorderColor),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -535,18 +520,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   Expanded(
                                     child: Text(
                                       set.title,
-                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15),
+                                      style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600, fontSize: 15),
                                     ),
                                   ),
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                     decoration: BoxDecoration(
-                                      color: AppColors.primary.withValues(alpha: 0.18),
+                                      color: AppColors.primary.withValues(alpha: 0.15),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
                                       "${set.questionCount} Questions",
-                                      style: const TextStyle(color: AppColors.primaryLight, fontSize: 11, fontWeight: FontWeight.bold),
+                                      style: TextStyle(
+                                        color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -557,7 +546,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   set.description!,
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 12),
+                                  style: TextStyle(color: context.textSecondary, fontSize: 12),
                                 ),
                               ],
                               const SizedBox(height: 14),
@@ -566,8 +555,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 children: [
                                   OutlinedButton.icon(
                                     style: OutlinedButton.styleFrom(
-                                      foregroundColor: AppColors.darkTextSecondary,
-                                      side: const BorderSide(color: AppColors.darkCardBorder),
+                                      foregroundColor: context.textSecondary,
+                                      side: BorderSide(color: context.cardBorderColor),
                                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                     ),
@@ -578,7 +567,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   const SizedBox(width: 8),
                                   ElevatedButton.icon(
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppColors.primary,
+                                      backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
                                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                       textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
@@ -608,14 +597,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
       children: [
         Icon(icon, color: color, size: 20),
         const SizedBox(height: 4),
-        Text(value, style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-        Text(label, style: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 11)),
+        Text(value, style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: context.textPrimary)),
+        Text(label, style: TextStyle(color: context.textSecondary, fontSize: 11)),
       ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.isDarkMode;
+
     return Scaffold(
       body: IndexedStack(
         index: _currentTabIndex,
@@ -644,9 +635,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ],
       ),
       bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.darkCard,
-          border: Border(top: BorderSide(color: AppColors.darkCardBorder, width: 1)),
+        decoration: BoxDecoration(
+          color: context.surfaceColor,
+          border: Border(top: BorderSide(color: context.cardBorderColor, width: 1)),
         ),
         child: BottomNavigationBar(
           currentIndex: _currentTabIndex,
@@ -654,29 +645,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
           backgroundColor: Colors.transparent,
           elevation: 0,
           type: BottomNavigationBarType.fixed,
-          selectedItemColor: AppColors.primaryLight,
-          unselectedItemColor: AppColors.darkTextSecondary,
+          selectedItemColor: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+          unselectedItemColor: context.textSecondary,
           selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
           unselectedLabelStyle: const TextStyle(fontSize: 12),
           items: const [
             BottomNavigationBarItem(
               icon: Icon(Icons.dashboard_rounded),
-              activeIcon: Icon(Icons.dashboard_rounded, color: AppColors.primaryLight),
               label: "Courses",
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.style_outlined),
-              activeIcon: Icon(Icons.style_rounded, color: AppColors.primaryLight),
               label: "Flashcards",
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.menu_book_outlined),
-              activeIcon: Icon(Icons.menu_book_rounded, color: AppColors.primaryLight),
               label: "Notebook",
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.auto_awesome_outlined),
-              activeIcon: Icon(Icons.auto_awesome, color: AppColors.primaryLight),
               label: "AI Studio",
             ),
           ],

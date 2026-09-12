@@ -93,132 +93,12 @@ builder.Services.AddControllers();
 
 var app = builder.Build();
 
-// Auto-migrate schema & seed rich demo data if needed
+// Auto-migrate schema
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
-
     db.Database.EnsureCreated();
-
-    var demoUserId = Guid.Parse("11111111-1111-1111-1111-111111111111");
-    var existingUser = db.Users.FirstOrDefault(u => u.Id == demoUserId || u.Email == "alex@example.com");
-    if (existingUser == null)
-    {
-        existingUser = new User
-        {
-            Id = demoUserId,
-            Email = "alex@example.com",
-            FullName = "Alex Scholar",
-            PasswordHash = hasher.HashPassword("Password123!"),
-            CreatedAt = DateTime.UtcNow
-        };
-        db.Users.Add(existingUser);
-        db.SaveChanges();
-    }
-
-    // Seed realistic sample courses if none exist
-    if (!db.Courses.Any(c => c.UserId == existingUser.Id))
-    {
-        var course1 = new Course
-        {
-            Id = Guid.Parse("c1111111-1111-1111-1111-111111111111"),
-            UserId = existingUser.Id,
-            Code = "CS301",
-            Name = "Distributed Systems & Cloud",
-            ColorHex = "#6366F1",
-            CreatedAt = DateTime.UtcNow.AddDays(-10)
-        };
-
-        var course2 = new Course
-        {
-            Id = Guid.Parse("c2222222-2222-2222-2222-222222222222"),
-            UserId = existingUser.Id,
-            Code = "BIO102",
-            Name = "Molecular Biology & Genetics",
-            ColorHex = "#10B981",
-            CreatedAt = DateTime.UtcNow.AddDays(-8)
-        };
-
-        var course3 = new Course
-        {
-            Id = Guid.Parse("c3333333-3333-3333-3333-333333333333"),
-            UserId = existingUser.Id,
-            Code = "MATH201",
-            Name = "Linear Algebra & Discrete Math",
-            ColorHex = "#F59E0B",
-            CreatedAt = DateTime.UtcNow.AddDays(-5)
-        };
-
-        db.Courses.AddRange(course1, course2, course3);
-
-        // Seed Study Sets
-        var set1 = new StudySet
-        {
-            Id = Guid.Parse("s1111111-1111-1111-1111-111111111111"),
-            CourseId = course1.Id,
-            Title = "CAP Theorem & Consensus Protocols",
-            Description = "Consistency, Availability, Partition Tolerance, Raft, Paxos, and Vector Clocks.",
-            CreatedAt = DateTime.UtcNow.AddDays(-5)
-        };
-
-        var q1 = new Question
-        {
-            Id = Guid.NewGuid(),
-            StudySetId = set1.Id,
-            Type = QuestionType.MultipleChoice,
-            Prompt = "Which of the following guarantees does the CAP Theorem state cannot be achieved simultaneously in a partition-prone network?",
-            HintsJson = "[\"Think about what 'CAP' stands for.\", \"Network partitions (P) are unavoidable in distributed systems.\"]",
-            Explanation = "The CAP theorem states that a distributed data store can simultaneously guarantee at most two out of Consistency, Availability, and Partition Tolerance.",
-            Difficulty = 2,
-            SortOrder = 1
-        };
-        q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Consistency and Availability", IsCorrect = true });
-        q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Latency and Throughput", IsCorrect = false, DistractorRationale = "Latency and throughput are performance metrics, not CAP theorem safety properties." });
-        q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Scalability and Elasticity", IsCorrect = false, DistractorRationale = "Scalability refers to capacity growth, not atomic correctness." });
-        q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Durability and Atomicity", IsCorrect = false, DistractorRationale = "Durability and Atomicity are ACID transactional properties." });
-
-        var q2 = new Question
-        {
-            Id = Guid.NewGuid(),
-            StudySetId = set1.Id,
-            Type = QuestionType.Identification,
-            Prompt = "What consensus protocol breaks leadership into terms, leader election, and log replication?",
-            HintsJson = "[\"Designed by Stanford researchers as an understandable alternative to Paxos.\", \"Starts with the letter 'R'.\"]",
-            Explanation = "Raft is a consensus algorithm designed as an understandable alternative to Paxos.",
-            Difficulty = 2,
-            SortOrder = 2
-        };
-        q2.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q2.Id, OptionText = "Raft", IsCorrect = true });
-
-        set1.Questions.Add(q1);
-        set1.Questions.Add(q2);
-
-        db.StudySets.Add(set1);
-
-        // Seed Sample Notebook Pages
-        db.NotebookPages.AddRange(
-            new NotebookPage
-            {
-                Id = Guid.NewGuid(),
-                CourseId = course1.Id,
-                Title = "Lecture 4: Raft Leader Election & Heartbeats",
-                ContentMarkdown = "# Raft Consensus Summary\n\n- **Leader Election**: When an election timeout elapses without receiving heartbeats, a follower increments its term and transitions to Candidate state.\n- **Vote Request**: Broadcasts `RequestVote` RPCs to all peers.\n- **Safety Invariant**: An elected leader must contain all committed entries from previous terms.",
-                CreatedAt = DateTime.UtcNow.AddDays(-2)
-            },
-            new NotebookPage
-            {
-                Id = Guid.NewGuid(),
-                CourseId = course2.Id,
-                Title = "Lecture 2: DNA Helicase & Okazaki Fragments",
-                ContentMarkdown = "# DNA Replication Fork Notes\n\n- **DNA Helicase**: Unwinds parental duplex ahead of the fork.\n- **Leading Strand**: Continuous 5' to 3' synthesis by Polymerase III.\n- **Lagging Strand**: Discontinuous Okazaki fragments, primed by Primase and sealed by DNA Ligase.",
-                CreatedAt = DateTime.UtcNow.AddDays(-3)
-            }
-        );
-
-        db.SaveChanges();
-        Console.WriteLine("[Database] Seeded rich courses, study sets, questions, and notebook pages!");
-    }
+    Console.WriteLine("[Database] Database schema verified and ready for student records.");
 }
 
 app.UseCors("AllowMobileClient");
@@ -385,8 +265,8 @@ app.MapGet("/", () => Results.Content("""
                 <div class="card-value">SQLite (studyapp.db)</div>
             </div>
             <div class="card">
-                <div class="card-title">Default Account</div>
-                <div class="card-value">alex@example.com / Password123!</div>
+                <div class="card-title">Authentication</div>
+                <div class="card-value">Multi-User JWT Auth</div>
             </div>
         </div>
 
@@ -449,7 +329,7 @@ app.MapControllers();
 Console.WriteLine("=================================================");
 Console.WriteLine("  StudyApp Backend API is running!");
 Console.WriteLine("  Listening on: http://localhost:5000");
-Console.WriteLine("  Demo user: alex@example.com / Password123!");
+Console.WriteLine("  Ready for student authentication & sync.");
 Console.WriteLine("=================================================");
 
 app.Run();

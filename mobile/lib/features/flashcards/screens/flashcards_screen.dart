@@ -45,7 +45,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
   bool _showBack = false;
   bool _showHint = false;
 
-  late List<FlashcardItem> _allCards;
+  final List<FlashcardItem> _allCards = [];
   List<FlashcardItem> _filteredCards = [];
 
   final Set<String> _masteredIds = {};
@@ -89,77 +89,47 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
   }
 
   void _initializeCards() {
-    _allCards = [
-      FlashcardItem(
-        id: "fc-1",
-        courseCode: "CS301",
-        front: "What is the core premise of the CAP Theorem in distributed databases?",
-        back: "A distributed data store can simultaneously guarantee at most TWO out of three properties:\n\n• Consistency (Every read receives the most recent write)\n• Availability (Every non-failing node returns a response)\n• Partition Tolerance (System sustains network splits/partitions)",
-        category: "Distributed Systems",
-        hint: "Formulated by Eric Brewer in 2000.",
-      ),
-      FlashcardItem(
-        id: "fc-2",
-        courseCode: "CS301",
-        front: "In the Raft consensus algorithm, how does leader election resolve split votes?",
-        back: "Raft utilizes Randomized Election Timeouts (typically 150ms - 300ms).\n\nBy staggering timeouts across candidate nodes, one node times out first, increments the term, and gathers majority votes before rivals initiate competing elections.",
-        category: "Consensus Protocols",
-        hint: "Think about timing jitter.",
-      ),
-      FlashcardItem(
-        id: "fc-3",
-        courseCode: "BIO102",
-        front: "What is the primary function of DNA Polymerase III during replication?",
-        back: "DNA Polymerase III is the primary prokaryotic replicative enzyme.\n\nIt synthesizes new DNA by polymerizing deoxyribonucleotides in the 5' to 3' direction along the template strand, and performs 3' to 5' exonuclease proofreading.",
-        category: "Molecular Genetics",
-        hint: "Synthesizes leading strand continuously.",
-      ),
-      FlashcardItem(
-        id: "fc-4",
-        courseCode: "BIO102",
-        front: "Why are Okazaki fragments formed on the lagging strand during DNA replication?",
-        back: "Because DNA polymerase can only synthesize in the 5' to 3' direction, while the replication fork unzips antiparallel (3' to 5').\n\nThe lagging strand must be synthesized discontinuously in short segments, which are later joined by DNA ligase.",
-        category: "Molecular Genetics",
-        hint: "Antiparallel nature of DNA double helix.",
-      ),
-      FlashcardItem(
-        id: "fc-5",
-        courseCode: "MATH201",
-        front: "What does it mean for an n×n square matrix A to be invertible?",
-        back: "Matrix A is invertible if and only if:\n\n• Determinant det(A) ≠ 0\n• Columns (and rows) of A form a linearly independent basis for R^n\n• Rank(A) = n (Full rank)\n• Zero is not an eigenvalue of A (λ = 0 has no non-trivial eigenvector)",
-        category: "Linear Algebra",
-        hint: "Invertible Matrix Theorem.",
-      ),
-      FlashcardItem(
-        id: "fc-6",
-        courseCode: "MATH201",
-        front: "Define an Eigenvector and Eigenvalue of a linear transformation matrix A.",
-        back: "A non-zero vector v is an eigenvector with eigenvalue λ if applying transformation A results in scaling v without changing its span direction:\n\nAv = λv  where  v ≠ 0\n\nComputed via characteristic equation det(A - λI) = 0.",
-        category: "Linear Algebra",
-        hint: "Av = λv",
-      ),
-    ];
+    _allCards.clear();
 
+    // Dynamically generate flashcards exclusively from real courses and study sets
     for (final course in widget.courses) {
       for (final studySet in course.studySets) {
-        for (int i = 0; i < studySet.bulletPoints.length; i++) {
-          final bullet = studySet.bulletPoints[i];
-          if (bullet.contains(":") || bullet.contains("—") || bullet.contains(" states ")) {
-            final parts = bullet.split(RegExp(r"[:—]|(?<=\bstates\b)"));
-            if (parts.length >= 2) {
-              final q = parts[0].trim();
-              final a = parts.sublist(1).join(" ").trim();
-              if (q.length > 5 && a.length > 5) {
-                _allCards.add(FlashcardItem(
-                  id: "gen-${course.code}-$i",
-                  courseCode: course.code,
-                  front: "Key Concept: $q",
-                  back: a,
-                  category: studySet.title,
-                ));
+        if (studySet.bulletPoints.isNotEmpty) {
+          for (int i = 0; i < studySet.bulletPoints.length; i++) {
+            final bullet = studySet.bulletPoints[i];
+            if (bullet.contains(":") || bullet.contains("—") || bullet.contains(" states ")) {
+              final parts = bullet.split(RegExp(r"[:—]|(?<=\bstates\b)"));
+              if (parts.length >= 2) {
+                final q = parts[0].trim();
+                final a = parts.sublist(1).join(" ").trim();
+                if (q.length > 4 && a.length > 4) {
+                  _allCards.add(FlashcardItem(
+                    id: "card-${course.code}-$i-${studySet.id.substring(0, math.min(6, studySet.id.length))}",
+                    courseCode: course.code,
+                    front: q,
+                    back: a,
+                    category: studySet.title,
+                  ));
+                }
               }
+            } else if (bullet.length > 20) {
+              _allCards.add(FlashcardItem(
+                id: "card-${course.code}-$i-${studySet.id.substring(0, math.min(6, studySet.id.length))}",
+                courseCode: course.code,
+                front: "Key Concept (${studySet.title})",
+                back: bullet,
+                category: studySet.title,
+              ));
             }
           }
+        } else if (studySet.description != null && studySet.description!.isNotEmpty) {
+          _allCards.add(FlashcardItem(
+            id: "card-${course.code}-${studySet.id}",
+            courseCode: course.code,
+            front: "What is covered in '${studySet.title}'?",
+            back: studySet.description!,
+            category: course.name,
+          ));
         }
       }
     }
@@ -244,6 +214,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.isDarkMode;
     final availableCourses = <String>["ALL", ...widget.courses.map((c) => c.code).toSet()];
     final totalCards = _filteredCards.length;
     final masteredCount = _filteredCards.where((c) => _masteredIds.contains(c.id)).length;
@@ -264,119 +235,135 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                     children: [
                       Text(
                         "Spaced Recall Flashcards",
-                        style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                        style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.bold, color: context.textPrimary),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        "Active recall strengthens neural pathways",
-                        style: GoogleFonts.inter(fontSize: 13, color: AppColors.darkTextSecondary),
+                        "Active recall strengthens neural retention",
+                        style: GoogleFonts.inter(fontSize: 13, color: context.textSecondary),
                       ),
                     ],
                   ),
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.refresh_rounded, color: AppColors.darkTextSecondary),
-                        tooltip: "Reset Deck Progress",
-                        onPressed: totalCards > 0 ? _resetDeck : null,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.shuffle_rounded, color: AppColors.primaryLight),
-                        tooltip: "Shuffle Deck",
-                        onPressed: totalCards > 0 ? _shuffleCards : null,
-                      ),
-                    ],
-                  ),
+                  if (totalCards > 0)
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: Icon(Icons.refresh_rounded, color: context.textSecondary),
+                          tooltip: "Reset Deck Progress",
+                          onPressed: _resetDeck,
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.shuffle_rounded, color: isDark ? AppColors.primaryLight : AppColors.primaryDark),
+                          tooltip: "Shuffle Deck",
+                          onPressed: _shuffleCards,
+                        ),
+                      ],
+                    ),
                 ],
               ),
               const SizedBox(height: 16),
 
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: availableCourses.map((code) {
-                    final isSelected = _selectedCourseFilter == code;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: FilterChip(
-                        selected: isSelected,
-                        label: Text(code == "ALL" ? "All Subjects" : code),
-                        labelStyle: TextStyle(
-                          color: isSelected ? Colors.white : AppColors.darkTextSecondary,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          fontSize: 13,
-                        ),
-                        selectedColor: AppColors.primary,
-                        backgroundColor: AppColors.darkCard,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                          side: BorderSide(
-                            color: isSelected ? AppColors.primary : AppColors.darkCardBorder,
+              if (availableCourses.length > 1) ...[
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: availableCourses.map((code) {
+                      final isSelected = _selectedCourseFilter == code;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: FilterChip(
+                          selected: isSelected,
+                          label: Text(code == "ALL" ? "All Subjects" : code),
+                          labelStyle: TextStyle(
+                            color: isSelected
+                                ? Colors.white
+                                : (isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            fontSize: 13,
                           ),
+                          selectedColor: isDark ? AppColors.primary : AppColors.primaryDark,
+                          backgroundColor: context.surfaceColor,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(
+                              color: isSelected
+                                  ? (isDark ? AppColors.primary : AppColors.primaryDark)
+                                  : context.cardBorderColor,
+                            ),
+                          ),
+                          onSelected: (_) {
+                            _selectedCourseFilter = code;
+                            _applyFilter();
+                          },
                         ),
-                        onSelected: (_) {
-                          _selectedCourseFilter = code;
-                          _applyFilter();
-                        },
-                      ),
-                    );
-                  }).toList(),
+                      );
+                    }).toList(),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
 
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: AppColors.darkCard,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.darkCardBorder),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          "Deck Progress ($masteredCount of $totalCards Mastered)",
-                          style: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 13, fontWeight: FontWeight.w600),
-                        ),
-                        Text(
-                          "${(progress * 100).toInt()}%",
-                          style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.bold, fontSize: 14),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 6,
-                        backgroundColor: AppColors.darkBg,
-                        valueColor: const AlwaysStoppedAnimation<Color>(AppColors.accent),
+              if (totalCards > 0) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: context.surfaceColor,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: context.cardBorderColor),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            "Deck Progress ($masteredCount of $totalCards Mastered)",
+                            style: TextStyle(color: context.textSecondary, fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
+                          Text(
+                            "${(progress * 100).toInt()}%",
+                            style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          minHeight: 6,
+                          backgroundColor: context.secondaryBg,
+                          valueColor: const AlwaysStoppedAnimation<Color>(AppColors.accent),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
+                const SizedBox(height: 20),
+              ],
 
               if (totalCards == 0)
                 Container(
                   padding: const EdgeInsets.all(40),
                   decoration: BoxDecoration(
-                    color: AppColors.darkCard,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.darkCardBorder),
+                    color: context.surfaceColor,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: context.cardBorderColor),
                   ),
                   child: Column(
                     children: [
-                      const Icon(Icons.style_outlined, size: 56, color: AppColors.darkTextSecondary),
+                      Icon(Icons.style_outlined, size: 56, color: context.textSecondary.withValues(alpha: 0.6)),
                       const SizedBox(height: 16),
-                      Text("No Flashcards for $_selectedCourseFilter", style: GoogleFonts.outfit(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
+                      Text(
+                        "No Flashcards Available",
+                        style: GoogleFonts.outfit(fontSize: 18, color: context.textPrimary, fontWeight: FontWeight.bold),
+                      ),
                       const SizedBox(height: 8),
-                      const Text("Upload lecture notes in AI Studio to automatically generate flashcards.", textAlign: TextAlign.center, style: TextStyle(color: AppColors.darkTextSecondary)),
+                      Text(
+                        "Upload documents in AI Studio or add a study set with key definitions to generate spaced-recall cards.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.5),
+                      ),
                     ],
                   ),
                 )
@@ -386,12 +373,12 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                   children: [
                     Text(
                       "Card ${_currentIndex + 1} of $totalCards",
-                      style: const TextStyle(color: AppColors.darkTextSecondary, fontWeight: FontWeight.w600, fontSize: 13),
+                      style: TextStyle(color: context.textSecondary, fontWeight: FontWeight.w600, fontSize: 13),
                     ),
                     Row(
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.arrow_back_ios_rounded, size: 16, color: Colors.white70),
+                          icon: Icon(Icons.arrow_back_ios_rounded, size: 16, color: context.textPrimary.withValues(alpha: 0.7)),
                           onPressed: _currentIndex > 0
                               ? () {
                                   setState(() {
@@ -402,7 +389,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                               : null,
                         ),
                         IconButton(
-                          icon: const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Colors.white70),
+                          icon: Icon(Icons.arrow_forward_ios_rounded, size: 16, color: context.textPrimary.withValues(alpha: 0.7)),
                           onPressed: _currentIndex < totalCards - 1
                               ? () {
                                   setState(() {
@@ -436,17 +423,19 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                           constraints: const BoxConstraints(minHeight: 320),
                           padding: const EdgeInsets.all(24),
                           decoration: BoxDecoration(
-                            color: isUnder ? const Color(0xFF1E2433) : AppColors.darkCard,
+                            color: isUnder ? context.secondaryBg : context.surfaceColor,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: isUnder ? AppColors.accent.withValues(alpha: 0.6) : AppColors.primary.withValues(alpha: 0.5),
+                              color: isUnder
+                                  ? AppColors.accent.withValues(alpha: 0.6)
+                                  : (isDark ? AppColors.primary.withValues(alpha: 0.5) : AppColors.primaryDark.withValues(alpha: 0.3)),
                               width: 1.5,
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: (isUnder ? AppColors.accent : AppColors.primary).withValues(alpha: 0.12),
-                                blurRadius: 24,
-                                offset: const Offset(0, 8),
+                                color: (isUnder ? AppColors.accent : AppColors.primary).withValues(alpha: isDark ? 0.12 : 0.06),
+                                blurRadius: 20,
+                                offset: const Offset(0, 6),
                               ),
                             ],
                           ),
@@ -463,24 +452,28 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                       decoration: BoxDecoration(
-                                        color: AppColors.primary.withValues(alpha: 0.2),
+                                        color: AppColors.primary.withValues(alpha: 0.15),
                                         borderRadius: BorderRadius.circular(8),
                                       ),
                                       child: Text(
                                         card.courseCode,
-                                        style: const TextStyle(color: AppColors.primaryLight, fontWeight: FontWeight.bold, fontSize: 12),
+                                        style: TextStyle(
+                                          color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                        ),
                                       ),
                                     ),
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                       decoration: BoxDecoration(
-                                        color: isUnder ? AppColors.accent.withValues(alpha: 0.2) : Colors.white12,
+                                        color: isUnder ? AppColors.accent.withValues(alpha: 0.15) : context.secondaryBg,
                                         borderRadius: BorderRadius.circular(6),
                                       ),
                                       child: Text(
-                                        isUnder ? "ANSWER / BREAKDOWN" : "QUESTION / PROMPT",
+                                        isUnder ? "ANSWER / KEY CONCEPT" : "QUESTION / PROMPT",
                                         style: TextStyle(
-                                          color: isUnder ? AppColors.accent : AppColors.darkTextSecondary,
+                                          color: isUnder ? AppColors.accent : context.textSecondary,
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
                                         ),
@@ -497,7 +490,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                     style: GoogleFonts.outfit(
                                       fontSize: isUnder ? 16 : 19,
                                       fontWeight: isUnder ? FontWeight.w500 : FontWeight.w600,
-                                      color: Colors.white,
+                                      color: context.textPrimary,
                                       height: 1.5,
                                     ),
                                   ),
@@ -529,8 +522,8 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                   else
                                     Center(
                                       child: TextButton.icon(
-                                        icon: const Icon(Icons.help_outline_rounded, size: 16, color: AppColors.darkTextSecondary),
-                                        label: const Text("Show Hint", style: TextStyle(color: AppColors.darkTextSecondary, fontSize: 12)),
+                                        icon: Icon(Icons.help_outline_rounded, size: 16, color: context.textSecondary),
+                                        label: Text("Show Hint", style: TextStyle(color: context.textSecondary, fontSize: 12)),
                                         onPressed: () => setState(() => _showHint = true),
                                       ),
                                     ),
@@ -540,11 +533,11 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Icon(Icons.touch_app_outlined, size: 15, color: AppColors.darkTextSecondary.withValues(alpha: 0.7)),
+                                      Icon(Icons.touch_app_outlined, size: 15, color: context.textSecondary.withValues(alpha: 0.7)),
                                       const SizedBox(width: 6),
                                       Text(
                                         "Tap card to flip",
-                                        style: TextStyle(color: AppColors.darkTextSecondary.withValues(alpha: 0.7), fontSize: 12),
+                                        style: TextStyle(color: context.textSecondary.withValues(alpha: 0.7), fontSize: 12),
                                       ),
                                     ],
                                   ),
@@ -564,8 +557,8 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                     Expanded(
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFDC2626).withValues(alpha: 0.15),
-                          foregroundColor: const Color(0xFFF87171),
+                          backgroundColor: const Color(0xFFDC2626).withValues(alpha: 0.12),
+                          foregroundColor: const Color(0xFFDC2626),
                           side: const BorderSide(color: Color(0xFFDC2626), width: 1.2),
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -579,7 +572,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                     Expanded(
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.accent.withValues(alpha: 0.15),
+                          backgroundColor: AppColors.accent.withValues(alpha: 0.12),
                           foregroundColor: AppColors.accent,
                           side: const BorderSide(color: AppColors.accent, width: 1.2),
                           padding: const EdgeInsets.symmetric(vertical: 14),

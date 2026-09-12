@@ -1,4 +1,5 @@
-﻿import "package:shared_preferences/shared_preferences.dart";
+﻿import "package:flutter/material.dart";
+import "package:shared_preferences/shared_preferences.dart";
 
 class SessionService {
   static const String _keyToken = "jwt_token";
@@ -7,6 +8,7 @@ class SessionService {
   static const String _keyFullName = "user_full_name";
   static const String _keyBaseUrl = "api_base_url";
   static const String _keyLastSync = "last_sync_timestamp";
+  static const String _keyThemeMode = "app_theme_mode";
 
   final SharedPreferences _prefs;
 
@@ -25,6 +27,16 @@ class SessionService {
   DateTime? get lastSyncAt {
     final str = _prefs.getString(_keyLastSync);
     return str != null ? DateTime.tryParse(str) : null;
+  }
+
+  ThemeMode get themeMode {
+    final mode = _prefs.getString(_keyThemeMode);
+    if (mode == "light") return ThemeMode.light;
+    return ThemeMode.dark;
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    await _prefs.setString(_keyThemeMode, mode == ThemeMode.light ? "light" : "dark");
   }
 
   bool get isAuthenticated => token != null && token!.isNotEmpty;

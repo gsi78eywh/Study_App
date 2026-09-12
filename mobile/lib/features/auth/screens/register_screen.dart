@@ -94,14 +94,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.isDarkMode;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Create Account"),
+        title: Text("Create Student Account", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
       ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 440),
               child: Form(
@@ -114,15 +116,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       style: GoogleFonts.outfit(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: context.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      "Master complex subjects with AI active-recall sets",
+                      "Create your learning workspace and practice exam sets",
                       style: GoogleFonts.inter(
                         fontSize: 14,
-                        color: AppColors.darkTextSecondary,
+                        color: context.textSecondary,
                       ),
                     ),
                     const SizedBox(height: 28),
@@ -130,9 +132,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: AppColors.danger.withValues(alpha: 0.12),
+                          color: AppColors.danger.withValues(alpha: isDark ? 0.15 : 0.08),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.danger.withValues(alpha: 0.5)),
+                          border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
                         ),
                         child: Row(
                           children: [
@@ -151,10 +153,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ],
                     TextFormField(
                       controller: _fullNameController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
+                      style: TextStyle(color: context.textPrimary),
+                      decoration: InputDecoration(
                         labelText: "Full Name",
-                        prefixIcon: Icon(Icons.person_outline, color: AppColors.darkTextSecondary),
+                        prefixIcon: Icon(Icons.person_outline, color: context.textSecondary),
                       ),
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) return "Name is required";
@@ -165,10 +167,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     TextFormField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
+                      style: TextStyle(color: context.textPrimary),
+                      decoration: InputDecoration(
                         labelText: "Email Address",
-                        prefixIcon: Icon(Icons.email_outlined, color: AppColors.darkTextSecondary),
+                        prefixIcon: Icon(Icons.email_outlined, color: context.textSecondary),
                       ),
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) return "Email is required";
@@ -180,14 +182,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     TextFormField(
                       controller: _passwordController,
                       obscureText: _obscurePassword,
-                      style: const TextStyle(color: Colors.white),
+                      style: TextStyle(color: context.textPrimary),
                       decoration: InputDecoration(
                         labelText: "Password",
-                        prefixIcon: const Icon(Icons.lock_outline, color: AppColors.darkTextSecondary),
+                        prefixIcon: Icon(Icons.lock_outline, color: context.textSecondary),
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                            color: AppColors.darkTextSecondary,
+                            color: context.textSecondary,
                           ),
                           onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                         ),
@@ -201,10 +203,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     TextFormField(
                       controller: _confirmPasswordController,
                       obscureText: _obscurePassword,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
+                      style: TextStyle(color: context.textPrimary),
+                      decoration: InputDecoration(
                         labelText: "Confirm Password",
-                        prefixIcon: Icon(Icons.lock_outline, color: AppColors.darkTextSecondary),
+                        prefixIcon: Icon(Icons.lock_outline, color: context.textSecondary),
                       ),
                       validator: (val) {
                         if (val != _passwordController.text) return "Passwords do not match";
@@ -232,4 +234,3 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 }
-

@@ -45,6 +45,14 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   }
 
   @override
+  void didUpdateWidget(IngestionScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_selectedCourseId.isEmpty && widget.courses.isNotEmpty) {
+      _selectedCourseId = widget.courses.first.id;
+    }
+  }
+
+  @override
   void dispose() {
     _tabController.dispose();
     _titleController.dispose();
@@ -81,6 +89,10 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     if (_titleController.text.trim().isEmpty) {
       setState(() => _errorMessage = "Please enter a title for the study set.");
       return;
+    }
+
+    if (_selectedCourseId.isEmpty && widget.courses.isNotEmpty) {
+      _selectedCourseId = widget.courses.first.id;
     }
 
     setState(() {
@@ -167,7 +179,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text("✨ Successfully generated '${newSet.title}' with ${newSet.questionCount} questions!"),
+              content: Text("✨ Successfully synthesized '${newSet.title}' with ${newSet.questionCount} questions!"),
               backgroundColor: AppColors.accent,
               duration: const Duration(seconds: 4),
             ),
@@ -193,14 +205,17 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.isDarkMode;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text("AI Study Synthesizer Studio", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+        title: Text("AI Study Synthesizer Studio", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: context.textPrimary)),
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: AppColors.primary,
-          labelColor: Colors.white,
-          unselectedLabelColor: AppColors.darkTextSecondary,
+          indicatorColor: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+          labelColor: isDark ? Colors.white : AppColors.primaryDark,
+          unselectedLabelColor: context.textSecondary,
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
           tabs: const [
             Tab(icon: Icon(Icons.notes_rounded), text: "Paste Text"),
             Tab(icon: Icon(Icons.upload_file_rounded), text: "Upload File"),
@@ -218,9 +233,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: AppColors.danger.withValues(alpha: 0.12),
+                    color: AppColors.danger.withValues(alpha: isDark ? 0.15 : 0.08),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.danger.withValues(alpha: 0.5)),
+                    border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
                   ),
                   child: Row(
                     children: [
@@ -239,9 +254,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: AppColors.accent.withValues(alpha: 0.12),
+                    color: AppColors.accent.withValues(alpha: isDark ? 0.15 : 0.08),
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.accent.withValues(alpha: 0.5)),
+                    border: Border.all(color: AppColors.accent.withValues(alpha: 0.4)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -252,7 +267,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                           const SizedBox(width: 8),
                           Text(
                             "Study Set Ready: ${_lastGeneratedSet!.title}",
-                            style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                            style: GoogleFonts.outfit(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
                           ),
                         ],
                       ),
@@ -268,38 +283,60 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               ],
 
               // Course Selector
-              Text("Assign to Course", style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+              Text("Assign to Course", style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.bold, color: context.textPrimary)),
               const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(
-                  color: AppColors.darkCard,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.darkCardBorder),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: widget.courses.any((c) => c.id == _selectedCourseId) ? _selectedCourseId : (widget.courses.isNotEmpty ? widget.courses.first.id : null),
-                    isExpanded: true,
-                    dropdownColor: AppColors.darkCard,
-                    items: widget.courses.map((c) {
-                      return DropdownMenuItem(
-                        value: c.id,
-                        child: Text("${c.code} - ${c.name}", style: const TextStyle(color: Colors.white)),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) setState(() => _selectedCourseId = val);
-                    },
+              if (widget.courses.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: context.surfaceColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: context.cardBorderColor),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline, color: AppColors.warning, size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          "No courses found. Study set will be created in default space.",
+                          style: TextStyle(color: context.textSecondary, fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: context.surfaceColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: context.cardBorderColor),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: widget.courses.any((c) => c.id == _selectedCourseId) ? _selectedCourseId : widget.courses.first.id,
+                      isExpanded: true,
+                      dropdownColor: context.surfaceColor,
+                      items: widget.courses.map((c) {
+                        return DropdownMenuItem(
+                          value: c.id,
+                          child: Text("${c.code} - ${c.name}", style: TextStyle(color: context.textPrimary)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) setState(() => _selectedCourseId = val);
+                      },
+                    ),
                   ),
                 ),
-              ),
               const SizedBox(height: 16),
 
               // Title input
               TextField(
                 controller: _titleController,
-                style: const TextStyle(color: Colors.white),
+                style: TextStyle(color: context.textPrimary),
                 decoration: const InputDecoration(
                   labelText: "Study Set Title",
                   hintText: "e.g. Chapter 4: Database Normalization",
@@ -317,7 +354,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                     TextField(
                       controller: _textController,
                       maxLines: 8,
-                      style: const TextStyle(color: Colors.white),
+                      style: TextStyle(color: context.textPrimary),
                       decoration: const InputDecoration(
                         labelText: "Lecture Notes or Text Content",
                         hintText: "Paste textbook paragraphs, slide content, or key definitions here...",
@@ -331,10 +368,12 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                       child: Container(
                         padding: const EdgeInsets.all(24),
                         decoration: BoxDecoration(
-                          color: AppColors.darkCard,
+                          color: context.surfaceColor,
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: _selectedFile != null ? AppColors.primary : AppColors.darkCardBorder,
+                            color: _selectedFile != null
+                                ? AppColors.accent
+                                : (isDark ? AppColors.primary.withValues(alpha: 0.5) : AppColors.primaryDark.withValues(alpha: 0.3)),
                             style: BorderStyle.solid,
                           ),
                         ),
@@ -344,12 +383,14 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                             Icon(
                               _selectedFile != null ? Icons.check_circle_rounded : Icons.cloud_upload_outlined,
                               size: 48,
-                              color: _selectedFile != null ? AppColors.accent : AppColors.primaryLight,
+                              color: _selectedFile != null
+                                  ? AppColors.accent
+                                  : (isDark ? AppColors.primaryLight : AppColors.primaryDark),
                             ),
                             const SizedBox(height: 12),
                             Text(
                               _selectedFile != null ? _selectedFile!.name : "Tap to browse PDF, Word (DOCX), or TXT",
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                              style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600),
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 4),
@@ -357,7 +398,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                               _selectedFile != null
                                   ? "${(_fileSizeBytes / 1024).toStringAsFixed(1)} KB ready for extraction"
                                   : "Supports textbooks, syllabus, lecture handouts up to 25MB",
-                              style: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 12),
+                              style: TextStyle(color: context.textSecondary, fontSize: 12),
                             ),
                           ],
                         ),
@@ -371,17 +412,17 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                         TextField(
                           controller: _urlController,
                           keyboardType: TextInputType.url,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: const InputDecoration(
+                          style: TextStyle(color: context.textPrimary),
+                          decoration: InputDecoration(
                             labelText: "Web Article or Documentation URL",
                             hintText: "https://learn.microsoft.com/en-us/...",
-                            prefixIcon: Icon(Icons.language_rounded, color: AppColors.darkTextSecondary),
+                            prefixIcon: Icon(Icons.language_rounded, color: context.textSecondary),
                           ),
                         ),
                         const SizedBox(height: 12),
-                        const Text(
-                          "The C# backend crawler strips advertisements, scripts, and layouts to extract clean instructional text.",
-                          style: TextStyle(color: AppColors.darkTextSecondary, fontSize: 13),
+                        Text(
+                          "The backend extracts clean instructional paragraphs and discards advertisements.",
+                          style: TextStyle(color: context.textSecondary, fontSize: 13),
                         ),
                       ],
                     ),
@@ -395,7 +436,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("Target Questions:", style: TextStyle(color: AppColors.darkTextSecondary)),
+                  Text("Target Questions:", style: TextStyle(color: context.textSecondary)),
                   Text("$_targetCount Questions", style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.bold)),
                 ],
               ),
@@ -404,13 +445,16 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                 min: 5,
                 max: 20,
                 divisions: 3,
-                activeColor: AppColors.primary,
+                activeColor: isDark ? AppColors.primary : AppColors.primaryDark,
                 onChanged: (val) => setState(() => _targetCount = val.toInt()),
               ),
 
               const SizedBox(height: 28),
 
               ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
+                ),
                 icon: _isLoading
                     ? const SizedBox(
                         width: 20,
@@ -418,7 +462,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.auto_awesome),
-                label: Text(_isLoading ? "Synthesizing with Semantic Kernel..." : "Generate AI Study Set"),
+                label: Text(_isLoading ? "Synthesizing Questions..." : "Generate AI Study Set"),
                 onPressed: _isLoading ? null : _handleGenerate,
               ),
             ],
