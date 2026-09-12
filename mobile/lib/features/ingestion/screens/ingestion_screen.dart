@@ -10,11 +10,13 @@ import "../../courses/models/course_models.dart";
 class IngestionScreen extends StatefulWidget {
   final List<CourseModel> courses;
   final ApiClient apiClient;
+  final void Function(StudySetModel)? onStudySetCreated;
 
   const IngestionScreen({
     super.key,
     required this.courses,
     required this.apiClient,
+    this.onStudySetCreated,
   });
 
   @override
@@ -33,6 +35,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   int _targetCount = 10;
   bool _isLoading = false;
   String? _errorMessage;
+  StudySetModel? _lastGeneratedSet;
 
   @override
   void initState() {
@@ -51,21 +54,26 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   }
 
   Future<void> _pickFile() async {
-    final files = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ["pdf", "docx", "txt", "md"],
-    );
+    try {
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ["pdf", "docx", "txt", "md"],
+      );
 
-    if (files.isNotEmpty) {
-      final file = files.first;
-      final size = file.lengthSync() ?? await file.length();
-      setState(() {
-        _selectedFile = file;
-        _fileSizeBytes = size;
-        if (_titleController.text.isEmpty) {
-          _titleController.text = file.name.split('.').first;
-        }
-      });
+      if (files.isNotEmpty) {
+        final file = files.first;
+        final size = file.lengthSync() ?? await file.length();
+        setState(() {
+          _selectedFile = file;
+          _fileSizeBytes = size;
+          _errorMessage = null;
+          if (_titleController.text.isEmpty) {
+            _titleController.text = file.name.split('.').first;
+          }
+        });
+      }
+    } catch (e) {
+      setState(() => _errorMessage = "Error picking file: $e");
     }
   }
 
@@ -78,6 +86,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _lastGeneratedSet = null;
     });
 
     try {
@@ -107,9 +116,15 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           return;
         }
 
-        final bytes = await _selectedFile!.readAsBytes();
+        final fileBytes = await _selectedFile!.readAsBytes();
+
+        if (fileBytes.isEmpty) {
+          setState(() => _errorMessage = "Could not read file data. Please re-select the file.");
+          return;
+        }
+
         final multipartFile = MultipartFile.fromBytes(
-          bytes,
+          fileBytes,
           filename: _selectedFile!.name,
         );
 
@@ -143,8 +158,25 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
       if (response.statusCode == 200 && response.data != null) {
         final newSet = StudySetModel.fromJson(response.data);
-        if (!mounted) return;
-        Navigator.pop(context, newSet);
+        setState(() {
+          _lastGeneratedSet = newSet;
+        });
+
+        widget.onStudySetCreated?.call(newSet);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("✨ Successfully generated '${newSet.title}' with ${newSet.questionCount} questions!"),
+              backgroundColor: AppColors.accent,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+
+          if (Navigator.of(context).canPop()) {
+            Navigator.pop(context, newSet);
+          }
+        }
       }
     } on DioException catch (e) {
       setState(() {
@@ -163,7 +195,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("AI Study Ingestion"),
+        title: Text("AI Study Synthesizer Studio", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: AppColors.primary,
@@ -190,7 +222,47 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: AppColors.danger.withValues(alpha: 0.5)),
                   ),
-                  child: Text(_errorMessage!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, color: AppColors.danger, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(_errorMessage!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              if (_lastGeneratedSet != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.accent.withValues(alpha: 0.5)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.check_circle_rounded, color: AppColors.accent, size: 22),
+                          const SizedBox(width: 8),
+                          Text(
+                            "Study Set Ready: ${_lastGeneratedSet!.title}",
+                            style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        "${_lastGeneratedSet!.questionCount} questions synthesized directly from document concepts.",
+                        style: const TextStyle(color: AppColors.accent, fontSize: 13),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 16),
               ],
@@ -207,7 +279,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                 ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
-                    value: _selectedCourseId,
+                    value: widget.courses.any((c) => c.id == _selectedCourseId) ? _selectedCourseId : (widget.courses.isNotEmpty ? widget.courses.first.id : null),
                     isExpanded: true,
                     dropdownColor: AppColors.darkCard,
                     items: widget.courses.map((c) {

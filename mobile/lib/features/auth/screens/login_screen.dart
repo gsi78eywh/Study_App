@@ -32,14 +32,24 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _errorMessage;
 
   @override
+  void initState() {
+    super.initState();
+    // Clear stale session on login screen mount so background sync doesn't trigger 401
+    widget.sessionService.clearAuth();
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  Future<void> _handleLogin() async {
-    if (!_formKey.currentState!.validate()) return;
+  Future<void> _handleLogin({String? overrideEmail, String? overridePassword}) async {
+    final email = overrideEmail ?? _emailController.text.trim();
+    final password = overridePassword ?? _passwordController.text;
+
+    if (overrideEmail == null && !_formKey.currentState!.validate()) return;
 
     setState(() {
       _isLoading = true;
@@ -50,8 +60,8 @@ class _LoginScreenState extends State<LoginScreen> {
       final response = await widget.apiClient.dio.post(
         ApiConstants.login,
         data: {
-          "email": _emailController.text.trim(),
-          "password": _passwordController.text,
+          "email": email,
+          "password": password,
         },
       );
 
@@ -76,7 +86,13 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on DioException catch (e) {
       setState(() {
-        _errorMessage = e.error?.toString() ?? e.message ?? "Authentication failed.";
+        if (e.type == DioExceptionType.connectionError || e.type == DioExceptionType.connectionTimeout) {
+          _errorMessage = "Cannot connect to backend server. Make sure the API is running at ${widget.sessionService.baseUrl ?? ApiConstants.defaultBaseUrl}";
+        } else if (e.response?.statusCode == 401) {
+          _errorMessage = "Invalid email or password. Please check your credentials.";
+        } else {
+          _errorMessage = e.error?.toString() ?? e.message ?? "Authentication failed.";
+        }
       });
     } catch (e) {
       setState(() {
@@ -102,7 +118,7 @@ class _LoginScreenState extends State<LoginScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              "Configure backend URL for your current emulator or device:",
+              "Configure backend URL for Flutter Web or physical device testing:",
               style: TextStyle(color: AppColors.darkTextSecondary, fontSize: 13),
             ),
             const SizedBox(height: 12),
@@ -113,20 +129,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 labelText: "Base URL",
                 hintText: "http://localhost:5000",
               ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              children: [
-                ActionChip(
-                  label: const Text("Windows/Web (localhost)"),
-                  onPressed: () => urlController.text = "http://localhost:5000",
-                ),
-                ActionChip(
-                  label: const Text("Android (10.0.2.2)"),
-                  onPressed: () => urlController.text = "http://10.0.2.2:5000",
-                ),
-              ],
             ),
           ],
         ),
@@ -160,15 +162,31 @@ class _LoginScreenState extends State<LoginScreen> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
+              constraints: const BoxConstraints(maxWidth: 460),
               child: Form(
                 key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.accent.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: AppColors.accent.withValues(alpha: 0.4)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.check_circle_rounded, color: AppColors.accent, size: 14),
+                              SizedBox(width: 6),
+                              Text("API Ready (Port 5000)", style: TextStyle(color: AppColors.accent, fontSize: 11, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
                         IconButton(
                           icon: const Icon(Icons.settings_outlined, color: AppColors.darkTextSecondary),
                           tooltip: "Backend Host Settings",
@@ -176,30 +194,30 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     Center(
                       child: Container(
-                        width: 72,
-                        height: 72,
+                        width: 76,
+                        height: 76,
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
                             colors: [AppColors.primary, AppColors.accent],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(22),
                           boxShadow: [
                             BoxShadow(
                               color: AppColors.primary.withValues(alpha: 0.35),
-                              blurRadius: 20,
+                              blurRadius: 24,
                               offset: const Offset(0, 10),
                             ),
                           ],
                         ),
-                        child: const Icon(Icons.auto_stories_rounded, color: Colors.white, size: 36),
+                        child: const Icon(Icons.school_rounded, color: Colors.white, size: 40),
                       ),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 20),
                     Text(
                       "StudyApp",
                       textAlign: TextAlign.center,
@@ -211,14 +229,69 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      "AI-Powered Learning & Practice Platform",
+                      "Intelligent Student Active Recall & Exam Platform",
                       textAlign: TextAlign.center,
                       style: GoogleFonts.inter(
                         fontSize: 14,
                         color: AppColors.darkTextSecondary,
                       ),
                     ),
-                    const SizedBox(height: 36),
+                    const SizedBox(height: 24),
+
+                    // Quick Demo Student Login Banner
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.bolt_rounded, color: AppColors.primaryLight, size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                "Quick Demo Student Access",
+                                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            "Account: alex@example.com (CS, Bio & Math pre-loaded)",
+                            style: TextStyle(color: AppColors.darkTextSecondary, fontSize: 12),
+                          ),
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.login_rounded, size: 18),
+                            label: const Text("1-Tap Sign In as Alex", style: TextStyle(fontWeight: FontWeight.bold)),
+                            onPressed: _isLoading ? null : () => _handleLogin(overrideEmail: "alex@example.com", overridePassword: "Password123!"),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    Row(
+                      children: [
+                        const Expanded(child: Divider(color: AppColors.darkCardBorder)),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text("or sign in with password", style: GoogleFonts.inter(color: AppColors.darkTextSecondary, fontSize: 12)),
+                        ),
+                        const Expanded(child: Divider(color: AppColors.darkCardBorder)),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
                     if (_errorMessage != null) ...[
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -240,8 +313,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                     ],
+
                     TextFormField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
@@ -277,9 +351,13 @@ class _LoginScreenState extends State<LoginScreen> {
                         return null;
                       },
                     ),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 24),
                     ElevatedButton(
-                      onPressed: _isLoading ? null : _handleLogin,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.darkCard,
+                        side: const BorderSide(color: AppColors.darkCardBorder),
+                      ),
+                      onPressed: _isLoading ? null : () => _handleLogin(),
                       child: _isLoading
                           ? const SizedBox(
                               width: 20,
@@ -288,7 +366,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             )
                           : const Text("Sign In"),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 20),
                     Wrap(
                       alignment: WrapAlignment.center,
                       crossAxisAlignment: WrapCrossAlignment.center,
@@ -322,5 +400,3 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
-
-

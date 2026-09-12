@@ -6,7 +6,9 @@ import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../models/course_models.dart";
 import "../../auth/screens/login_screen.dart";
+import "../../flashcards/screens/flashcards_screen.dart";
 import "../../ingestion/screens/ingestion_screen.dart";
+import "../../notebook/screens/notebook_screen.dart";
 import "../../quiz/models/quiz_models.dart";
 import "../../quiz/screens/quiz_player_screen.dart";
 import "../../sync/services/sync_service.dart";
@@ -27,6 +29,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   late final SyncService _syncService;
+  int _currentTabIndex = 0;
   List<CourseModel> _courses = [];
   bool _isSyncing = false;
 
@@ -38,11 +41,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       sessionService: widget.sessionService,
     );
     _initializeDefaultData();
-    _runSync();
+    _runSync(showSnackBar: false);
   }
 
   void _initializeDefaultData() {
-    // Provide sample high-yield courses ready for immediate study and test
     _courses = [
       CourseModel(
         id: "c1111111-1111-1111-1111-111111111111",
@@ -88,24 +90,73 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
+      CourseModel(
+        id: "c3333333-3333-3333-3333-333333333333",
+        code: "MATH201",
+        name: "Linear Algebra & Matrix Analysis",
+        colorHex: "#F59E0B",
+        createdAt: DateTime.now().subtract(const Duration(days: 14)),
+        studySets: [
+          StudySetModel(
+            id: "s3333333-3333-3333-3333-333333333333",
+            courseId: "c3333333-3333-3333-3333-333333333333",
+            title: "Eigenvalues, Eigenvectors & Diagonalization",
+            description: "Characteristic polynomials, eigenspaces, matrix diagonalization, and Gram-Schmidt process.",
+            questionCount: 7,
+            createdAt: DateTime.now().subtract(const Duration(days: 4)),
+            bulletPoints: [
+              "Eigenvector equation Av = lambda v defines invariant directions under matrix transformation.",
+              "An n x n matrix is diagonalizable if and only if it has n linearly independent eigenvectors.",
+              "Gram-Schmidt transforms an arbitrary basis into an orthonormal basis.",
+            ],
+          ),
+        ],
+      ),
     ];
   }
 
-  Future<void> _runSync() async {
+  Future<void> _runSync({bool showSnackBar = false}) async {
+    if (!widget.sessionService.hasValidToken) {
+      if (showSnackBar && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Please sign in to sync with cloud"),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+      }
+      return;
+    }
+
     setState(() => _isSyncing = true);
     final result = await _syncService.performSync(localCourses: _courses);
     if (!mounted) return;
-    setState(() {
-      _isSyncing = false;
-    });
+    setState(() => _isSyncing = false);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(result.message),
-        backgroundColor: result.success ? AppColors.accent : AppColors.danger,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    if (result.message.contains("401") || result.message.toLowerCase().contains("unauthorized")) {
+      await widget.sessionService.clearAuth();
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => LoginScreen(
+              apiClient: widget.apiClient,
+              sessionService: widget.sessionService,
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (showSnackBar) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.message),
+          backgroundColor: result.success ? AppColors.accent : AppColors.danger,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   void _showAddCourseDialog() {
@@ -118,6 +169,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModalState) => AlertDialog(
           backgroundColor: AppColors.darkCard,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Text("Create New Course", style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -137,7 +189,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Row(
                 children: [
                   const Text("Accent: ", style: TextStyle(color: AppColors.darkTextSecondary)),
-                  ...["#6366F1", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"].map((hex) {
+                  ...["#6366F1", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#06B6D4"].map((hex) {
                     final color = Color(int.parse("FF${hex.replaceAll('#', '')}", radix: 16));
                     return GestureDetector(
                       onTap: () => setModalState(() => selectedColor = hex),
@@ -148,7 +200,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         decoration: BoxDecoration(
                           color: color,
                           shape: BoxShape.circle,
-                          border: selectedColor == hex ? Border.all(color: Colors.white, width: 2) : null,
+                          border: Border.all(
+                            color: selectedColor == hex ? Colors.white : Colors.transparent,
+                            width: 2,
+                          ),
                         ),
                       ),
                     );
@@ -158,24 +213,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Cancel"),
+            ),
             ElevatedButton(
               onPressed: () {
-                if (codeController.text.trim().isNotEmpty && nameController.text.trim().isNotEmpty) {
-                  setState(() {
-                    _courses.add(
-                      CourseModel(
-                        id: const Uuid().v4(),
-                        code: codeController.text.trim().toUpperCase(),
-                        name: nameController.text.trim(),
-                        colorHex: selectedColor,
-                        createdAt: DateTime.now(),
-                      ),
-                    );
-                  });
-                  Navigator.pop(ctx);
-                  _runSync();
-                }
+                final code = codeController.text.trim();
+                final name = nameController.text.trim();
+                if (code.isEmpty || name.isEmpty) return;
+
+                final newCourse = CourseModel(
+                  id: const Uuid().v4(),
+                  code: code,
+                  name: name,
+                  colorHex: selectedColor,
+                  createdAt: DateTime.now(),
+                  studySets: [],
+                );
+
+                setState(() {
+                  _courses.add(newCourse);
+                });
+                Navigator.pop(ctx);
+                _runSync(showSnackBar: false);
               },
               child: const Text("Create"),
             ),
@@ -185,55 +246,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  void _startQuiz(StudySetModel studySet) {
-    // Build question bank corresponding to study set
+  void _startQuiz(StudySetModel set) {
     final questions = [
       QuestionModel(
-        id: const Uuid().v4(),
-        studySetId: studySet.id,
+        id: "q1",
+        studySetId: set.id,
         type: QuestionTypeEnum.multipleChoice,
-        prompt: "Which of the following guarantees does the CAP Theorem state cannot be achieved simultaneously in a partition-prone network?",
-        hints: [
-          "Think about what 'CAP' stands for.",
-          "Network partitions (P) are unavoidable in distributed systems.",
-        ],
-        explanation: "The CAP theorem states that a distributed data store can simultaneously guarantee at most two out of Consistency, Availability, and Partition Tolerance.",
+        prompt: "What primary challenge does the CAP theorem address in distributed architecture?",
+        hints: const ["Think about network partitions and consistency guarantees."],
+        explanation: "The CAP theorem demonstrates that in the presence of a network partition (P), a distributed system must trade off between consistency (C) and availability (A).",
         options: [
-          QuestionOptionModel(id: "1", optionText: "Consistency and Availability", isCorrect: true),
-          QuestionOptionModel(id: "2", optionText: "Latency and Throughput", isCorrect: false, distractorRationale: "Latency and throughput are performance metrics, not CAP theorem safety properties."),
-          QuestionOptionModel(id: "3", optionText: "Scalability and Elasticity", isCorrect: false, distractorRationale: "Scalability refers to capacity growth, not atomic correctness."),
-          QuestionOptionModel(id: "4", optionText: "Durability and Atomicity", isCorrect: false, distractorRationale: "Durability and Atomicity are ACID transactional properties."),
+          QuestionOptionModel(id: "o1", optionText: "Balancing consistency and availability during network partitions", isCorrect: true),
+          QuestionOptionModel(id: "o2", optionText: "Optimizing disk storage for relational databases", isCorrect: false),
+          QuestionOptionModel(id: "o3", optionText: "Preventing SQL injection vulnerabilities in web servers", isCorrect: false),
+          QuestionOptionModel(id: "o4", optionText: "Minimizing client-side battery consumption", isCorrect: false),
         ],
       ),
       QuestionModel(
-        id: const Uuid().v4(),
-        studySetId: studySet.id,
+        id: "q2",
+        studySetId: set.id,
+        type: QuestionTypeEnum.multipleChoice,
+        prompt: "Which enzyme is responsible for synthesizing leading strand DNA in prokaryotes?",
+        hints: const ["It has proofreading capabilities in the 3' to 5' direction."],
+        explanation: "DNA Polymerase III is the primary prokaryotic replicative enzyme synthesizing continuously 5' to 3'.",
+        options: [
+          QuestionOptionModel(id: "o21", optionText: "DNA Polymerase III", isCorrect: true),
+          QuestionOptionModel(id: "o22", optionText: "RNA Primase", isCorrect: false),
+          QuestionOptionModel(id: "o23", optionText: "DNA Topoisomerase", isCorrect: false),
+          QuestionOptionModel(id: "o24", optionText: "Helicase", isCorrect: false),
+        ],
+      ),
+      QuestionModel(
+        id: "q3",
+        studySetId: set.id,
         type: QuestionTypeEnum.identification,
-        prompt: "What consensus protocol breaks leadership into terms, leader election, and log replication?",
-        hints: [
-          "It was designed by Stanford researchers as an understandable alternative to Paxos.",
-          "Starts with the letter 'R'.",
-        ],
-        explanation: "Raft is a consensus algorithm designed as an alternative to Multi-Paxos, structured around elected leader terms and log replication.",
+        prompt: "Name the consensus algorithm designed as an understandable alternative to Paxos.",
+        hints: const ["Decomposes consensus into leader election, log replication, and safety."],
+        explanation: "Raft decomposes consensus into leader election, log replication, and safety.",
         options: [
-          QuestionOptionModel(id: "1", optionText: "Raft", isCorrect: true),
-        ],
-      ),
-      QuestionModel(
-        id: const Uuid().v4(),
-        studySetId: studySet.id,
-        type: QuestionTypeEnum.multipleChoice,
-        prompt: "In DNA replication, which enzyme is primarily responsible for unwinding the double helix at the replication fork?",
-        hints: [
-          "It breaks hydrogen bonds between nitrogenous base pairs.",
-          "Its name derives from 'helix'.",
-        ],
-        explanation: "DNA Helicase unwinds and separates the parental double-stranded DNA molecule into single strands ahead of replication.",
-        options: [
-          QuestionOptionModel(id: "1", optionText: "DNA Helicase", isCorrect: true),
-          QuestionOptionModel(id: "2", optionText: "DNA Polymerase I", isCorrect: false, distractorRationale: "Polymerase I removes RNA primers and replaces them with DNA nucleotides."),
-          QuestionOptionModel(id: "3", optionText: "DNA Ligase", isCorrect: false, distractorRationale: "DNA Ligase joins phosphodiester bonds between Okazaki fragments."),
-          QuestionOptionModel(id: "4", optionText: "Topoisomerase", isCorrect: false, distractorRationale: "Topoisomerase relieves supercoiling tension ahead of the fork."),
+          QuestionOptionModel(id: "o31", optionText: "Raft", isCorrect: true),
         ],
       ),
     ];
@@ -241,7 +292,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => QuizPlayerScreen(
-          studySet: studySet,
+          studySet: set,
           questions: questions,
           apiClient: widget.apiClient,
           sessionService: widget.sessionService,
@@ -250,272 +301,387 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final userName = widget.sessionService.fullName ?? "Scholar";
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("StudyApp Workspace", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 18)),
-            Text("Welcome back, $userName", style: const TextStyle(fontSize: 12, color: AppColors.darkTextSecondary)),
-          ],
+  void _handleLogout() async {
+    await widget.sessionService.clearAuth();
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => LoginScreen(
+          apiClient: widget.apiClient,
+          sessionService: widget.sessionService,
         ),
-        actions: [
-          IconButton(
-            icon: _isSyncing
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
-                  )
-                : const Icon(Icons.sync_rounded, color: AppColors.accent),
-            tooltip: "Sync with C# Backend",
-            onPressed: _isSyncing ? null : _runSync,
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout_rounded, color: AppColors.darkTextSecondary),
-            tooltip: "Sign Out",
-            onPressed: () async {
-              await widget.sessionService.clear();
-              if (!context.mounted) return;
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(
-                  builder: (_) => LoginScreen(
-                    apiClient: widget.apiClient,
-                    sessionService: widget.sessionService,
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: AppColors.primary,
-        icon: const Icon(Icons.auto_awesome, color: Colors.white),
-        label: const Text("AI Ingestion", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        onPressed: () async {
-          final newSet = await Navigator.of(context).push<StudySetModel>(
-            MaterialPageRoute(
-              builder: (_) => IngestionScreen(
-                courses: _courses,
-                apiClient: widget.apiClient,
-              ),
-            ),
-          );
+    );
+  }
 
-          if (newSet != null) {
-            setState(() {
-              final target = _courses.firstWhere((c) => c.id == newSet.courseId, orElse: () => _courses.first);
-              target.studySets.add(newSet);
-            });
-            _runSync();
-          }
-        },
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            // Quick Study Stats Banner
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [AppColors.primaryDark, AppColors.darkCard],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+  Widget _buildCoursesTab() {
+    final totalSets = _courses.fold<int>(0, (sum, c) => sum + c.studySets.length);
+    final totalQuestions = _courses.fold<int>(
+      0,
+      (sum, c) => sum + c.studySets.fold<int>(0, (s, set) => s + set.questionCount),
+    );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Student Welcome Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.sessionService.fullName != null ? "Welcome back, ${widget.sessionService.fullName} 👋" : "Welcome back, Alex 👋",
+                      style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Targeting mastery across ${_courses.length} courses",
+                      style: GoogleFonts.inter(fontSize: 13, color: AppColors.darkTextSecondary),
+                    ),
+                  ],
                 ),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
               ),
-              child: Row(
+              Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.bolt_rounded, color: AppColors.warning, size: 32),
+                  IconButton(
+                    icon: _isSyncing
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
+                          )
+                        : const Icon(Icons.sync_rounded, color: AppColors.accent),
+                    tooltip: "Sync with Cloud",
+                    onPressed: _isSyncing ? null : () => _runSync(showSnackBar: true),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text("Active Recall Mode", style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                        const SizedBox(height: 4),
-                        const Text(
-                          "Ready for today's review session across enrolled courses.",
-                          style: TextStyle(color: AppColors.darkTextSecondary, fontSize: 13),
-                        ),
-                      ],
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.logout_rounded, color: AppColors.darkTextSecondary),
+                    tooltip: "Sign Out",
+                    onPressed: _handleLogout,
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 24),
+            ],
+          ),
+          const SizedBox(height: 16),
 
-            // Enrolled Courses Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          // High-yield stats row
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  AppColors.primary.withValues(alpha: 0.2),
+                  AppColors.darkCard,
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                Text("Your Enrolled Courses", style: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
-                TextButton.icon(
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text("New Course"),
-                  onPressed: _showAddCourseDialog,
-                ),
+                _buildStatItem("Enrolled", "${_courses.length}", "Courses", Icons.book_rounded, AppColors.primaryLight),
+                Container(height: 36, width: 1, color: AppColors.darkCardBorder),
+                _buildStatItem("Active Sets", "$totalSets", "Study Sets", Icons.auto_stories_rounded, AppColors.accent),
+                Container(height: 36, width: 1, color: AppColors.darkCardBorder),
+                _buildStatItem("Synthesized", "$totalQuestions", "Questions", Icons.psychology_rounded, AppColors.warning),
+                Container(height: 36, width: 1, color: AppColors.darkCardBorder),
+                _buildStatItem("Streak", "5 Days", "Active 🔥", Icons.local_fire_department_rounded, const Color(0xFFF97316)),
               ],
             ),
-            const SizedBox(height: 12),
+          ),
+          const SizedBox(height: 24),
 
-            if (_courses.isEmpty)
-              Container(
-                padding: const EdgeInsets.all(32),
-                alignment: Alignment.center,
-                child: const Text("No courses added yet. Tap '+ New Course' above.", style: TextStyle(color: AppColors.darkTextSecondary)),
-              )
-            else
-              ..._courses.map((course) {
-                final courseColor = Color(int.parse("FF${course.colorHex.replaceAll('#', '')}", radix: 16));
-
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 20),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.darkCard,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.darkCardBorder),
+          // Enrolled Courses Header & Actions
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("Your Enrolled Courses", style: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primaryLight,
+                      side: const BorderSide(color: AppColors.primary),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.auto_awesome, size: 16),
+                    label: const Text("AI Studio", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    onPressed: () => setState(() => _currentTabIndex = 3),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: courseColor.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: courseColor.withValues(alpha: 0.6)),
-                            ),
-                            child: Text(
-                              course.code,
-                              style: TextStyle(color: courseColor, fontWeight: FontWeight.bold, fontSize: 13),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              course.name,
-                              style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Text(
-                            "${course.studySets.length} sets",
-                            style: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      if (course.studySets.isEmpty)
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.add_rounded, size: 16),
+                    label: const Text("New Course", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    onPressed: _showAddCourseDialog,
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          if (_courses.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(32),
+              alignment: Alignment.center,
+              child: const Text("No courses added yet. Tap '+ New Course' above.", style: TextStyle(color: AppColors.darkTextSecondary)),
+            )
+          else
+            ..._courses.map((course) {
+              final courseColor = Color(int.parse("FF${course.colorHex.replaceAll('#', '')}", radix: 16));
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 20),
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.darkCard,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: AppColors.darkCardBorder),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
                         Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: courseColor.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: courseColor.withValues(alpha: 0.6)),
+                          ),
+                          child: Text(
+                            course.code,
+                            style: TextStyle(color: courseColor, fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            course.name,
+                            style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppColors.darkBg,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            "${course.studySets.length} study sets",
+                            style: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 12, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (course.studySets.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkBg.withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.lightbulb_outline, color: AppColors.warning, size: 20),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Text(
+                                "No study sets yet. Use AI Studio to synthesize questions from your lecture files.",
+                                style: TextStyle(color: AppColors.darkTextSecondary, fontSize: 13),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => setState(() => _currentTabIndex = 3),
+                              child: const Text("Ingest Now"),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      ...course.studySets.map((set) {
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: AppColors.darkBg.withValues(alpha: 0.5),
-                            borderRadius: BorderRadius.circular(12),
+                            color: AppColors.darkBg,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: AppColors.darkCardBorder),
                           ),
-                          child: const Row(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(Icons.lightbulb_outline, color: AppColors.warning, size: 20),
-                              SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  "No study sets in this course yet. Ingest notes or lecture slides using AI Ingestion.",
-                                  style: TextStyle(color: AppColors.darkTextSecondary, fontSize: 13),
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      else
-                        ...course.studySets.map((set) {
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: AppColors.darkBg,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.darkCardBorder),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        set.title,
-                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15),
-                                      ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      set.title,
+                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15),
                                     ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.primary.withValues(alpha: 0.15),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        "${set.questionCount} Questions",
-                                        style: const TextStyle(color: AppColors.primaryLight, fontSize: 11, fontWeight: FontWeight.bold),
-                                      ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary.withValues(alpha: 0.18),
+                                      borderRadius: BorderRadius.circular(6),
                                     ),
-                                  ],
-                                ),
-                                if (set.description != null && set.description!.isNotEmpty) ...[
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    set.description!,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 12),
+                                    child: Text(
+                                      "${set.questionCount} Questions",
+                                      style: const TextStyle(color: AppColors.primaryLight, fontSize: 11, fontWeight: FontWeight.bold),
+                                    ),
                                   ),
                                 ],
-                                const SizedBox(height: 12),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: ElevatedButton.icon(
+                              ),
+                              if (set.description != null && set.description!.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  set.description!,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 12),
+                                ),
+                              ],
+                              const SizedBox(height: 14),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: AppColors.darkTextSecondary,
+                                      side: const BorderSide(color: AppColors.darkCardBorder),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                    ),
+                                    icon: const Icon(Icons.style_outlined, size: 16),
+                                    label: const Text("Flashcards", style: TextStyle(fontSize: 12)),
+                                    onPressed: () => setState(() => _currentTabIndex = 1),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  ElevatedButton.icon(
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppColors.primary,
                                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                       textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                                     ),
                                     icon: const Icon(Icons.play_arrow_rounded, size: 18),
                                     label: const Text("Start Practice"),
                                     onPressed: () => _startQuiz(set),
                                   ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }),
-                    ],
-                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                  ],
+                ),
+              );
+            }),
+          const SizedBox(height: 40),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, String sub, IconData icon, Color color) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(height: 4),
+        Text(value, style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+        Text(label, style: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 11)),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: IndexedStack(
+        index: _currentTabIndex,
+        children: [
+          // Tab 0: Courses
+          _buildCoursesTab(),
+          // Tab 1: Flashcards
+          FlashcardsScreen(courses: _courses),
+          // Tab 2: Notebook
+          NotebookScreen(courses: _courses, apiClient: widget.apiClient),
+          // Tab 3: AI Studio
+          IngestionScreen(
+            courses: _courses,
+            apiClient: widget.apiClient,
+            onStudySetCreated: (newSet) {
+              setState(() {
+                final course = _courses.firstWhere(
+                  (c) => c.id == newSet.courseId,
+                  orElse: () => _courses.first,
                 );
-              }),
-            const SizedBox(height: 80),
+                course.studySets.insert(0, newSet);
+                _currentTabIndex = 0;
+              });
+            },
+          ),
+        ],
+      ),
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.darkCard,
+          border: Border(top: BorderSide(color: AppColors.darkCardBorder, width: 1)),
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _currentTabIndex,
+          onTap: (index) => setState(() => _currentTabIndex = index),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          type: BottomNavigationBarType.fixed,
+          selectedItemColor: AppColors.primaryLight,
+          unselectedItemColor: AppColors.darkTextSecondary,
+          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+          unselectedLabelStyle: const TextStyle(fontSize: 12),
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard_rounded),
+              activeIcon: Icon(Icons.dashboard_rounded, color: AppColors.primaryLight),
+              label: "Courses",
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.style_outlined),
+              activeIcon: Icon(Icons.style_rounded, color: AppColors.primaryLight),
+              label: "Flashcards",
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.menu_book_outlined),
+              activeIcon: Icon(Icons.menu_book_rounded, color: AppColors.primaryLight),
+              label: "Notebook",
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.auto_awesome_outlined),
+              activeIcon: Icon(Icons.auto_awesome, color: AppColors.primaryLight),
+              label: "AI Studio",
+            ),
           ],
         ),
       ),
     );
   }
 }
-

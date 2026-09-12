@@ -28,6 +28,7 @@ class SessionService {
   }
 
   bool get isAuthenticated => token != null && token!.isNotEmpty;
+  bool get hasValidToken => isAuthenticated;
 
   Future<void> saveAuth({
     required String token,
@@ -55,4 +56,6 @@ class SessionService {
     await _prefs.remove(_keyEmail);
     await _prefs.remove(_keyFullName);
   }
+
+  Future<void> clearAuth() => clear();
 }
