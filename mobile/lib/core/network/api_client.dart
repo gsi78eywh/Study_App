@@ -36,12 +36,14 @@ class ApiClient {
         },
         onError: (DioException e, handler) {
           String errorMessage = "A network error occurred.";
-          if (e.response?.data is Map && (e.response?.data as Map).containsKey("message")) {
+          if (e.response?.statusCode == 401) {
+            errorMessage = "Session expired. Tap the logout icon in the top right to sign in fresh.";
+          } else if (e.response?.data is Map && (e.response?.data as Map).containsKey("message")) {
             errorMessage = e.response?.data["message"];
           } else if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout) {
             errorMessage = "Server connection timed out. Please check if the C# backend is running.";
           } else if (e.type == DioExceptionType.connectionError) {
-            errorMessage = "Cannot connect to C# backend at ${dio.options.baseUrl}. Ensure it is launched and listening.";
+            errorMessage = "Cannot connect to C# backend at ${dio.options.baseUrl}. Ensure it is listening.";
           }
           return handler.next(
             DioException(
@@ -60,4 +62,3 @@ class ApiClient {
     dio.options.baseUrl = newUrl;
   }
 }
-
