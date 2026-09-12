@@ -9,7 +9,7 @@ public record SyncPushRequest(
 );
 
 public record SyncCourseDto(Guid Id, string Code, string Name, string ColorHex, DateTime UpdatedAt, bool IsDeleted);
-public record SyncStudySetDto(Guid Id, Guid CourseId, string Title, string Description, DateTime UpdatedAt, bool IsDeleted);
+public record SyncStudySetDto(Guid Id, Guid CourseId, string Title, string Description, DateTime UpdatedAt, bool IsDeleted, int QuestionCount = 0);
 public record SyncQuestionDto(Guid Id, Guid StudySetId, int Type, string Prompt, string HintsJson, string Explanation, int Difficulty, int SortOrder);
 public record SyncTestSessionDto(Guid Id, Guid StudySetId, int Mode, int Score, int TotalQuestions, int TimeSpentSeconds, DateTime CompletedAt);
 

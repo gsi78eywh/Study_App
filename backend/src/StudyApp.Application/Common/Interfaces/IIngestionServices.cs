@@ -15,6 +15,7 @@ public interface IAiQuestionGenerator
         byte[] imageBytes,
         string mimeType,
         string title,
+        List<string> requestedTypes,
         int targetCount,
         CancellationToken cancellationToken = default);
 }

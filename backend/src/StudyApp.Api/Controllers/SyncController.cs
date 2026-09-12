@@ -138,7 +138,7 @@ public class SyncController : ControllerBase
 
         var updatedStudySets = await _context.StudySets
             .Where(s => s.Course != null && s.Course.UserId == userId && (s.UpdatedAt ?? s.CreatedAt) > request.LastSyncedAt)
-            .Select(s => new SyncStudySetDto(s.Id, s.CourseId, s.Title, s.Description, s.UpdatedAt ?? s.CreatedAt, false))
+            .Select(s => new SyncStudySetDto(s.Id, s.CourseId, s.Title, s.Description, s.UpdatedAt ?? s.CreatedAt, false, s.Questions.Count))
             .ToListAsync();
 
         var updatedQuestions = await _context.Questions

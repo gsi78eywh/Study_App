@@ -1,12 +1,16 @@
 import "dart:math" as math;
 import "package:flutter/material.dart";
 import "package:google_fonts/google_fonts.dart";
+import "../../../core/network/api_client.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../courses/models/course_models.dart";
+import "../../quiz/models/quiz_models.dart";
 
 class FlashcardItem {
   final String id;
   final String courseCode;
+  final String studySetId;
+  final String studySetTitle;
   final String front;
   final String back;
   final String? category;
@@ -17,6 +21,8 @@ class FlashcardItem {
   FlashcardItem({
     required this.id,
     required this.courseCode,
+    required this.studySetId,
+    required this.studySetTitle,
     required this.front,
     required this.back,
     this.category,
@@ -28,12 +34,16 @@ class FlashcardItem {
 
 class FlashcardsScreen extends StatefulWidget {
   final List<CourseModel> courses;
+  final String? initialStudySetId;
+  final ApiClient? apiClient;
   final VoidCallback? onLoadStarterPack;
   final VoidCallback? onNavigateToStudio;
 
   const FlashcardsScreen({
     super.key,
     required this.courses,
+    this.initialStudySetId,
+    this.apiClient,
     this.onLoadStarterPack,
     this.onNavigateToStudio,
   });
@@ -46,7 +56,8 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
   late AnimationController _flipController;
   late Animation<double> _flipAnimation;
 
-  String _selectedCourseFilter = "ALL";
+  final String _selectedCourseFilter = "ALL";
+  String _selectedSetFilter = "ALL";
   int _currentIndex = 0;
   bool _showBack = false;
 
@@ -75,16 +86,24 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
         }
       });
 
+    if (widget.initialStudySetId != null) {
+      _selectedSetFilter = widget.initialStudySetId!;
+    }
+
     _initializeCards();
-    _applyFilter();
+    _fetchRealQuestionsIfAvailable();
   }
 
   @override
   void didUpdateWidget(FlashcardsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.courses.length != oldWidget.courses.length) {
+    if (widget.courses.length != oldWidget.courses.length ||
+        widget.initialStudySetId != oldWidget.initialStudySetId) {
+      if (widget.initialStudySetId != null) {
+        _selectedSetFilter = widget.initialStudySetId!;
+      }
       _initializeCards();
-      _applyFilter();
+      _fetchRealQuestionsIfAvailable();
     }
   }
 
@@ -92,6 +111,72 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
   void dispose() {
     _flipController.dispose();
     super.dispose();
+  }
+
+  Future<void> _fetchRealQuestionsIfAvailable() async {
+    if (widget.apiClient == null) return;
+
+    // Fetch questions for target study sets
+    final setsToFetch = <StudySetModel>[];
+    for (final c in widget.courses) {
+      for (final s in c.studySets) {
+        if (_selectedSetFilter == "ALL" || _selectedSetFilter == s.id) {
+          setsToFetch.add(s);
+        }
+      }
+    }
+
+    bool hasNewCards = false;
+    for (final set in setsToFetch) {
+      try {
+        final response = await widget.apiClient!.dio.get("/api/v1/studysets/${set.id}/questions");
+        if (response.statusCode == 200 && response.data is List) {
+          final List list = response.data;
+          final questions = list.map((item) => QuestionModel.fromJson(item as Map<String, dynamic>)).toList();
+
+          if (questions.isNotEmpty) {
+            // Remove any placeholder cards for this set
+            _allCards.removeWhere((c) => c.studySetId == set.id);
+
+            final course = widget.courses.firstWhere(
+              (c) => c.studySets.any((s) => s.id == set.id),
+              orElse: () => widget.courses.first,
+            );
+
+            for (final q in questions) {
+              final correctOpt = q.options.firstWhere(
+                (o) => o.isCorrect,
+                orElse: () => q.options.isNotEmpty
+                    ? q.options.first
+                    : QuestionOptionModel(id: "none", optionText: "Verified Concept", isCorrect: true),
+              );
+
+              final backText = StringBuffer();
+              backText.writeln(correctOpt.optionText);
+              if (q.explanation != null && q.explanation!.trim().isNotEmpty) {
+                backText.writeln("\n💡 ${q.explanation!.trim()}");
+              }
+
+              _allCards.add(FlashcardItem(
+                id: "card-${q.id}",
+                courseCode: course.code,
+                studySetId: set.id,
+                studySetTitle: set.title,
+                front: q.prompt,
+                back: backText.toString().trim(),
+                category: set.title,
+                hint: q.hints.isNotEmpty ? q.hints.first : null,
+              ));
+            }
+            hasNewCards = true;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (hasNewCards && mounted) {
+      _applyFilter();
+    }
   }
 
   void _initializeCards() {
@@ -111,6 +196,8 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                   _allCards.add(FlashcardItem(
                     id: "card-${course.code}-$i-${studySet.id.substring(0, math.min(6, studySet.id.length))}",
                     courseCode: course.code,
+                    studySetId: studySet.id,
+                    studySetTitle: studySet.title,
                     front: q,
                     back: a,
                     category: studySet.title,
@@ -121,7 +208,9 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
               _allCards.add(FlashcardItem(
                 id: "card-${course.code}-$i-${studySet.id.substring(0, math.min(6, studySet.id.length))}",
                 courseCode: course.code,
-                front: "Key Concept (${studySet.title})",
+                studySetId: studySet.id,
+                studySetTitle: studySet.title,
+                front: "Core Concept (${studySet.title})",
                 back: bullet,
                 category: studySet.title,
               ));
@@ -131,22 +220,26 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
           _allCards.add(FlashcardItem(
             id: "card-${course.code}-${studySet.id}",
             courseCode: course.code,
-            front: "What is covered in '${studySet.title}'?",
+            studySetId: studySet.id,
+            studySetTitle: studySet.title,
+            front: "Overview of '${studySet.title}'",
             back: studySet.description!,
             category: course.name,
           ));
         }
       }
     }
+    _applyFilter();
   }
 
   void _applyFilter() {
     setState(() {
-      if (_selectedCourseFilter == "ALL") {
-        _filteredCards = List.from(_allCards);
-      } else {
-        _filteredCards = _allCards.where((c) => c.courseCode == _selectedCourseFilter).toList();
-      }
+      _filteredCards = _allCards.where((c) {
+        final matchesCourse = _selectedCourseFilter == "ALL" || c.courseCode == _selectedCourseFilter;
+        final matchesSet = _selectedSetFilter == "ALL" || c.studySetId == _selectedSetFilter;
+        return matchesCourse && matchesSet;
+      }).toList();
+
       _currentIndex = 0;
       _resetCardFlip();
     });
@@ -172,22 +265,12 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
     currentCard.interval = interval;
 
     setState(() {
-      if (rating == "again") {
+      if (rating == "again" || rating == "hard") {
         _learningIds.add(currentCard.id);
         _highRiskIds.add(currentCard.id);
         _masteredIds.remove(currentCard.id);
         currentCard.isMastered = false;
-      } else if (rating == "hard") {
-        _learningIds.add(currentCard.id);
-        _highRiskIds.add(currentCard.id);
-        _masteredIds.remove(currentCard.id);
-        currentCard.isMastered = false;
-      } else if (rating == "good") {
-        _learningIds.remove(currentCard.id);
-        _highRiskIds.remove(currentCard.id);
-        _masteredIds.add(currentCard.id);
-        currentCard.isMastered = true;
-      } else if (rating == "easy") {
+      } else {
         _learningIds.remove(currentCard.id);
         _highRiskIds.remove(currentCard.id);
         _masteredIds.add(currentCard.id);
@@ -236,13 +319,31 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
   @override
   Widget build(BuildContext context) {
     final isDark = context.isDarkMode;
-    final availableCourses = <String>["ALL", ...widget.courses.map((c) => c.code).toSet()];
+    final canPop = Navigator.of(context).canPop();
+    
+
+    final allStudySets = <StudySetModel>[];
+    for (final c in widget.courses) {
+      allStudySets.addAll(c.studySets);
+    }
+
     final totalCards = _filteredCards.length;
     final masteredCount = _filteredCards.where((c) => _masteredIds.contains(c.id)).length;
     final learningCount = _filteredCards.where((c) => _learningIds.contains(c.id)).length;
     final progress = totalCards > 0 ? (masteredCount / totalCards) : 0.0;
 
+    String currentSetTitle = "All Study Sets";
+    if (_selectedSetFilter != "ALL") {
+      final match = allStudySets.where((s) => s.id == _selectedSetFilter).firstOrNull;
+      if (match != null) currentSetTitle = match.title;
+    }
+
     return Scaffold(
+      appBar: canPop
+          ? AppBar(
+              title: Text(currentSetTitle, style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 18)),
+            )
+          : null,
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -260,12 +361,14 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            "Spaced Recall Flashcards",
+                            canPop ? "Study Set Practice" : "Spaced Recall Flashcards",
                             style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.bold, color: context.textPrimary),
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            "Active recall + spaced repetition intervals strengthen long-term retention",
+                            _selectedSetFilter != "ALL"
+                                ? "Practicing: $currentSetTitle"
+                                : "Active recall intervals strengthen long-term retention",
                             style: GoogleFonts.inter(fontSize: 13, color: context.textSecondary),
                           ),
                         ],
@@ -289,44 +392,38 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                   ),
                   const SizedBox(height: 16),
 
-                  if (availableCourses.length > 1) ...[
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: availableCourses.map((code) {
-                          final isSelected = _selectedCourseFilter == code;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: FilterChip(
-                              selected: isSelected,
-                              label: Text(code == "ALL" ? "All Subjects" : code),
-                              labelStyle: TextStyle(
-                                color: isSelected
-                                    ? Colors.white
-                                    : (isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                fontSize: 13,
-                              ),
-                              selectedColor: isDark ? AppColors.primary : AppColors.primaryDark,
-                              backgroundColor: context.surfaceColor,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(20),
-                                side: BorderSide(
-                                  color: isSelected
-                                      ? (isDark ? AppColors.primary : AppColors.primaryDark)
-                                      : context.cardBorderColor,
-                                ),
-                              ),
-                              onSelected: (_) {
-                                _selectedCourseFilter = code;
-                                _applyFilter();
-                              },
-                            ),
-                          );
-                        }).toList(),
+                  // Study Set Selector if multiple study sets exist
+                  if (allStudySets.length > 1 && !canPop) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: context.surfaceColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: context.cardBorderColor),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedSetFilter,
+                          isExpanded: true,
+                          dropdownColor: context.surfaceColor,
+                          items: [
+                            const DropdownMenuItem(value: "ALL", child: Text("📚 All Study Sets (Combined Deck)")),
+                            ...allStudySets.map((s) => DropdownMenuItem(
+                                  value: s.id,
+                                  child: Text("📖 ${s.title} (${s.questionCount} Qs)"),
+                                )),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() => _selectedSetFilter = val);
+                              _applyFilter();
+                              _fetchRealQuestionsIfAvailable();
+                            }
+                          },
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
                   ],
 
                   // Visual Mastery Meter
@@ -406,12 +503,12 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                           ),
                           const SizedBox(height: 18),
                           Text(
-                            "No Flashcards Generated Yet",
+                            "No Flashcards in this Deck",
                             style: GoogleFonts.outfit(fontSize: 20, color: context.textPrimary, fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            "Ingest lecture notes, textbook photos, or multi-page PDFs in the AI Studio to automatically generate active-recall cards, or load a pre-built course starter deck.",
+                            "Upload lecture notes, whiteboard photos, or PDFs in the AI Studio to generate active recall flashcards.",
                             textAlign: TextAlign.center,
                             style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.5),
                           ),
@@ -421,7 +518,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                             spacing: 12,
                             runSpacing: 12,
                             children: [
-                              if (widget.onLoadStarterPack != null)
+                              if (widget.onLoadStarterPack != null && widget.courses.isEmpty)
                                 ElevatedButton.icon(
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: AppColors.accent,
@@ -539,7 +636,9 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                             borderRadius: BorderRadius.circular(8),
                                           ),
                                           child: Text(
-                                            card.courseCode,
+                                            card.studySetTitle,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
                                               color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
                                               fontWeight: FontWeight.bold,
@@ -571,7 +670,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                         isUnder ? card.back : card.front,
                                         textAlign: TextAlign.center,
                                         style: GoogleFonts.outfit(
-                                          fontSize: isUnder ? 17 : 20,
+                                          fontSize: isUnder ? 16 : 19,
                                           fontWeight: isUnder ? FontWeight.w500 : FontWeight.w600,
                                           color: context.textPrimary,
                                           height: 1.5,
@@ -587,7 +686,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                           Icon(Icons.touch_app_outlined, size: 15, color: context.textSecondary.withValues(alpha: 0.7)),
                                           const SizedBox(width: 6),
                                           Text(
-                                            isUnder ? "Tap to view question" : "Tap card to reveal answer",
+                                            isUnder ? "Tap to view question" : "Tap card to reveal verified answer",
                                             style: TextStyle(color: context.textSecondary.withValues(alpha: 0.7), fontSize: 12),
                                           ),
                                         ],

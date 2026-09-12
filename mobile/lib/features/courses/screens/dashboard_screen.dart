@@ -235,32 +235,109 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  void _startQuiz(StudySetModel set) {
-    final questions = [
-      QuestionModel(
-        id: "q1",
-        studySetId: set.id,
-        type: QuestionTypeEnum.multipleChoice,
-        prompt: "Review question for: ${set.title}",
-        hints: const ["Recall the core concept introduced in this module."],
-        explanation: set.description ?? "Active recall practice session.",
-        options: [
-          QuestionOptionModel(id: "o1", optionText: "Primary verified answer concept", isCorrect: true),
-          QuestionOptionModel(id: "o2", optionText: "Secondary distractor alternative", isCorrect: false),
-          QuestionOptionModel(id: "o3", optionText: "Tertiary non-applicable option", isCorrect: false),
-          QuestionOptionModel(id: "o4", optionText: "Quaternary inverted hypothesis", isCorrect: false),
-        ],
-      ),
-    ];
-
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => QuizPlayerScreen(
-          studySet: set,
-          questions: questions,
-          apiClient: widget.apiClient,
-          sessionService: widget.sessionService,
+  Future<void> _startQuiz(StudySetModel set) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text("Loading practice questions..."),
+              ],
+            ),
+          ),
         ),
+      ),
+    );
+
+    List<QuestionModel> questions = [];
+    try {
+      final response = await widget.apiClient.dio.get("/api/v1/studysets/${set.id}/questions");
+      if (response.statusCode == 200 && response.data is List) {
+        final List list = response.data;
+        questions = list.map((item) => QuestionModel.fromJson(item as Map<String, dynamic>)).toList();
+      }
+    } catch (_) {}
+
+    if (mounted) Navigator.of(context).pop();
+
+    if (questions.isEmpty) {
+      questions = [
+        QuestionModel(
+          id: "q1",
+          studySetId: set.id,
+          type: QuestionTypeEnum.multipleChoice,
+          prompt: "What is the primary academic focus of '${set.title}'?",
+          hints: const ["Review the study set title and concepts."],
+          explanation: set.description ?? "Active recall practice session.",
+          options: [
+            QuestionOptionModel(id: "o1", optionText: set.title, isCorrect: true),
+            QuestionOptionModel(id: "o2", optionText: "General introductory overview", isCorrect: false, distractorRationale: "Too broad."),
+            QuestionOptionModel(id: "o3", optionText: "Peripheral historical background", isCorrect: false, distractorRationale: "Not core focus."),
+            QuestionOptionModel(id: "o4", optionText: "Unrelated theoretical framework", isCorrect: false, distractorRationale: "Incorrect."),
+          ],
+        )
+      ];
+    }
+
+    if (mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => QuizPlayerScreen(
+            studySet: set,
+            questions: questions,
+            apiClient: widget.apiClient,
+            sessionService: widget.sessionService,
+          ),
+        ),
+      );
+    }
+  }
+
+  void _confirmDeleteStudySet(CourseModel course, StudySetModel set) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text("Delete Study Set?", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: ctx.textPrimary)),
+        content: Text("Are you sure you want to delete '${set.title}'? This will remove all practice questions.", style: TextStyle(color: ctx.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await widget.apiClient.dio.delete("/api/v1/studysets/${set.id}");
+                setState(() {
+                  course.studySets.removeWhere((s) => s.id == set.id);
+                });
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Deleted '${set.title}'"), duration: const Duration(seconds: 2)),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Delete failed: $e"), backgroundColor: AppColors.danger),
+                  );
+                }
+              }
+            },
+            child: const Text("Delete", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
       ),
     );
   }
@@ -722,6 +799,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),
+                                    tooltip: "Delete Study Set",
+                                    onPressed: () => _confirmDeleteStudySet(course, set),
+                                  ),
+                                  const SizedBox(width: 4),
                                   OutlinedButton.icon(
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: context.textSecondary,
@@ -731,7 +814,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     ),
                                     icon: const Icon(Icons.style_outlined, size: 16),
                                     label: const Text("Flashcards", style: TextStyle(fontSize: 12)),
-                                    onPressed: () => setState(() => _currentTabIndex = 1),
+                                    onPressed: () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => FlashcardsScreen(
+                                            courses: _courses,
+                                            initialStudySetId: set.id,
+                                            apiClient: widget.apiClient,
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
                                   const SizedBox(width: 8),
                                   ElevatedButton.icon(
@@ -787,6 +880,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // Tab 1: Flashcards
           FlashcardsScreen(
             courses: _courses,
+            apiClient: widget.apiClient,
             onLoadStarterPack: _loadStarterDemoPack,
             onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
           ),

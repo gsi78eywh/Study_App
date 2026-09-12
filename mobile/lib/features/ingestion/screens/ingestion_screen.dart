@@ -180,6 +180,8 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           "file": multipartFile,
           "courseId": _selectedCourseId,
           "title": _titleController.text.trim(),
+          "questionTypes": _selectedModes.map((m) => m.toLowerCase()).join(","),
+          "targetCount": _targetCount,
           "fastMode": _fastMode.toString(),
         });
 

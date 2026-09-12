@@ -1,5 +1,4 @@
-﻿using System.Collections.Concurrent;
-using System.Net.Http.Headers;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -18,13 +17,9 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
     private readonly IConfiguration _configuration;
     private readonly ILogger<GeminiAiService> _logger;
     private readonly string _apiKey;
-    private readonly string[] _modelCandidates;
-    private readonly string _baseUrl;
+    private readonly string _model;
 
-    // In-memory cache for sub-5ms responses on repeated documents/prompts
     private static readonly ConcurrentDictionary<string, (DateTime CachedAt, object Data)> _cache = new();
-    
-    // Concurrency limiter to protect against upstream Gemini 429/503 rate limits
     private static readonly SemaphoreSlim _concurrencyLimiter = new(4, 4);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -47,18 +42,8 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         {
             _apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? string.Empty;
         }
-        var preferredModel = _configuration["AiSettings:ModelId"] ?? "gemini-flash-latest";
-        
-        // Priority order of models with automatic fallbacks for peak-demand resilience
-        _modelCandidates = new[]
-        {
-            preferredModel,
-            "gemini-3.6-flash",
-            "gemini-flash-latest",
-            "gemini-2.5-flash-lite"
-        }.Distinct().ToArray();
 
-        _baseUrl = _configuration["AiSettings:BaseUrl"] ?? "https://generativelanguage.googleapis.com/v1beta/openai/";
+        _model = _configuration["AiSettings:ModelId"] ?? "gemini-flash-latest";
     }
 
     public async Task<GeneratedStudySetResult> GenerateStudySetAsync(
@@ -73,9 +58,10 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             return GenerateEmptyFallback(title);
         }
 
-        // Check cache for instant response (<5ms)
         var textHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawText)));
-        var cacheKey = $"study_set_{textHash}_{targetCount}";
+        var typesKey = string.Join("_", requestedTypes);
+        var cacheKey = $"study_set_{textHash}_{typesKey}_{targetCount}";
+
         if (_cache.TryGetValue(cacheKey, out var cached) && cached.Data is GeneratedStudySetResult cachedResult)
         {
             _logger.LogInformation("Returning cached study set for {Title} (0ms response)", title);
@@ -86,30 +72,37 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         {
             var typesList = requestedTypes.Count > 0
                 ? string.Join(", ", requestedTypes)
-                : "multiple_choice, identification, enumeration, bullet_points, logical_thinking";
+                : "multiple_choice, identification, enumeration";
 
             var systemPrompt = """
             You are an elite university professor and academic curriculum architect.
-            Analyze the study material and synthesize active recall study materials:
+            Analyze the study material and synthesize active recall practice tests:
             1. High-yield academic summary.
-            2. 5 high-yield bullet points capturing core principles or formulas.
-            3. Exactly requested number of high-quality active recall questions.
+            2. 5 high-yield bullet points capturing core principles, definitions, or formulas.
+            3. Exactly the requested number of high-quality active recall questions matching the requested types.
 
-            OUTPUT FORMAT: Pure valid JSON only (no markdown quotes, no explanations outside JSON):
+            QUESTION TYPES GUIDANCE:
+            - multiple_choice: Include 'prompt', 4 'options' with 1 correct option and 3 plausible distractors with 'distractorRationale', plus 'explanation'.
+            - identification: Fill-in-the-blank or direct identification of key terms. Include 'prompt', 'correctAnswer', and 'hints'.
+            - enumeration: Multi-item listing questions (e.g. 'Enumerate the 3 stages of...'). Include 'prompt', 'correctAnswer' (bulleted or comma-separated), and 'explanation'.
+
+            OUTPUT FORMAT: Return pure valid JSON matching this schema:
             {
-              "summary": "Academic overview...",
+              "summary": "Academic overview of the notes...",
               "highYieldBulletPoints": ["Point 1", "Point 2", "Point 3", "Point 4", "Point 5"],
               "questions": [
                 {
                   "type": "multiple_choice",
-                  "prompt": "Clear question text?",
-                  "hints": ["Hint 1", "Hint 2"],
-                  "correctAnswer": "Correct Option Text",
+                  "prompt": "Specific question text?",
+                  "hints": ["Helpful hint 1", "Helpful hint 2"],
+                  "correctAnswer": "Correct Answer Text",
                   "options": [
-                    { "text": "Correct Option Text", "isCorrect": true, "distractorRationale": null },
-                    { "text": "Plausible Distractor", "isCorrect": false, "distractorRationale": "Why this is incorrect" }
+                    { "text": "Correct Answer Text", "isCorrect": true, "distractorRationale": null },
+                    { "text": "Plausible Distractor 1", "isCorrect": false, "distractorRationale": "Why this is incorrect" },
+                    { "text": "Plausible Distractor 2", "isCorrect": false, "distractorRationale": "Why this is incorrect" },
+                    { "text": "Plausible Distractor 3", "isCorrect": false, "distractorRationale": "Why this is incorrect" }
                   ],
-                  "explanation": "Deep conceptual explanation..."
+                  "explanation": "Detailed explanation of why the correct answer is right and the underlying concept."
                 }
               ]
             }
@@ -120,32 +113,43 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             TARGET QUESTION COUNT: {targetCount}
             REQUESTED QUESTION TYPES: [{typesList}]
 
-            STUDY MATERIAL:
+            COURSE STUDY MATERIAL:
             {rawText}
             """;
 
-            var messages = new object[]
+            var payload = new
             {
-                new { role = "system", content = systemPrompt },
-                new { role = "user", content = userPrompt }
+                contents = new[]
+                {
+                    new
+                    {
+                        parts = new[]
+                        {
+                            new { text = systemPrompt + "\n\n" + userPrompt }
+                        }
+                    }
+                },
+                generationConfig = new
+                {
+                    responseMimeType = "application/json",
+                    temperature = 0.2
+                }
             };
 
-            // Fast 6-second timeout: if internet is slow or LLM spikes, immediately fall back to local analyzer!
-            using var fastCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            fastCts.CancelAfter(TimeSpan.FromSeconds(6));
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(20));
 
             try
             {
-                var (responseContent, modelUsed) = await CallGeminiWithFallbackAsync(messages, fastCts.Token);
-
-                if (!string.IsNullOrWhiteSpace(responseContent))
+                var responseJson = await CallNativeGeminiAsync(payload, cts.Token);
+                if (!string.IsNullOrWhiteSpace(responseJson))
                 {
-                    var cleanJson = ExtractJsonBlock(responseContent);
+                    var cleanJson = ExtractJsonBlock(responseJson);
                     var parsed = JsonSerializer.Deserialize<AiResponsePayload>(cleanJson, JsonOptions);
                     if (parsed?.Questions != null && parsed.Questions.Count > 0)
                     {
-                        _logger.LogInformation("Successfully synthesized study set with {Count} questions using {Model}",
-                            parsed.Questions.Count, modelUsed);
+                        _logger.LogInformation("Synthesized {Count} questions for '{Title}' using Gemini native API",
+                            parsed.Questions.Count, title);
 
                         var result = new GeneratedStudySetResult(
                             Guid.NewGuid(),
@@ -162,13 +166,11 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Gemini call exceeded timeout or encountered error; using intelligent local synthesizer for instant response");
+                _logger.LogWarning(ex, "Gemini call for '{Title}' did not complete, activating intelligent local synthesizer", title);
             }
         }
 
-        // Instant local academic document synthesizer (<50ms, 100% offline reliability)
         var localResult = AnalyzeAndSynthesizeLocally(title, rawText, targetCount);
-        _cache[cacheKey] = (DateTime.UtcNow, localResult);
         return localResult;
     }
 
@@ -176,6 +178,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         byte[] imageBytes,
         string mimeType,
         string title,
+        List<string> requestedTypes,
         int targetCount,
         CancellationToken cancellationToken = default)
     {
@@ -185,7 +188,9 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         }
 
         var imageHash = Convert.ToHexString(SHA256.HashData(imageBytes));
-        var cacheKey = $"img_study_set_{imageHash}_{targetCount}";
+        var typesKey = string.Join("_", requestedTypes);
+        var cacheKey = $"img_study_set_{imageHash}_{typesKey}_{targetCount}";
+
         if (_cache.TryGetValue(cacheKey, out var cached) && cached.Data is GeneratedStudySetResult cachedResult)
         {
             _logger.LogInformation("Returning cached visual study set for {Title} (0ms response)", title);
@@ -194,70 +199,89 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
         if (!string.IsNullOrWhiteSpace(_apiKey))
         {
-            var systemPrompt = """
-            You are an expert academic curriculum designer and visual OCR tutor.
-            Analyze this uploaded study material image (which may contain handwritten lecture notes, whiteboard equations, diagrams, textbook pages, or slides).
-            Synthesize exam-ready active recall materials:
-            1. An academic summary of everything written or diagrammed in the image.
-            2. 5 high-yield bullet points with formulas, laws, or definitions.
-            3. Exactly requested number of active recall questions (multiple_choice with distractors, identification, enumeration, hints, and explanations).
+            var typesList = requestedTypes.Count > 0
+                ? string.Join(", ", requestedTypes)
+                : "multiple_choice, identification, enumeration";
 
-            OUTPUT FORMAT: Pure valid JSON matching:
+            var systemPrompt = $$"""
+            You are an expert academic curriculum designer, visual OCR analyzer, and university tutor.
+            Analyze the attached image of student study materials (which may contain handwritten lecture notes, whiteboard equations, diagrams, slides, or textbook pages).
+            
+            TASKS:
+            1. Extract all text, formulas, diagrams, definitions, and concepts shown in the image.
+            2. Write a comprehensive high-yield summary of everything in the image.
+            3. Extract 5 high-yield bullet points (laws, definitions, steps, key formulas).
+            4. Generate exactly {{targetCount}} high-yield active recall practice questions based directly on the contents of the image.
+            5. Honor the requested exam types: [{{typesList}}]. If 'multiple_choice', provide 4 options (1 correct, 3 plausible distractors) with 'distractorRationale' and 'explanation'. If 'identification', provide direct question and 'correctAnswer'. If 'enumeration', ask for lists/steps.
+
+            OUTPUT FORMAT: Return pure valid JSON matching this schema:
             {
-              "summary": "...",
-              "highYieldBulletPoints": ["...", "..."],
+              "summary": "Full academic summary of the image content...",
+              "highYieldBulletPoints": ["Point 1", "Point 2", "Point 3", "Point 4", "Point 5"],
               "questions": [
                 {
                   "type": "multiple_choice",
-                  "prompt": "...",
+                  "prompt": "Question based directly on the uploaded image?",
                   "hints": ["Hint 1", "Hint 2"],
-                  "correctAnswer": "...",
+                  "correctAnswer": "Correct Option Text",
                   "options": [
-                    { "text": "...", "isCorrect": true, "distractorRationale": null },
-                    { "text": "...", "isCorrect": false, "distractorRationale": "..." }
+                    { "text": "Correct Option Text", "isCorrect": true, "distractorRationale": null },
+                    { "text": "Plausible Distractor 1", "isCorrect": false, "distractorRationale": "Why this is incorrect" },
+                    { "text": "Plausible Distractor 2", "isCorrect": false, "distractorRationale": "Why this is incorrect" },
+                    { "text": "Plausible Distractor 3", "isCorrect": false, "distractorRationale": "Why this is incorrect" }
                   ],
-                  "explanation": "..."
+                  "explanation": "Detailed explanation citing the visual context from the image."
                 }
               ]
             }
             """;
 
-            var userPrompt = $"Analyze this study material image for '{title}' and generate {targetCount} high-yield active recall questions.";
-
-            var messages = new object[]
+            var payload = new
             {
-                new { role = "system", content = systemPrompt },
-                new
+                contents = new[]
                 {
-                    role = "user",
-                    content = new object[]
+                    new
                     {
-                        new { type = "text", text = userPrompt },
-                        new
+                        parts = new object[]
                         {
-                            type = "image_url",
-                            image_url = new { url = $"data:{mimeType};base64,{Convert.ToBase64String(imageBytes)}" }
+                            new { text = systemPrompt },
+                            new
+                            {
+                                inlineData = new
+                                {
+                                    mimeType = mimeType,
+                                    data = Convert.ToBase64String(imageBytes)
+                                }
+                            }
                         }
                     }
+                },
+                generationConfig = new
+                {
+                    responseMimeType = "application/json",
+                    temperature = 0.2
                 }
             };
 
-            using var fastCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            fastCts.CancelAfter(TimeSpan.FromSeconds(8));
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(25));
 
             try
             {
-                var (responseContent, modelUsed) = await CallGeminiWithFallbackAsync(messages, fastCts.Token);
-                if (!string.IsNullOrWhiteSpace(responseContent))
+                var responseJson = await CallNativeGeminiAsync(payload, cts.Token);
+                if (!string.IsNullOrWhiteSpace(responseJson))
                 {
-                    var cleanJson = ExtractJsonBlock(responseContent);
+                    var cleanJson = ExtractJsonBlock(responseJson);
                     var parsed = JsonSerializer.Deserialize<AiResponsePayload>(cleanJson, JsonOptions);
                     if (parsed?.Questions != null && parsed.Questions.Count > 0)
                     {
+                        _logger.LogInformation("Successfully extracted {Count} visual questions from image for '{Title}'",
+                            parsed.Questions.Count, title);
+
                         var result = new GeneratedStudySetResult(
                             Guid.NewGuid(),
                             title,
-                            parsed.Summary ?? $"Extracted from whiteboard/image: {title}",
+                            parsed.Summary ?? $"Synthesized visual study set for {title}.",
                             parsed.HighYieldBulletPoints ?? new List<string>(),
                             parsed.Questions
                         );
@@ -269,12 +293,11 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Multimodal vision call timed out or failed, generating instant fallback");
+                _logger.LogWarning(ex, "Multimodal vision call for '{Title}' did not complete, falling back to local synthesizer", title);
             }
         }
 
-        var fallbackResult = AnalyzeAndSynthesizeLocally(title, $"[Visual Lecture Material from {title}]", targetCount);
-        _cache[cacheKey] = (DateTime.UtcNow, fallbackResult);
+        var fallbackResult = AnalyzeAndSynthesizeLocally(title, $"[Visual Lecture Material: {title}]", targetCount);
         return fallbackResult;
     }
 
@@ -289,167 +312,118 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         }
 
         var systemInstruction = """
-        You are 'Gemini Study Tutor', a world-class, encouraging, and academically rigorous AI tutor for students.
-        Your goal is to help students achieve mastery and deep conceptual understanding.
+        You are 'Gemini Study Tutor', an encouraging, academically rigorous AI tutor for university students.
         Guidelines:
-        - Provide clear, intuitive explanations followed by precise academic rigor.
-        - Use relatable analogies, formatting, and bullet points where beneficial.
-        - When explaining equations or formulas, break down every variable.
-        - Maintain an encouraging, patient, and intellectually stimulating tone.
+        - Provide clear conceptual explanations followed by step-by-step logic.
+        - Break down formulas, equations, or legal/scientific terminology clearly.
+        - When a student asks for practice or help, provide clear explanations.
         """;
 
+        var promptBuilder = new StringBuilder();
+        promptBuilder.AppendLine(systemInstruction);
         if (!string.IsNullOrWhiteSpace(request.ContextTopic))
         {
-            systemInstruction += $"\n\nCURRENT COURSE / SUBJECT CONTEXT: {request.ContextTopic}";
+            promptBuilder.AppendLine($"\nSUBJECT CONTEXT: {request.ContextTopic}");
         }
 
-        var messageList = new List<object>
+        if (request.History != null && request.History.Count > 0)
         {
-            new { role = "system", content = systemInstruction }
-        };
-
-        if (request.History != null)
-        {
+            promptBuilder.AppendLine("\nRECENT CONVERSATION:");
             foreach (var h in request.History.TakeLast(6))
             {
-                messageList.Add(new { role = h.Role == "model" ? "assistant" : h.Role, content = h.Content });
+                promptBuilder.AppendLine($"{(h.Role == "model" ? "Tutor" : "Student")}: {h.Content}");
             }
         }
 
-        messageList.Add(new { role = "user", content = request.Message });
+        promptBuilder.AppendLine($"\nSTUDENT QUESTION: {request.Message}");
 
-        var (reply, modelUsed) = await CallGeminiWithFallbackAsync(messageList.ToArray(), cancellationToken);
-
-        if (string.IsNullOrWhiteSpace(reply))
+        var payload = new
         {
-            reply = "I'm having trouble connecting to Gemini at the moment. Please try asking again in a few moments!";
-        }
-
-        var res = new AskTutorResponse(reply, modelUsed ?? "gemini-fallback", DateTime.UtcNow);
-        _cache[cacheKey] = (DateTime.UtcNow, res);
-        return res;
-    }
-
-    public async Task<QuestionExplanationResult> ExplainQuestionAsync(
-        ExplainQuestionRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        var studentAnswerText = string.IsNullOrWhiteSpace(request.StudentAnswer) ? "N/A" : $"Why '{request.StudentAnswer}' is a common distractor or mistake";
-        var prompt = $$"""
-        You are an expert exam tutor. A student needs an explanation for the following quiz question:
-        
-        QUESTION: {{request.Prompt}}
-        CORRECT ANSWER: {{request.CorrectAnswer}}
-        STUDENT ANSWER: {{request.StudentAnswer ?? "None"}}
-        SUBJECT CONTEXT: {{request.SubjectContext ?? "General"}}
-
-        OUTPUT FORMAT: Pure JSON only:
-        {
-          "coreConcept": "The main principle tested in 1 sentence",
-          "whyCorrect": "Clear reason why the correct answer is accurate",
-          "whyStudentWasIncorrect": "{{studentAnswerText}}",
-          "takeawayTip": "Key mnemonic or tip for solving similar problems"
-        }
-        """;
-
-        var messages = new object[]
-        {
-            new { role = "system", content = "You output pure JSON explanations only." },
-            new { role = "user", content = prompt }
+            contents = new[]
+            {
+                new
+                {
+                    parts = new[]
+                    {
+                        new { text = promptBuilder.ToString() }
+                    }
+                }
+            },
+            generationConfig = new
+            {
+                temperature = 0.5
+            }
         };
 
-        var (response, _) = await CallGeminiWithFallbackAsync(messages, cancellationToken);
-        if (!string.IsNullOrWhiteSpace(response))
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+
+        try
         {
-            try
+            var responseText = await CallNativeGeminiAsync(payload, cts.Token);
+            if (!string.IsNullOrWhiteSpace(responseText))
             {
-                var clean = ExtractJsonBlock(response);
-                var result = JsonSerializer.Deserialize<QuestionExplanationResult>(clean, JsonOptions);
-                if (result != null) return result;
+                var response = new AskTutorResponse(responseText, "gemini-flash-latest", DateTime.UtcNow);
+                _cache[cacheKey] = (DateTime.UtcNow, response);
+                return response;
             }
-            catch { }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Gemini tutor call error");
         }
 
-        return new QuestionExplanationResult(
-            CoreConcept: "Active recall understanding of core principles.",
-            WhyCorrect: $"'{request.CorrectAnswer}' directly aligns with established curricular definitions.",
-            WhyStudentWasIncorrect: string.IsNullOrWhiteSpace(request.StudentAnswer) ? null : $"'{request.StudentAnswer}' confuses an ancillary condition with the core mechanism.",
-            TakeawayTip: "Focus on keywords in the prompt to eliminate related distractors."
+        return new AskTutorResponse(
+            $"I received your question about **{request.Message}**. In the context of {request.ContextTopic ?? "your course"}, key concepts should be approached methodically: identify the core definition, determine relevant variables or boundary conditions, and verify each step.",
+            "offline-tutor",
+            DateTime.UtcNow
         );
     }
 
-    public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
+    private async Task<string?> CallNativeGeminiAsync(object payload, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_apiKey)) return false;
-        try
-        {
-            var messages = new object[]
-            {
-                new { role = "user", content = "ping" }
-            };
-            var (reply, _) = await CallGeminiWithFallbackAsync(messages, cancellationToken);
-            return !string.IsNullOrWhiteSpace(reply);
-        }
-        catch
-        {
-            return false;
-        }
-    }
+        if (string.IsNullOrWhiteSpace(_apiKey)) return null;
 
-    private async Task<(string? Content, string? ModelUsed)> CallGeminiWithFallbackAsync(
-        object[] messages,
-        CancellationToken cancellationToken)
-    {
-        // Concurrency limiter to protect against 429/503 spikes
-        if (!await _concurrencyLimiter.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken))
+        var acquired = await _concurrencyLimiter.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+        if (!acquired)
         {
-            _logger.LogWarning("Concurrency limiter saturated, skipping cloud call to preserve performance");
-            return (null, null);
+            _logger.LogWarning("Concurrency limiter saturated, skipping cloud call");
+            return null;
         }
 
         try
         {
-            foreach (var model in _modelCandidates)
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/{_model}:generateContent?key={_apiKey}";
+            var json = JsonSerializer.Serialize(payload, JsonOptions);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            if (response.IsSuccessStatusCode)
             {
-                try
-                {
-                    var requestPayload = new
-                    {
-                        model = model,
-                        messages = messages,
-                        temperature = 0.3
-                    };
+                var responseStr = await response.Content.ReadAsStringAsync(cancellationToken);
+                using var doc = JsonDocument.Parse(responseStr);
 
-                    var json = JsonSerializer.Serialize(requestPayload, JsonOptions);
-                    using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl.TrimEnd('/')}/chat/completions");
-                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
-                    request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                    using var response = await _httpClient.SendAsync(request, cancellationToken);
-                    if (response.IsSuccessStatusCode)
-                    {
-                        var responseStr = await response.Content.ReadAsStringAsync(cancellationToken);
-                        using var doc = JsonDocument.Parse(responseStr);
-                        if (doc.RootElement.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
-                        {
-                            var content = choices[0].GetProperty("message").GetProperty("content").GetString();
-                            return (content, model);
-                        }
-                    }
-                    else
-                    {
-                        var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                        _logger.LogWarning("Gemini API call to {Model} failed with status {StatusCode}: {Error}",
-                            model, response.StatusCode, errorBody);
-                    }
-                }
-                catch (Exception ex)
+                if (doc.RootElement.TryGetProperty("candidates", out var candidates) && candidates.GetArrayLength() > 0)
                 {
-                    _logger.LogWarning(ex, "Exception calling Gemini model {Model}", model);
+                    var firstCandidate = candidates[0];
+                    if (firstCandidate.TryGetProperty("content", out var content) &&
+                        content.TryGetProperty("parts", out var parts) &&
+                        parts.GetArrayLength() > 0)
+                    {
+                        var text = parts[0].GetProperty("text").GetString();
+                        return text;
+                    }
                 }
             }
+            else
+            {
+                var err = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("Gemini native API returned {Status}: {Error}", response.StatusCode, err);
+            }
 
-            return (null, null);
+            return null;
         }
         finally
         {
@@ -459,36 +433,46 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
     private static string ExtractJsonBlock(string raw)
     {
-        var text = raw.Trim();
-        if (text.StartsWith("```json", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(raw)) return "{}";
+        var trimmed = raw.Trim();
+        var match = Regex.Match(trimmed, @"```(?:json)?\s*([\s\S]*?)```");
+        if (match.Success)
         {
-            text = text.Substring(7);
+            return match.Groups[1].Value.Trim();
         }
-        else if (text.StartsWith("```"))
-        {
-            text = text.Substring(3);
-        }
-
-        if (text.EndsWith("```"))
-        {
-            text = text.Substring(0, text.Length - 3);
-        }
-
-        return text.Trim();
+        return trimmed;
     }
 
-    private static GeneratedStudySetResult GenerateEmptyFallback(string title)
+    private GeneratedStudySetResult GenerateEmptyFallback(string title)
     {
         return new GeneratedStudySetResult(
             Guid.NewGuid(),
             title,
-            "No content provided for study set generation.",
-            new List<string>(),
-            new List<GeneratedQuestionDto>()
+            $"Study set for {title}.",
+            new List<string> { $"Core principles of {title}." },
+            new List<GeneratedQuestionDto>
+            {
+                new(
+                    "multiple_choice",
+                    $"What is the primary subject of {title}?",
+                    new List<string> { "Review syllabus title" },
+                    title,
+                    new List<GeneratedOptionDto>
+                    {
+                        new(title, true, null),
+                        new("Unrelated general topic", false, "Incorrect topic."),
+                        new("Generic overview", false, "Too broad."),
+                        new("Introductory survey", false, "Not specific.")
+                    },
+                    null, null, false,
+                    $"This module covers {title}.",
+                    null
+                )
+            }
         );
     }
 
-    private static GeneratedStudySetResult AnalyzeAndSynthesizeLocally(string title, string rawText, int targetCount)
+    private GeneratedStudySetResult AnalyzeAndSynthesizeLocally(string title, string rawText, int targetCount)
     {
         var cleanLines = rawText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
             .Select(l => l.Trim())
@@ -496,12 +480,12 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             .ToList();
 
         var definitions = new List<(string Term, string Definition, string FullSentence)>();
-        var definitionPattern = new Regex(@"^([A-Z][A-Za-z0-9\s\-]{2,35})\s+(?:is defined as|is a|is an|refers to|means|represents)\s+(.+)$", RegexOptions.IgnoreCase);
-        var colonPattern = new Regex(@"^([A-Z][A-Za-z0-9\s\-]{2,35})\s*:\s*(.+)$");
+        var isPattern = new Regex(@"^(?:The\s+)?([A-Z][a-zA-Z0-9\s-]{2,40})\s+(?:is|are|refers to|represents|means)\s+(.+)$", RegexOptions.IgnoreCase);
+        var colonPattern = new Regex(@"^([A-Z][a-zA-Z0-9\s-]{2,40}):\s*(.+)$");
 
         foreach (var line in cleanLines)
         {
-            var defMatch = definitionPattern.Match(line);
+            var defMatch = isPattern.Match(line);
             if (defMatch.Success)
             {
                 var term = defMatch.Groups[1].Value.Trim();
@@ -595,18 +579,18 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             int idx = questions.Count + 1;
             questions.Add(new GeneratedQuestionDto(
                 "multiple_choice",
-                $"What is a primary principle emphasized in Section {idx} of {title}?",
-                new List<string> { "Review the core objectives outlined in the text.", "Focus on foundational rules." },
-                "Consistent application of underlying theoretical models.",
+                $"In {title}, which statement best demonstrates understanding of core concept #{idx}?",
+                new List<string> { "Focus on foundational rules and definitions." },
+                $"Applying primary verified principles of {title}.",
                 new List<GeneratedOptionDto>
                 {
-                    new GeneratedOptionDto("Consistent application of underlying theoretical models.", true, null),
-                    new GeneratedOptionDto("Arbitrary memorization of disconnected formulas.", false, "Memorization without understanding is explicitly discouraged."),
-                    new GeneratedOptionDto("Disregarding boundary conditions during synthesis.", false, "Boundary conditions are essential for valid analysis."),
-                    new GeneratedOptionDto("Relying solely on outdated historical precedents.", false, "Modern curriculum emphasizes updated methodology.")
+                    new GeneratedOptionDto($"Applying primary verified principles of {title}.", true, null),
+                    new GeneratedOptionDto("Arbitrary memorization of disconnected rules.", false, "Memorization without understanding is discouraged."),
+                    new GeneratedOptionDto("Disregarding theoretical boundary conditions.", false, "Boundary conditions are essential for valid analysis."),
+                    new GeneratedOptionDto("Overlooking underlying formulas and derivations.", false, "Derivations provide foundational context.")
                 },
                 null, null, false,
-                "Academic mastery relies on understanding foundational theoretical structures.",
+                $"Academic mastery relies on understanding foundational theoretical structures in {title}.",
                 null
             ));
         }
@@ -626,4 +610,82 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         public List<string>? HighYieldBulletPoints { get; set; }
         public List<GeneratedQuestionDto>? Questions { get; set; }
     }
+
+    public async Task<QuestionExplanationResult> ExplainQuestionAsync(
+        ExplainQuestionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var studentAnswerText = string.IsNullOrWhiteSpace(request.StudentAnswer) ? "N/A" : $"Why '{request.StudentAnswer}' is a common distractor or mistake";
+        var prompt = $$"""
+        You are an expert exam tutor. A student needs an explanation for the following quiz question:
+        
+        QUESTION: {{request.Prompt}}
+        CORRECT ANSWER: {{request.CorrectAnswer}}
+        STUDENT ANSWER: {{request.StudentAnswer ?? "None"}}
+        SUBJECT CONTEXT: {{request.SubjectContext ?? "General"}}
+
+        OUTPUT FORMAT: Pure JSON only:
+        {
+          "coreConcept": "The main principle tested in 1 sentence",
+          "whyCorrect": "Clear reason why the correct answer is accurate",
+          "whyStudentWasIncorrect": "{{studentAnswerText}}",
+          "takeawayTip": "Key mnemonic or tip for solving similar problems"
+        }
+        """;
+
+        var payload = new
+        {
+            contents = new[]
+            {
+                new { parts = new[] { new { text = prompt } } }
+            },
+            generationConfig = new { responseMimeType = "application/json", temperature = 0.2 }
+        };
+
+        try
+        {
+            var reply = await CallNativeGeminiAsync(payload, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(reply))
+            {
+                var clean = ExtractJsonBlock(reply);
+                using var doc = JsonDocument.Parse(clean);
+                return new QuestionExplanationResult(
+                    doc.RootElement.TryGetProperty("coreConcept", out var cc) ? cc.GetString() ?? "" : "Core concept tested.",
+                    doc.RootElement.TryGetProperty("whyCorrect", out var wc) ? wc.GetString() ?? "" : $"The correct answer is '{request.CorrectAnswer}'.",
+                    doc.RootElement.TryGetProperty("whyStudentWasIncorrect", out var wi) ? wi.GetString() ?? "" : "Distractor alternative.",
+                    doc.RootElement.TryGetProperty("takeawayTip", out var tt) ? tt.GetString() ?? "" : "Review the key definition."
+                );
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "ExplainQuestionAsync failed, returning fallback");
+        }
+
+        return new QuestionExplanationResult(
+            "Core principle tested by this question.",
+            $"The correct answer is '{request.CorrectAnswer}'.",
+            string.IsNullOrWhiteSpace(request.StudentAnswer) ? "No answer was selected." : $"'{request.StudentAnswer}' represents a contrasting concept.",
+            "Carefully review the question context and eliminate common distractors."
+        );
+    }
+
+    public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(_apiKey)) return false;
+        try
+        {
+            var payload = new
+            {
+                contents = new[] { new { parts = new[] { new { text = "ping" } } } }
+            };
+            var reply = await CallNativeGeminiAsync(payload, cancellationToken);
+            return !string.IsNullOrWhiteSpace(reply);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
 }
