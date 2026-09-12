@@ -1,4 +1,5 @@
-﻿import "package:flutter/material.dart";
+﻿import "dart:async";
+import "package:flutter/material.dart";
 import "package:dio/dio.dart";
 import "package:file_picker/file_picker.dart";
 import "package:google_fonts/google_fonts.dart";
@@ -34,8 +35,19 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   int _fileSizeBytes = 0;
   int _targetCount = 10;
   bool _isLoading = false;
+  bool _fastMode = false;
+  int _loadingStep = 0;
+  Timer? _stepTimer;
   String? _errorMessage;
-  StudySetModel? _lastGeneratedSet;
+
+  final Set<String> _selectedModes = {"Flashcards", "Identification", "Enumeration"};
+
+  final List<String> _loadingSteps = [
+    "Reading notes & analyzing multimodal handwriting/diagrams...",
+    "Extracting core concepts & generating active-recall prompts...",
+    "Structuring flashcards, identification drills & enumeration...",
+    "Finalizing high-yield study set and caching locally...",
+  ];
 
   @override
   void initState() {
@@ -54,6 +66,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
   @override
   void dispose() {
+    _stepTimer?.cancel();
     _tabController.dispose();
     _titleController.dispose();
     _textController.dispose();
@@ -61,11 +74,17 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     super.dispose();
   }
 
+  bool _isImageFile(String? name) {
+    if (name == null) return false;
+    final lower = name.toLowerCase();
+    return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp");
+  }
+
   Future<void> _pickFile() async {
     try {
       final files = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ["pdf", "docx", "txt", "md"],
+        allowedExtensions: ["pdf", "docx", "txt", "md", "png", "jpg", "jpeg", "webp"],
       );
 
       if (files.isNotEmpty) {
@@ -85,6 +104,22 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     }
   }
 
+  void _startStepAnimation() {
+    _loadingStep = 0;
+    _stepTimer?.cancel();
+    _stepTimer = Timer.periodic(const Duration(milliseconds: 900), (timer) {
+      if (!mounted || !_isLoading) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        if (_loadingStep < _loadingSteps.length - 1) {
+          _loadingStep++;
+        }
+      });
+    });
+  }
+
   Future<void> _handleGenerate() async {
     if (_titleController.text.trim().isEmpty) {
       setState(() => _errorMessage = "Please enter a title for the study set.");
@@ -98,8 +133,8 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     setState(() {
       _isLoading = true;
       _errorMessage = null;
-      _lastGeneratedSet = null;
     });
+    _startStepAnimation();
 
     try {
       Response response;
@@ -118,13 +153,14 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
             "title": _titleController.text.trim(),
             "content": _textController.text.trim(),
             "targetCount": _targetCount,
-            "questionTypes": ["multiple_choice", "identification"],
+            "questionTypes": _selectedModes.map((m) => m.toLowerCase()).toList(),
+            "fastMode": _fastMode,
           },
         );
       } else if (_tabController.index == 1) {
-        // File Upload Ingestion
+        // File / Photo Upload Ingestion
         if (_selectedFile == null) {
-          setState(() => _errorMessage = "Please select a document file (.pdf, .docx, .txt).");
+          setState(() => _errorMessage = "Please select a document or whiteboard photo (.pdf, .png, .jpg, .docx, .txt).");
           return;
         }
 
@@ -144,6 +180,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           "file": multipartFile,
           "courseId": _selectedCourseId,
           "title": _titleController.text.trim(),
+          "fastMode": _fastMode.toString(),
         });
 
         response = await widget.apiClient.dio.post(
@@ -164,6 +201,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
             "title": _titleController.text.trim(),
             "url": _urlController.text.trim(),
             "targetCount": _targetCount,
+            "fastMode": _fastMode,
           },
         );
       }
@@ -171,7 +209,6 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
       if (response.statusCode == 200 && response.data != null) {
         final newSet = StudySetModel.fromJson(response.data);
         setState(() {
-          _lastGeneratedSet = newSet;
         });
 
         widget.onStudySetCreated?.call(newSet);
@@ -199,6 +236,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         _errorMessage = "Error: $e";
       });
     } finally {
+      _stepTimer?.cancel();
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -218,306 +256,458 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           labelStyle: const TextStyle(fontWeight: FontWeight.bold),
           tabs: const [
             Tab(icon: Icon(Icons.notes_rounded), text: "Paste Text"),
-            Tab(icon: Icon(Icons.upload_file_rounded), text: "Upload File"),
+            Tab(icon: Icon(Icons.photo_camera_back_rounded), text: "Upload File / Photo"),
             Tab(icon: Icon(Icons.link_rounded), text: "Article URL"),
           ],
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: isDark
-                        ? [const Color(0xFF1E1B4B), const Color(0xFF2E1065)]
-                        : [const Color(0xFFEEF2FF), const Color(0xFFFAF5FF)],
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: const Color(0xFF818CF8).withValues(alpha: 0.3),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                        ),
-                        borderRadius: BorderRadius.circular(8),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 880),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Gemini multimodal banner
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: isDark
+                            ? [const Color(0xFF1E1B4B), const Color(0xFF2E1065)]
+                            : [const Color(0xFFEEF2FF), const Color(0xFFFAF5FF)],
                       ),
-                      child: const Icon(Icons.auto_awesome, color: Colors.white, size: 16),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Powered by Google Gemini AI",
-                            style: GoogleFonts.outfit(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              color: isDark ? Colors.white : const Color(0xFF312E81),
-                            ),
-                          ),
-                          Text(
-                            "Curriculum synthesis with active recall & distractor rationale",
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF4338CA),
-                            ),
-                          ),
-                        ],
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: const Color(0xFF818CF8).withValues(alpha: 0.35),
                       ),
                     ),
-                  ],
-                ),
-              ),
-              if (_errorMessage != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.danger.withValues(alpha: isDark ? 0.15 : 0.08),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.warning_amber_rounded, color: AppColors.danger, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(_errorMessage!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-
-              if (_lastGeneratedSet != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.accent.withValues(alpha: isDark ? 0.15 : 0.08),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.accent.withValues(alpha: 0.4)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.check_circle_rounded, color: AppColors.accent, size: 22),
-                          const SizedBox(width: 8),
-                          Text(
-                            "Study Set Ready: ${_lastGeneratedSet!.title}",
-                            style: GoogleFonts.outfit(color: context.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        "${_lastGeneratedSet!.questionCount} questions synthesized directly from document concepts.",
-                        style: const TextStyle(color: AppColors.accent, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-
-              // Course Selector
-              Text("Assign to Course", style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.bold, color: context.textPrimary)),
-              const SizedBox(height: 8),
-              if (widget.courses.isEmpty)
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: context.surfaceColor,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: context.cardBorderColor),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.info_outline, color: AppColors.warning, size: 18),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          "No courses found. Study set will be created in default space.",
-                          style: TextStyle(color: context.textSecondary, fontSize: 13),
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(
-                    color: context.surfaceColor,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: context.cardBorderColor),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: widget.courses.any((c) => c.id == _selectedCourseId) ? _selectedCourseId : widget.courses.first.id,
-                      isExpanded: true,
-                      dropdownColor: context.surfaceColor,
-                      items: widget.courses.map((c) {
-                        return DropdownMenuItem(
-                          value: c.id,
-                          child: Text("${c.code} - ${c.name}", style: TextStyle(color: context.textPrimary)),
-                        );
-                      }).toList(),
-                      onChanged: (val) {
-                        if (val != null) setState(() => _selectedCourseId = val);
-                      },
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 16),
-
-              // Title input
-              TextField(
-                controller: _titleController,
-                style: TextStyle(color: context.textPrimary),
-                decoration: const InputDecoration(
-                  labelText: "Study Set Title",
-                  hintText: "e.g. Chapter 4: Database Normalization",
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Tab View Content
-              SizedBox(
-                height: 220,
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    // Tab 1: Text
-                    TextField(
-                      controller: _textController,
-                      maxLines: 8,
-                      style: TextStyle(color: context.textPrimary),
-                      decoration: const InputDecoration(
-                        labelText: "Lecture Notes or Text Content",
-                        hintText: "Paste textbook paragraphs, slide content, or key definitions here...",
-                      ),
-                    ),
-
-                    // Tab 2: File Picker
-                    InkWell(
-                      onTap: _pickFile,
-                      borderRadius: BorderRadius.circular(16),
-                      child: Container(
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          color: context.surfaceColor,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: _selectedFile != null
-                                ? AppColors.accent
-                                : (isDark ? AppColors.primary.withValues(alpha: 0.5) : AppColors.primaryDark.withValues(alpha: 0.3)),
-                            style: BorderStyle.solid,
-                          ),
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              _selectedFile != null ? Icons.check_circle_rounded : Icons.cloud_upload_outlined,
-                              size: 48,
-                              color: _selectedFile != null
-                                  ? AppColors.accent
-                                  : (isDark ? AppColors.primaryLight : AppColors.primaryDark),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              _selectedFile != null ? _selectedFile!.name : "Tap to browse PDF, Word (DOCX), or TXT",
-                              style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _selectedFile != null
-                                  ? "${(_fileSizeBytes / 1024).toStringAsFixed(1)} KB ready for extraction"
-                                  : "Supports textbooks, syllabus, lecture handouts up to 25MB",
-                              style: TextStyle(color: context.textSecondary, fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // Tab 3: URL
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
                       children: [
-                        TextField(
-                          controller: _urlController,
-                          keyboardType: TextInputType.url,
-                          style: TextStyle(color: context.textPrimary),
-                          decoration: InputDecoration(
-                            labelText: "Web Article or Documentation URL",
-                            hintText: "https://learn.microsoft.com/en-us/...",
-                            prefixIcon: Icon(Icons.language_rounded, color: context.textSecondary),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                            ),
+                            borderRadius: BorderRadius.circular(10),
                           ),
+                          child: const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
                         ),
-                        const SizedBox(height: 12),
-                        Text(
-                          "The backend extracts clean instructional paragraphs and discards advertisements.",
-                          style: TextStyle(color: context.textSecondary, fontSize: 13),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Multimodal Vision & Gemini Engine",
+                                style: GoogleFonts.outfit(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                  color: isDark ? Colors.white : const Color(0xFF312E81),
+                                ),
+                              ),
+                              Text(
+                                "Reads raw handwriting, whiteboard photos, diagrams, and lengthy PDFs directly without OCR setup.",
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF4338CA),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
+                  ),
+
+                  // Fast Mode & Offline Synthesis Toggle Card
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 18),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: context.surfaceColor,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: _fastMode ? AppColors.accent.withValues(alpha: 0.6) : context.cardBorderColor,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: _fastMode ? AppColors.accent.withValues(alpha: 0.15) : context.secondaryBg,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            Icons.bolt_rounded,
+                            color: _fastMode ? AppColors.accent : context.textSecondary,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    "⚡ Instant Fast Mode (<100ms)",
+                                    style: GoogleFonts.outfit(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                      color: context.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.accent.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text(
+                                      "LOW LATENCY",
+                                      style: TextStyle(color: AppColors.accent, fontSize: 10, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                "Instant local active-recall synthesis. Zero waiting for slow networks.",
+                                style: TextStyle(color: context.textSecondary, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch.adaptive(
+                          value: _fastMode,
+                          activeTrackColor: AppColors.accent,
+                          onChanged: (val) => setState(() => _fastMode = val),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  if (_errorMessage != null) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.danger.withValues(alpha: isDark ? 0.15 : 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.warning_amber_rounded, color: AppColors.danger, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(_errorMessage!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
-                ),
-              ),
 
-              const SizedBox(height: 24),
+                  // Course Selector
+                  Text("Assign to Course", style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                  const SizedBox(height: 8),
+                  if (widget.courses.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: context.surfaceColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: context.cardBorderColor),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline, color: AppColors.warning, size: 18),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              "No courses found. Study set will be created in default space.",
+                              style: TextStyle(color: context.textSecondary, fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: context.surfaceColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: context.cardBorderColor),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: widget.courses.any((c) => c.id == _selectedCourseId) ? _selectedCourseId : widget.courses.first.id,
+                          isExpanded: true,
+                          dropdownColor: context.surfaceColor,
+                          items: widget.courses.map((c) {
+                            return DropdownMenuItem(
+                              value: c.id,
+                              child: Text("${c.code} - ${c.name}", style: TextStyle(color: context.textPrimary)),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            if (val != null) setState(() => _selectedCourseId = val);
+                          },
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
 
-              // Target questions slider
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text("Target Questions:", style: TextStyle(color: context.textSecondary)),
-                  Text("$_targetCount Questions", style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.bold)),
+                  // Title input
+                  TextField(
+                    controller: _titleController,
+                    style: TextStyle(color: context.textPrimary),
+                    decoration: const InputDecoration(
+                      labelText: "Study Set Title",
+                      hintText: "e.g. Chapter 4: Cellular Respiration & Krebs Cycle",
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Tab View Content
+                  SizedBox(
+                    height: 240,
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        // Tab 1: Text
+                        TextField(
+                          controller: _textController,
+                          maxLines: 9,
+                          style: TextStyle(color: context.textPrimary),
+                          decoration: const InputDecoration(
+                            labelText: "Lecture Notes or Text Content",
+                            hintText: "Paste textbook paragraphs, slide bullet points, or formulas here...",
+                          ),
+                        ),
+
+                        // Tab 2: File / Photo Picker
+                        InkWell(
+                          onTap: _pickFile,
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: context.surfaceColor,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: _selectedFile != null
+                                    ? AppColors.accent
+                                    : (isDark ? AppColors.primary.withValues(alpha: 0.5) : AppColors.primaryDark.withValues(alpha: 0.3)),
+                                style: BorderStyle.solid,
+                              ),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  _selectedFile != null
+                                      ? (_isImageFile(_selectedFile!.name) ? Icons.photo_size_select_actual_rounded : Icons.check_circle_rounded)
+                                      : Icons.add_photo_alternate_outlined,
+                                  size: 48,
+                                  color: _selectedFile != null
+                                      ? AppColors.accent
+                                      : (isDark ? AppColors.primaryLight : AppColors.primaryDark),
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  _selectedFile != null
+                                      ? _selectedFile!.name
+                                      : "Tap to browse Whiteboard Photo, PDF, Word (DOCX), or TXT",
+                                  style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 6),
+                                if (_selectedFile != null && _isImageFile(_selectedFile!.name))
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text(
+                                      "📸 Whiteboard / Diagram detected - Direct Gemini Vision Ingestion",
+                                      style: TextStyle(color: Color(0xFF818CF8), fontSize: 11, fontWeight: FontWeight.bold),
+                                    ),
+                                  )
+                                else
+                                  Text(
+                                    _selectedFile != null
+                                        ? "${(_fileSizeBytes / 1024).toStringAsFixed(1)} KB ready for extraction"
+                                        : "Supports handwritten captures, slides, handouts, and textbooks up to 30MB",
+                                    style: TextStyle(color: context.textSecondary, fontSize: 12),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        // Tab 3: URL
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TextField(
+                              controller: _urlController,
+                              keyboardType: TextInputType.url,
+                              style: TextStyle(color: context.textPrimary),
+                              decoration: InputDecoration(
+                                labelText: "Web Article or Documentation URL",
+                                hintText: "https://en.wikipedia.org/wiki/...",
+                                prefixIcon: Icon(Icons.language_rounded, color: context.textSecondary),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              "The backend scrapes clean instructional sections and synthesizes active recall drills.",
+                              style: TextStyle(color: context.textSecondary, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Exam Modes Chip Selection
+                  Text("Exam Modes & Question Types", style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: ["Flashcards", "Identification", "Enumeration", "Summary"].map((mode) {
+                      final isSelected = _selectedModes.contains(mode);
+                      return FilterChip(
+                        selected: isSelected,
+                        label: Text(mode),
+                        labelStyle: TextStyle(
+                          color: isSelected ? Colors.white : context.textSecondary,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          fontSize: 12,
+                        ),
+                        selectedColor: isDark ? AppColors.primary : AppColors.primaryDark,
+                        backgroundColor: context.surfaceColor,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(
+                            color: isSelected ? (isDark ? AppColors.primary : AppColors.primaryDark) : context.cardBorderColor,
+                          ),
+                        ),
+                        onSelected: (selected) {
+                          setState(() {
+                            if (selected) {
+                              _selectedModes.add(mode);
+                            } else if (_selectedModes.length > 1) {
+                              _selectedModes.remove(mode);
+                            }
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Target questions slider
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text("Target Questions:", style: TextStyle(color: context.textSecondary)),
+                      Text("$_targetCount Questions", style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  Slider(
+                    value: _targetCount.toDouble(),
+                    min: 5,
+                    max: 20,
+                    divisions: 3,
+                    activeColor: isDark ? AppColors.primary : AppColors.primaryDark,
+                    onChanged: (val) => setState(() => _targetCount = val.toInt()),
+                  ),
+
+                  // Stepped Progress Indicator Card while loading
+                  if (_isLoading) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: context.surfaceColor,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppColors.accent.withValues(alpha: 0.5)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.accent),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                "Synthesizing (${_loadingStep + 1}/${_loadingSteps.length})",
+                                style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: AppColors.accent, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _loadingSteps[_loadingStep],
+                            style: TextStyle(color: context.textPrimary, fontSize: 13),
+                          ),
+                          const SizedBox(height: 8),
+                          LinearProgressIndicator(
+                            value: (_loadingStep + 1) / _loadingSteps.length,
+                            backgroundColor: context.secondaryBg,
+                            valueColor: const AlwaysStoppedAnimation<Color>(AppColors.accent),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 24),
+
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    icon: _isLoading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.auto_awesome),
+                    label: Text(
+                      _isLoading
+                          ? "Synthesizing with Gemini..."
+                          : (_fastMode ? "⚡ Generate Instantly (<100ms)" : "Generate AI Study Set (Gemini)"),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                    onPressed: _isLoading ? null : _handleGenerate,
+                  ),
+                  const SizedBox(height: 32),
                 ],
               ),
-              Slider(
-                value: _targetCount.toDouble(),
-                min: 5,
-                max: 20,
-                divisions: 3,
-                activeColor: isDark ? AppColors.primary : AppColors.primaryDark,
-                onChanged: (val) => setState(() => _targetCount = val.toInt()),
-              ),
-
-              const SizedBox(height: 28),
-
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
-                ),
-                icon: _isLoading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.auto_awesome),
-                label: Text(_isLoading ? "Synthesizing with Gemini AI..." : "Generate AI Study Set (Gemini)"),
-                onPressed: _isLoading ? null : _handleGenerate,
-              ),
-            ],
+            ),
           ),
         ),
       ),

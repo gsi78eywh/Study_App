@@ -10,6 +10,13 @@ public interface IAiQuestionGenerator
         List<string> requestedTypes,
         int targetCount,
         CancellationToken cancellationToken = default);
+
+    Task<GeneratedStudySetResult> GenerateStudySetFromImageAsync(
+        byte[] imageBytes,
+        string mimeType,
+        string title,
+        int targetCount,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IDocumentExtractor

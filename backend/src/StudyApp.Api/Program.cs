@@ -1,4 +1,6 @@
-﻿using System.Security.Claims;
+﻿using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -54,6 +56,7 @@ builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 
 // 3. Add AI & Ingestion Services (Google Gemini AI Engine)
+builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient<GeminiAiService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(90);
@@ -96,6 +99,21 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.User?.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "global",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = 150,
+                QueueLimit = 20,
+                Window = TimeSpan.FromMinutes(1)
+            }));
+});
+
 builder.Services.AddControllers();
 
 var app = builder.Build();
@@ -109,6 +127,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseCors("AllowMobileClient");
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -320,6 +339,88 @@ app.MapGet("/", () => Results.Content("""
 </body>
 </html>
 """, "text/html"));
+
+// Starter Demo Pack Endpoint (1-click active workspace for students)
+app.MapPost("/api/v1/courses/demo-pack", async (ApplicationDbContext db, ClaimsPrincipal user) =>
+{
+    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    if (!Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
+
+    var existing = await db.Courses.AnyAsync(c => c.UserId == userId);
+    if (existing)
+    {
+        return Results.Ok(new { message = "Workspace already initialized." });
+    }
+
+    var bioCourse = new Course
+    {
+        Id = Guid.NewGuid(),
+        UserId = userId,
+        Code = "BIO-101",
+        Name = "General Cellular Biology & Genetics",
+        ColorHex = "#10B981",
+        CreatedAt = DateTime.UtcNow,
+        UpdatedAt = DateTime.UtcNow
+    };
+
+    var bioSet = new StudySet
+    {
+        Id = Guid.NewGuid(),
+        CourseId = bioCourse.Id,
+        Title = "Photosynthesis & Cellular Respiration",
+        Description = "Exam mastery deck covering light reactions, the Calvin cycle, and mitochondrial ATP synthesis.",
+        CreatedAt = DateTime.UtcNow,
+        UpdatedAt = DateTime.UtcNow
+    };
+
+    var q1 = new Question
+    {
+        Id = Guid.NewGuid(),
+        StudySetId = bioSet.Id,
+        Type = QuestionType.MultipleChoice,
+        Prompt = "During the light-dependent reactions of photosynthesis, what is the primary role of water photolysis?",
+        HintsJson = "[\"Consider what resupplies lost electrons to the photosystem.\",\"Oxygen is released as a byproduct.\"]",
+        Explanation = "Photolysis splits water into protons, electrons, and O2 to resupply photo-excited chlorophyll.",
+        Difficulty = 2,
+        SortOrder = 1
+    };
+    q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Replenish electrons in photo-excited chlorophyll", IsCorrect = true });
+    q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Provide carbon atoms for glucose synthesis", IsCorrect = false, DistractorRationale = "Carbon is supplied by carbon dioxide in the Calvin cycle." });
+    q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Directly phosphorylate ADP without a proton gradient", IsCorrect = false, DistractorRationale = "ATP is generated via ATP synthase and the proton gradient." });
+    q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Cleave RuBisCO enzyme complexes", IsCorrect = false, DistractorRationale = "RuBisCO operates in the stroma and is not cleaved by water." });
+    bioSet.Questions.Add(q1);
+
+    var q2 = new Question
+    {
+        Id = Guid.NewGuid(),
+        StudySetId = bioSet.Id,
+        Type = QuestionType.Identification,
+        Prompt = "What specialized enzyme in the chloroplast stroma catalyzes the initial fixation of carbon dioxide to ribulose 1,5-bisphosphate (RuBP)?",
+        HintsJson = "[\"Abbreviated with 7 letters (RuB...)\",\"Most abundant enzyme on Earth.\"]",
+        Explanation = "RuBisCO (Ribulose-1,5-bisphosphate carboxylase-oxygenase) catalyzes the crucial initial carbon-fixing step.",
+        Difficulty = 2,
+        SortOrder = 2
+    };
+    q2.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q2.Id, OptionText = "RuBisCO", IsCorrect = true });
+    bioSet.Questions.Add(q2);
+
+    bioCourse.StudySets.Add(bioSet);
+    db.Courses.Add(bioCourse);
+
+    var sampleNote = new NotebookPage
+    {
+        Id = Guid.NewGuid(),
+        CourseId = bioCourse.Id,
+        Title = "Photosynthesis: Light vs Dark Reactions Summary",
+        ContentMarkdown = "# Photosynthesis Core Principles\n\n- **Light Reactions:** Thylakoid membrane. Uses H2O + photons -> ATP + NADPH + O2.\n- **Calvin Cycle:** Stroma. Uses CO2 + ATP + NADPH -> G3P (Glucose precursor).\n- **Key Rate Limiter:** RuBisCO temperature and CO2/O2 concentration ratio.",
+        CreatedAt = DateTime.UtcNow,
+        UpdatedAt = DateTime.UtcNow
+    };
+    db.NotebookPages.Add(sampleNote);
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { success = true, courseId = bioCourse.Id, message = "Starter Demo Pack loaded successfully!" });
+}).RequireAuthorization();
 
 // Student Notebooks API
 app.MapGet("/api/v1/notebooks", async (Guid? courseId, ApplicationDbContext db, ClaimsPrincipal user) =>

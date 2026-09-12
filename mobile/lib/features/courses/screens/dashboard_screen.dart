@@ -14,6 +14,8 @@ import "../../quiz/models/quiz_models.dart";
 import "../../quiz/screens/quiz_player_screen.dart";
 import "../../sync/services/sync_service.dart";
 import "../../ai_tutor/screens/ai_tutor_screen.dart";
+import "../../../core/constants/api_constants.dart";
+import "../widgets/pomodoro_timer_sheet.dart";
 
 class DashboardScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -34,7 +36,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _currentTabIndex = 0;
   List<CourseModel> _courses = [];
   bool _isSyncing = false;
-  bool _isLoadingCourses = true;
+    bool _isLoadingCourses = true;
+  bool _isLoadingDemoPack = false;
+
+  Future<void> _loadStarterDemoPack() async {
+    setState(() => _isLoadingDemoPack = true);
+    try {
+      final response = await widget.apiClient.dio.post(ApiConstants.demoPack);
+      if (response.statusCode == 200) {
+        await _fetchCoursesAndSync(fullFetch: true, showSnackBar: true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("✨ Starter Demo Pack loaded! Explore your new Biology 101 flashcards & quizzes."),
+              backgroundColor: AppColors.accent,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Could not load starter pack: $e"),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingDemoPack = false);
+    }
+  }
+
+  Widget _buildWorkflowStep(String title, String desc, IconData icon, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: context.surfaceColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: context.cardBorderColor),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 20, color: const Color(0xFF6366F1)),
+            const SizedBox(height: 4),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            Text(desc, style: TextStyle(color: context.textSecondary, fontSize: 10), maxLines: 1, overflow: TextOverflow.ellipsis),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -235,9 +290,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1040),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
           // Student Welcome Header
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -331,10 +389,98 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 _buildStatItem("Active Sets", "$totalSets", "Study Sets", Icons.auto_stories_rounded, AppColors.accent),
                 Container(height: 36, width: 1, color: context.cardBorderColor),
                 _buildStatItem("Synthesized", "$totalQuestions", "Questions", Icons.psychology_rounded, AppColors.warning),
+                Container(height: 36, width: 1, color: context.cardBorderColor),
+                InkWell(
+                  onTap: () => PomodoroTimerSheet.show(context),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    child: Column(
+                      children: [
+                        const Icon(Icons.timer_outlined, color: Color(0xFFEC4899), size: 20),
+                        const SizedBox(height: 4),
+                        Text("25:00", style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                        Text("Pomodoro", style: TextStyle(color: context.textSecondary, fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+
+          // 3-Step Active Recall Workflow Guide
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: context.secondaryBg,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: context.cardBorderColor),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.auto_awesome, color: Color(0xFF8B5CF6), size: 18),
+                        const SizedBox(width: 8),
+                        Text(
+                          "Active Recall Study Workflow",
+                          style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      "Instant & Offline-Ready",
+                      style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF10B981)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildWorkflowStep(
+                        "1. Ingest",
+                        "Photos, PDFs, notes",
+                        Icons.camera_alt_outlined,
+                        () => setState(() => _currentTabIndex = 3),
+                      ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4),
+                      child: Icon(Icons.chevron_right_rounded, color: Colors.grey, size: 18),
+                    ),
+                    Expanded(
+                      child: _buildWorkflowStep(
+                        "2. Synthesize",
+                        "Cards & drills",
+                        Icons.psychology_outlined,
+                        () => setState(() => _currentTabIndex = 3),
+                      ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4),
+                      child: Icon(Icons.chevron_right_rounded, color: Colors.grey, size: 18),
+                    ),
+                    Expanded(
+                      child: _buildWorkflowStep(
+                        "3. Master",
+                        "Spaced practice",
+                        Icons.style_outlined,
+                        () => setState(() => _currentTabIndex = 1),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
 
           // Enrolled Courses Header & Actions
           Row(
@@ -408,9 +554,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     children: [
                       ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6366F1),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 2,
+                        ),
+                        icon: _isLoadingDemoPack
+                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Icon(Icons.auto_awesome_rounded, size: 18),
+                        label: Text(
+                          _isLoadingDemoPack ? "Loading Starter Deck..." : "✨ Load Starter Demo Pack (Biology 101)",
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        onPressed: _isLoadingDemoPack ? null : _loadStarterDemoPack,
+                      ),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
                           backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                         icon: const Icon(Icons.add_rounded, size: 18),
                         label: const Text("Create Course", style: TextStyle(fontWeight: FontWeight.bold)),
@@ -420,8 +583,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: isDark ? AppColors.primaryLight : AppColors.primaryDark,
                           side: BorderSide(color: isDark ? AppColors.primary : AppColors.primaryDark),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                         icon: const Icon(Icons.auto_awesome, size: 18),
                         label: const Text("Open AI Studio", style: TextStyle(fontWeight: FontWeight.bold)),
@@ -593,7 +756,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               );
             }),
           const SizedBox(height: 40),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -620,9 +785,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // Tab 0: Courses
           _buildCoursesTab(),
           // Tab 1: Flashcards
-          FlashcardsScreen(courses: _courses),
+          FlashcardsScreen(
+            courses: _courses,
+            onLoadStarterPack: _loadStarterDemoPack,
+            onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
+          ),
           // Tab 2: Notebook
-          NotebookScreen(courses: _courses, apiClient: widget.apiClient),
+          NotebookScreen(
+            courses: _courses,
+            apiClient: widget.apiClient,
+            onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
+            onLoadStarterPack: _loadStarterDemoPack,
+          ),
           // Tab 3: AI Studio
           IngestionScreen(
             courses: _courses,

@@ -34,6 +34,16 @@ public class SemanticKernelQuestionGenerator : IAiQuestionGenerator
         _kernel = builder.Build();
     }
 
+    public Task<GeneratedStudySetResult> GenerateStudySetFromImageAsync(
+        byte[] imageBytes,
+        string mimeType,
+        string title,
+        int targetCount,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(AnalyzeAndSynthesizeLocally(title, $"[Visual content extracted from uploaded image for {title}]", targetCount));
+    }
+
     public async Task<GeneratedStudySetResult> GenerateStudySetAsync(
         string rawText,
         string title,

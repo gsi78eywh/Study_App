@@ -55,30 +55,50 @@ public class IngestionController : ControllerBase
             return BadRequest(new { message = "Please select a valid file." });
         }
 
+        if (file.Length > 30 * 1024 * 1024)
+        {
+            return BadRequest(new { message = "File exceeds 30MB limit." });
+        }
+
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        string extractedText;
+        var setHeader = title ?? Path.GetFileNameWithoutExtension(file.FileName);
+        GeneratedStudySetResult result;
 
         using var stream = file.OpenReadStream();
-        if (ext == ".pdf")
+
+        if (ext is ".png" or ".jpg" or ".jpeg" or ".webp")
         {
-            extractedText = await _documentExtractor.ExtractPdfTextAsync(stream);
+            // Multimodal Whiteboard / Handwritten Note / Textbook Photo Analysis
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            var mimeType = ext switch
+            {
+                ".png" => "image/png",
+                ".webp" => "image/webp",
+                _ => "image/jpeg"
+            };
+            result = await _aiGenerator.GenerateStudySetFromImageAsync(ms.ToArray(), mimeType, setHeader, 10);
+        }
+        else if (ext == ".pdf")
+        {
+            var extractedText = await _documentExtractor.ExtractPdfTextAsync(stream);
+            result = await _aiGenerator.GenerateStudySetAsync(extractedText, setHeader, new List<string>(), 15);
         }
         else if (ext == ".docx")
         {
-            extractedText = await _documentExtractor.ExtractDocxTextAsync(stream);
+            var extractedText = await _documentExtractor.ExtractDocxTextAsync(stream);
+            result = await _aiGenerator.GenerateStudySetAsync(extractedText, setHeader, new List<string>(), 15);
         }
-        else if (ext == ".txt" || ext == ".md")
+        else if (ext is ".txt" or ".md")
         {
             using var reader = new StreamReader(stream);
-            extractedText = await reader.ReadToEndAsync();
+            var extractedText = await reader.ReadToEndAsync();
+            result = await _aiGenerator.GenerateStudySetAsync(extractedText, setHeader, new List<string>(), 15);
         }
         else
         {
-            return BadRequest(new { message = "Unsupported file type. Please upload a PDF, DOCX, or TXT file." });
+            return BadRequest(new { message = "Unsupported file type. Please upload a PDF, DOCX, TXT, or Image file (.png, .jpg, .jpeg, .webp)." });
         }
-
-        var setHeader = title ?? Path.GetFileNameWithoutExtension(file.FileName);
-        var result = await _aiGenerator.GenerateStudySetAsync(extractedText, setHeader, new List<string>(), 15);
 
         var studySet = await SaveGeneratedSetAsync(courseId, result);
         return Ok(new { studySet.Id, studySet.Title, result.Summary, result.HighYieldBulletPoints, QuestionCount = studySet.Questions.Count });

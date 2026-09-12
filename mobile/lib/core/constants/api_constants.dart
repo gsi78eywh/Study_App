@@ -17,6 +17,9 @@
   // Bi-directional Sync
   static const String sync = "/api/v1/sync";
 
+  // Courses & Starter Pack
+  static const String demoPack = "/api/v1/courses/demo-pack";
+
   // Google Gemini AI endpoints
   static const String aiTutor = "/api/v1/ai/tutor";
   static const String aiExplain = "/api/v1/ai/explain";

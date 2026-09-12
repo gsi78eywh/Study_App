@@ -1,4 +1,4 @@
-﻿import "package:flutter/material.dart";
+import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
 import "../../../core/constants/api_constants.dart";
@@ -119,7 +119,6 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
               })
           .toList();
 
-      // Remove the latest user message from history array since it is the prompt
       if (history.isNotEmpty) history.removeLast();
 
       final response = await widget.apiClient.dio.post(
@@ -152,7 +151,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
           _messages.add(ChatMessage(
             role: "assistant",
             text: "⚠️ Gemini Tutor connection error: $e\n\nPlease check your network or try again shortly.",
-            modelUsed: "offline-notice",
+            modelUsed: "offline-fallback",
             timestamp: DateTime.now(),
           ));
         });
@@ -163,6 +162,24 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
         _scrollToBottom();
       }
     }
+  }
+
+  Future<void> _saveExplanationToNotebook(String text) async {
+    try {
+      final title = text.split('\n').first.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), '').trim();
+      final cleanTitle = title.isNotEmpty ? (title.length > 40 ? title.substring(0, 40) : title) : "Gemini Study Note";
+      await widget.apiClient.dio.post("/api/v1/notebooks", data: {
+        "courseCode": widget.courses.isNotEmpty ? widget.courses.first.code : "TUTOR",
+        "title": cleanTitle,
+        "content": text,
+        "tags": "#GeminiTutor #ExamPrep",
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("✨ Saved explanation directly to your Digital Notebook!"), backgroundColor: AppColors.accent),
+        );
+      }
+    } catch (_) {}
   }
 
   @override
@@ -195,7 +212,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                   style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 17, color: context.textPrimary),
                 ),
                 Text(
-                  "Google Gemini AI Engine",
+                  "Google Gemini Multimodal AI Engine",
                   style: GoogleFonts.inter(fontSize: 11, color: context.textSecondary),
                 ),
               ],
@@ -238,188 +255,221 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 color: isDark ? const Color(0xFF1E293B) : const Color(0xFFEEF2FF),
-                child: Row(
-                  children: [
-                    const Icon(Icons.school_outlined, size: 16, color: AppColors.accent),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        "Context: $_selectedCourseContext",
-                        style: GoogleFonts.inter(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF4338CA),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 900),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.school_outlined, size: 16, color: AppColors.accent),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            "Context: $_selectedCourseContext",
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? AppColors.darkTextPrimary : const Color(0xFF3730A3),
+                            ),
+                          ),
                         ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      ],
                     ),
-                    InkWell(
-                      onTap: () => setState(() => _selectedCourseContext = null),
-                      child: const Icon(Icons.close_rounded, size: 16),
-                    ),
-                  ],
+                  ),
                 ),
               ),
 
-            // Quick Prompts row
+            // Quick Prompt Chips
             Container(
               height: 44,
-              margin: const EdgeInsets.symmetric(vertical: 6),
-              child: ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                scrollDirection: Axis.horizontal,
-                itemCount: _quickPrompts.length,
-                separatorBuilder: (context, index) => const SizedBox(width: 8),
-                itemBuilder: (context, index) {
-                  final prompt = _quickPrompts[index];
-                  return ActionChip(
-                    backgroundColor: context.surfaceColor,
-                    side: BorderSide(color: context.cardBorderColor),
-                    label: Text(
-                      prompt,
-                      style: GoogleFonts.inter(fontSize: 12, color: context.textPrimary),
-                    ),
-                    onPressed: _isLoading ? null : () => _sendMessage(prompt),
-                  );
-                },
+              margin: const EdgeInsets.only(top: 8, bottom: 4),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 900),
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: _quickPrompts.length,
+                    separatorBuilder: (ctx, idx) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      final prompt = _quickPrompts[index];
+                      return ActionChip(
+                        label: Text(
+                          prompt,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+                          ),
+                        ),
+                        backgroundColor: context.surfaceColor,
+                        side: BorderSide(color: context.cardBorderColor),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        onPressed: () => _sendMessage(prompt.replaceFirst(RegExp(r'^[^a-zA-Z0-9]+'), '')),
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
 
-            const Divider(height: 1),
-
-            // Chat conversation
+            // Chat Message Thread with Desktop MaxWidth Centering
             Expanded(
-              child: ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.all(16),
-                itemCount: _messages.length,
-                itemBuilder: (context, index) {
-                  final msg = _messages[index];
-                  final isUser = msg.role == "user";
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 900),
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    itemCount: _messages.length,
+                    itemBuilder: (context, index) {
+                      final msg = _messages[index];
+                      final isUser = msg.role == "user";
 
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: Row(
-                      mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (!isUser) ...[
-                          Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                              ),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.auto_awesome, color: Colors.white, size: 14),
-                          ),
-                          const SizedBox(width: 10),
-                        ],
-                        Flexible(
-                          child: Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: isUser
-                                  ? (isDark ? const Color(0xFF4F46E5) : const Color(0xFF4338CA))
-                                  : context.surfaceColor,
-                              border: Border.all(
-                                color: isUser ? Colors.transparent : context.cardBorderColor,
-                              ),
-                              borderRadius: BorderRadius.only(
-                                topLeft: const Radius.circular(16),
-                                topRight: const Radius.circular(16),
-                                bottomLeft: Radius.circular(isUser ? 16 : 4),
-                                bottomRight: Radius.circular(isUser ? 4 : 16),
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-                                  blurRadius: 6,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                SelectableText(
-                                  msg.text,
-                                  style: GoogleFonts.inter(
-                                    fontSize: 14,
-                                    height: 1.5,
-                                    color: isUser ? Colors.white : context.textPrimary,
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: Row(
+                          mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (!isUser) ...[
+                              Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
                                   ),
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (msg.modelUsed != null) ...[
-                                      Text(
-                                        msg.modelUsed!,
-                                        style: GoogleFonts.inter(
-                                          fontSize: 10,
-                                          color: isUser
-                                              ? Colors.white.withValues(alpha: 0.7)
-                                              : context.textSecondary,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                    ],
-                                    if (!isUser)
-                                      InkWell(
-                                        onTap: () {
-                                          Clipboard.setData(ClipboardData(text: msg.text));
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(
-                                              content: Text("Copied explanation to clipboard!"),
-                                              duration: Duration(seconds: 2),
-                                            ),
-                                          );
-                                        },
-                                        child: Icon(
-                                          Icons.copy_rounded,
-                                          size: 14,
-                                          color: context.textSecondary,
-                                        ),
-                                      ),
+                                child: const Icon(Icons.auto_awesome, color: Colors.white, size: 14),
+                              ),
+                              const SizedBox(width: 10),
+                            ],
+                            Flexible(
+                              child: Container(
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: isUser
+                                      ? (isDark ? const Color(0xFF4F46E5) : const Color(0xFF4338CA))
+                                      : context.surfaceColor,
+                                  border: Border.all(
+                                    color: isUser ? Colors.transparent : context.cardBorderColor,
+                                  ),
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: const Radius.circular(16),
+                                    topRight: const Radius.circular(16),
+                                    bottomLeft: Radius.circular(isUser ? 16 : 4),
+                                    bottomRight: Radius.circular(isUser ? 4 : 16),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, 2),
+                                    ),
                                   ],
                                 ),
-                              ],
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SelectableText(
+                                      msg.text,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 14,
+                                        height: 1.5,
+                                        color: isUser ? Colors.white : context.textPrimary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (msg.modelUsed != null) ...[
+                                          Text(
+                                            msg.modelUsed!,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 10,
+                                              color: isUser
+                                                  ? Colors.white.withValues(alpha: 0.7)
+                                                  : context.textSecondary,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                        ],
+                                        if (!isUser) ...[
+                                          InkWell(
+                                            onTap: () {
+                                              Clipboard.setData(ClipboardData(text: msg.text));
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text("Copied explanation to clipboard!"),
+                                                  duration: Duration(seconds: 2),
+                                                ),
+                                              );
+                                            },
+                                            child: Icon(
+                                              Icons.copy_rounded,
+                                              size: 14,
+                                              color: context.textSecondary,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          InkWell(
+                                            onTap: () => _saveExplanationToNotebook(msg.text),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(Icons.bookmark_add_outlined, size: 14, color: AppColors.accent),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  "Save to Notebook",
+                                                  style: TextStyle(fontSize: 11, color: AppColors.accent, fontWeight: FontWeight.w600),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
+                            if (isUser) const SizedBox(width: 8),
+                          ],
                         ),
-                        if (isUser) const SizedBox(width: 8),
-                      ],
-                    ),
-                  );
-                },
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
 
             // Thinking / Loading indicator
             if (_isLoading)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                alignment: Alignment.centerLeft,
-                child: Row(
-                  children: [
-                    const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
+              Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 900),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      children: [
+                        const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          "Gemini is analyzing context and formulating step-by-step response...",
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                            color: context.textSecondary,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 10),
-                    Text(
-                      "Gemini is analyzing and formulating response...",
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        fontStyle: FontStyle.italic,
-                        color: context.textSecondary,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
 
@@ -430,40 +480,45 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                 color: context.surfaceColor,
                 border: Border(top: BorderSide(color: context.cardBorderColor)),
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _textController,
-                      style: GoogleFonts.inter(color: context.textPrimary, fontSize: 14),
-                      decoration: InputDecoration(
-                        hintText: "Ask Gemini any academic concept or question...",
-                        hintStyle: GoogleFonts.inter(color: context.textSecondary, fontSize: 13),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        filled: true,
-                        fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 900),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _textController,
+                          style: GoogleFonts.inter(color: context.textPrimary, fontSize: 14),
+                          decoration: InputDecoration(
+                            hintText: "Ask Gemini any academic concept, formula, or question...",
+                            hintStyle: GoogleFonts.inter(color: context.textSecondary, fontSize: 13),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            filled: true,
+                            fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                          onSubmitted: _sendMessage,
                         ),
                       ),
-                      onSubmitted: _sendMessage,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                      const SizedBox(width: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                          ),
+                          shape: BoxShape.circle,
+                        ),
+                        child: IconButton(
+                          icon: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                          onPressed: _isLoading ? null : () => _sendMessage(_textController.text),
+                        ),
                       ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
-                      onPressed: _isLoading ? null : () => _sendMessage(_textController.text),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ],
