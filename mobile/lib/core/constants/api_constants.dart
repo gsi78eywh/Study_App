@@ -1,9 +1,9 @@
-﻿class ApiConstants {
+class ApiConstants {
   // Default development baseUrl
   // For Android Emulator: "http://10.0.2.2:5000"
   // For Windows / Web / iOS Simulator: "http://localhost:5000"
   static const String defaultBaseUrl = "http://localhost:5000";
-  
+
   // Auth endpoints
   static const String login = "/api/v1/auth/login";
   static const String register = "/api/v1/auth/register";
@@ -16,6 +16,9 @@
 
   // Bi-directional Sync
   static const String sync = "/api/v1/sync";
+
+  // Server-authoritative practice sessions
+  static const String practiceSessions = "/api/v1/practice/sessions";
 
   // Courses & Starter Pack
   static const String demoPack = "/api/v1/courses/demo-pack";

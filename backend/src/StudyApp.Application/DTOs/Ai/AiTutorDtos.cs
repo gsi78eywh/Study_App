@@ -30,3 +30,9 @@ public record QuestionExplanationResult(
     string? WhyStudentWasIncorrect,
     string TakeawayTip
 );
+
+public record OpenAnswerEvaluationResult(
+    decimal Score,
+    string Feedback,
+    bool IsAiEvaluation
+);

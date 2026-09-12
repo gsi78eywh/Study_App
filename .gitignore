@@ -3,6 +3,7 @@
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
+*.log
 .vs/
 .vscode/
 .idea/
@@ -58,6 +59,9 @@ desktop.ini
 *.db
 *.db-shm
 *.db-wal
+
+# ASP.NET Core runtime state
+**/.data-protection-keys/
 
 appsettings.Local.json
 appsettings.Local.json

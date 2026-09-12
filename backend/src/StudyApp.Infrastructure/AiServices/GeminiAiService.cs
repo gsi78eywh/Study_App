@@ -76,33 +76,37 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
             var systemPrompt = """
             You are an elite university professor and academic curriculum architect.
-            Analyze the study material and synthesize active recall practice tests:
-            1. High-yield academic summary.
-            2. 5 high-yield bullet points capturing core principles, definitions, or formulas.
-            3. Exactly the requested number of high-quality active recall questions matching the requested types.
+            Analyze the study material and synthesize active recall practice tests.
 
-            QUESTION TYPES GUIDANCE:
-            - multiple_choice: Include 'prompt', 4 'options' with 1 correct option and 3 plausible distractors with 'distractorRationale', plus 'explanation'.
-            - identification: Fill-in-the-blank or direct identification of key terms. Include 'prompt', 'correctAnswer', and 'hints'.
-            - enumeration: Multi-item listing questions (e.g. 'Enumerate the 3 stages of...'). Include 'prompt', 'correctAnswer' (bulleted or comma-separated), and 'explanation'.
+            QUESTION TYPES GUIDANCE (honor the requested types exactly):
+            - multiple_choice: 4 options (1 correct, 3 plausible distractors). Each wrong option must have 'distractorRationale'. Include 'explanation'.
+            - identification: Direct recall — student types the exact term. Include 'prompt', 'correctAnswer', 'hints'.
+            - enumeration: Multi-item retrieval (e.g. "List the 5 OSI layers"). 'correctAnswer' is a comma-separated or numbered list.
+            - cloze: Extract a key sentence from the notes and blank out one critical keyword with ____. 'correctAnswer' = blanked keyword. 'prompt' includes the full sentence with ____.
+            - true_false: A declarative statement the student judges as True or False. Set 'isTrue' in options: one "True" option (isCorrect = true if statement IS true, false if it's false) and one "False" option (inverse). Include 'correction' hint if statement is false.
+            - matching: Generate 4 term–definition pairs. Encode as: prompt = "Match each term to its correct definition", options = the 4 correct pairs with isCorrect=true. 'correctAnswer' = JSON array of {term, definition} pairs.
+            - short_answer: Open-ended conceptual question. 'correctAnswer' = model answer paragraph. 'hints' = 3-5 keyword rubric items the student should mention.
+            - scenario: A mini case study or word problem. 'prompt' = scenario description + question. Treat as multiple_choice with 4 options OR as short_answer.
 
-            OUTPUT FORMAT: Return pure valid JSON matching this schema:
+            OUTPUT FORMAT: Return pure valid JSON:
             {
               "summary": "Academic overview of the notes...",
               "highYieldBulletPoints": ["Point 1", "Point 2", "Point 3", "Point 4", "Point 5"],
               "questions": [
                 {
-                  "type": "multiple_choice",
-                  "prompt": "Specific question text?",
-                  "hints": ["Helpful hint 1", "Helpful hint 2"],
-                  "correctAnswer": "Correct Answer Text",
+                  "type": "multiple_choice | identification | enumeration | cloze | true_false | matching | short_answer | scenario",
+                  "prompt": "Question text or fill-in sentence with ____",
+                  "hints": ["Rubric keyword 1", "Rubric keyword 2"],
+                  "correctAnswer": "The correct answer text",
+                  "isTrue": null,
                   "options": [
-                    { "text": "Correct Answer Text", "isCorrect": true, "distractorRationale": null },
-                    { "text": "Plausible Distractor 1", "isCorrect": false, "distractorRationale": "Why this is incorrect" },
-                    { "text": "Plausible Distractor 2", "isCorrect": false, "distractorRationale": "Why this is incorrect" },
-                    { "text": "Plausible Distractor 3", "isCorrect": false, "distractorRationale": "Why this is incorrect" }
+                    { "text": "Correct Answer", "isCorrect": true, "distractorRationale": null },
+                    { "text": "Distractor A", "isCorrect": false, "distractorRationale": "Why wrong" },
+                    { "text": "Distractor B", "isCorrect": false, "distractorRationale": "Why wrong" },
+                    { "text": "Distractor C", "isCorrect": false, "distractorRationale": "Why wrong" }
                   ],
-                  "explanation": "Detailed explanation of why the correct answer is right and the underlying concept."
+                  "explanation": "Full conceptual explanation",
+                  "sourceReference": "Exact heading, page marker, or short source passage supporting this question"
                 }
               ]
             }
@@ -212,7 +216,15 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             2. Write a comprehensive high-yield summary of everything in the image.
             3. Extract 5 high-yield bullet points (laws, definitions, steps, key formulas).
             4. Generate exactly {{targetCount}} high-yield active recall practice questions based directly on the contents of the image.
-            5. Honor the requested exam types: [{{typesList}}]. If 'multiple_choice', provide 4 options (1 correct, 3 plausible distractors) with 'distractorRationale' and 'explanation'. If 'identification', provide direct question and 'correctAnswer'. If 'enumeration', ask for lists/steps.
+            5. Honor the requested exam types: [{{typesList}}]. Use this guidance per type:
+               - multiple_choice: 4 options (1 correct + 3 plausible distractors with distractorRationale), explanation.
+               - identification: direct recall prompt, correctAnswer, hints.
+               - enumeration: multi-item list prompt, correctAnswer as comma-separated list.
+               - cloze: take a key sentence from the image, blank one critical word with ____, correctAnswer = that word.
+               - true_false: declarative statement, options = ["True" (isCorrect=true/false), "False" (inverse)], include correction if false.
+               - matching: 4 term-definition pairs, options = correct pairs with isCorrect=true, correctAnswer = JSON array.
+               - short_answer: open conceptual question from image, correctAnswer = model paragraph, hints = rubric keywords.
+               - scenario: mini case study using image context, treated as multiple_choice or short_answer.
 
             OUTPUT FORMAT: Return pure valid JSON matching this schema:
             {
@@ -230,7 +242,8 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                     { "text": "Plausible Distractor 2", "isCorrect": false, "distractorRationale": "Why this is incorrect" },
                     { "text": "Plausible Distractor 3", "isCorrect": false, "distractorRationale": "Why this is incorrect" }
                   ],
-                  "explanation": "Detailed explanation citing the visual context from the image."
+                  "explanation": "Detailed explanation citing the visual context from the image.",
+                  "sourceReference": "Image attachment: the visible heading, diagram label, or sentence used"
                 }
               ]
             }
@@ -558,7 +571,8 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 options,
                 null, null, false,
                 $"Document context: {def.FullSentence}",
-                null
+                null,
+                $"Source passage: {def.FullSentence}"
             ));
 
             questions.Add(new GeneratedQuestionDto(
@@ -570,7 +584,8 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 new List<string> { def.Term.ToLowerInvariant() },
                 null, false,
                 $"The term \"{def.Term}\" explicitly matches this definition.",
-                null
+                null,
+                $"Source passage: {def.FullSentence}"
             ));
         }
 
@@ -668,6 +683,65 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             string.IsNullOrWhiteSpace(request.StudentAnswer) ? "No answer was selected." : $"'{request.StudentAnswer}' represents a contrasting concept.",
             "Carefully review the question context and eliminate common distractors."
         );
+    }
+
+    public async Task<OpenAnswerEvaluationResult> EvaluateOpenAnswerAsync(
+        string prompt,
+        string modelAnswer,
+        IReadOnlyList<string> rubric,
+        string studentAnswer,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(_apiKey) || string.IsNullOrWhiteSpace(studentAnswer))
+        {
+            return new OpenAnswerEvaluationResult(0m, string.Empty, false);
+        }
+
+        var rubricText = rubric.Count == 0 ? "No discrete rubric keywords were supplied." : string.Join("; ", rubric);
+        var evaluationPrompt = $$"""
+        You are grading a university student's short answer. Grade conceptual accuracy, completeness, and relevant reasoning; do not require exact wording.
+        Return pure JSON only: { "score": number from 0 to 1, "feedback": "one concise, constructive sentence" }.
+
+        QUESTION:
+        {{prompt}}
+
+        MODEL ANSWER:
+        {{modelAnswer}}
+
+        RUBRIC CONCEPTS:
+        {{rubricText}}
+
+        STUDENT ANSWER:
+        {{studentAnswer}}
+        """;
+
+        var payload = new
+        {
+            contents = new[] { new { parts = new[] { new { text = evaluationPrompt } } } },
+            generationConfig = new { responseMimeType = "application/json", temperature = 0.0 }
+        };
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(12));
+        try
+        {
+            var response = await CallNativeGeminiAsync(payload, cts.Token);
+            if (string.IsNullOrWhiteSpace(response)) return new OpenAnswerEvaluationResult(0m, string.Empty, false);
+
+            using var document = JsonDocument.Parse(ExtractJsonBlock(response));
+            var score = document.RootElement.TryGetProperty("score", out var scoreElement) && scoreElement.TryGetDecimal(out var parsedScore)
+                ? Math.Clamp(parsedScore, 0m, 1m)
+                : 0m;
+            var feedback = document.RootElement.TryGetProperty("feedback", out var feedbackElement)
+                ? feedbackElement.GetString() ?? "Response evaluated against the conceptual rubric."
+                : "Response evaluated against the conceptual rubric.";
+            return new OpenAnswerEvaluationResult(score, feedback, true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Open-answer evaluation failed; using local rubric scoring");
+            return new OpenAnswerEvaluationResult(0m, string.Empty, false);
+        }
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default)

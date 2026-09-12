@@ -12,5 +12,12 @@ public interface IAiTutorService
         ExplainQuestionRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<OpenAnswerEvaluationResult> EvaluateOpenAnswerAsync(
+        string prompt,
+        string modelAnswer,
+        IReadOnlyList<string> rubric,
+        string studentAnswer,
+        CancellationToken cancellationToken = default);
+
     Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default);
 }

@@ -1,4 +1,4 @@
-﻿namespace StudyApp.Domain.Enums;
+namespace StudyApp.Domain.Enums;
 
 public enum QuestionType
 {
@@ -6,5 +6,10 @@ public enum QuestionType
     Identification = 2,
     Enumeration = 3,
     BulletPoints = 4,
-    LogicalThinking = 5
+    LogicalThinking = 5,
+    Cloze = 6,
+    TrueFalse = 7,
+    Matching = 8,
+    ShortAnswer = 9,
+    Scenario = 10,
 }

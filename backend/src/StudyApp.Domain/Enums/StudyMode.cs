@@ -1,4 +1,4 @@
-﻿namespace StudyApp.Domain.Enums;
+namespace StudyApp.Domain.Enums;
 
 public enum StudyMode
 {
@@ -13,5 +13,11 @@ public enum StudyMode
     SocraticTutor = 9,
     WeakSpotMastery = 10,
     CheatsheetGuide = 11,
-    PeerDuel = 12
+    PeerDuel = 12,
+    RapidFireBlitz = 13,
+    ClozeTest = 14,
+    TrueFalse = 15,
+    MatchingType = 16,
+    ShortAnswer = 17,
+    ScenarioDrills = 18,
 }

@@ -26,7 +26,8 @@ public record GeneratedQuestionDto(
     List<string>? EnumerationItems,
     bool IsOrdered,
     string Explanation,
-    List<string>? ThinkingBreakdown
+    List<string>? ThinkingBreakdown,
+    string? SourceReference = null
 );
 
 public record GeneratedOptionDto(string Text, bool IsCorrect, string? DistractorRationale);

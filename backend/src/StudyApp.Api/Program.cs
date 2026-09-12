@@ -1,8 +1,11 @@
 ﻿using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Diagnostics;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using StudyApp.Application.Common.Interfaces;
@@ -16,8 +19,22 @@ using StudyApp.Infrastructure.Services;
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
-// Configure port: default to http://localhost:5000
-builder.WebHost.UseUrls("http://localhost:5000");
+// Keep Data Protection state outside the source tree. It is runtime state, not
+// application source, and should not be accidentally committed with the project.
+var dataProtectionDirectory = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+    "StudyApp",
+    "data-protection-keys");
+Directory.CreateDirectory(dataProtectionDirectory);
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionDirectory))
+    .SetApplicationName("StudyApp");
+
+// A stable development default that remains overrideable through ASPNETCORE_URLS.
+if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
+{
+    builder.WebHost.UseUrls(builder.Configuration["Server:Urls"] ?? "http://localhost:5000");
+}
 
 // 1. Add DbContext with SQLite local fallback support
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=studyapp.db";
@@ -66,8 +83,21 @@ builder.Services.AddScoped<GeminiAiService>();
 builder.Services.AddScoped<IAiQuestionGenerator>(sp => sp.GetRequiredService<GeminiAiService>());
 builder.Services.AddScoped<IAiTutorService>(sp => sp.GetRequiredService<GeminiAiService>());
 
-// 4. Configure JWT Authentication
-var jwtSecret = builder.Configuration["JwtSettings:Secret"] ?? "SuperSecretKeyForStudyAppDevelopmentEnvironment2026!LongEnoughForHmac256";
+// 4. Configure JWT Authentication. Production must provide a stable secret
+// through configuration. Development can use an ephemeral key so a known key
+// is never silently deployed.
+var jwtSecret = builder.Configuration["JwtSettings:Secret"];
+if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.Length < 32)
+{
+    if (!builder.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException("JwtSettings:Secret must be configured with at least 32 characters.");
+    }
+
+    jwtSecret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
+    builder.Configuration["JwtSettings:Secret"] = jwtSecret;
+    Console.WriteLine("[Authentication] Using an ephemeral development JWT key. Configure JwtSettings:Secret to retain sessions across restarts.");
+}
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret))
 {
     KeyId = "studyapp-jwt-key"
@@ -89,13 +119,26 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 // 5. Configure CORS for Flutter Mobile App
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+if (!builder.Environment.IsDevelopment() && corsOrigins.Length == 0)
+{
+    throw new InvalidOperationException("Cors:AllowedOrigins must contain at least one origin outside Development.");
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowMobileClient", policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyHeader()
-              .AllowAnyMethod();
+        if (builder.Environment.IsDevelopment() && corsOrigins.Length == 0)
+        {
+            policy.AllowAnyOrigin();
+        }
+        else
+        {
+            policy.WithOrigins(corsOrigins);
+        }
+
+        policy.AllowAnyHeader().AllowAnyMethod();
     });
 });
 
@@ -112,9 +155,20 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 20,
                 Window = TimeSpan.FromMinutes(1)
             }));
+
+    options.AddPolicy("auth", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
 });
 
 builder.Services.AddControllers();
+builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 
@@ -126,10 +180,30 @@ using (var scope = app.Services.CreateScope())
     Console.WriteLine("[Database] Database schema verified and ready for student records.");
 }
 
+app.UseExceptionHandler(exceptionApp => exceptionApp.Run(async context =>
+{
+    var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+    var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("UnhandledException");
+    logger.LogError(exception, "Unhandled exception for {Method} {Path}", context.Request.Method, context.Request.Path);
+    await Results.Problem(
+        statusCode: StatusCodes.Status500InternalServerError,
+        title: "An unexpected server error occurred.",
+        detail: app.Environment.IsDevelopment() ? exception?.Message : null)
+        .ExecuteAsync(context);
+}));
+
 app.UseCors("AllowMobileClient");
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.MapGet("/health", async (ApplicationDbContext db, CancellationToken cancellationToken) =>
+{
+    var canConnect = await db.Database.CanConnectAsync(cancellationToken);
+    return canConnect
+        ? Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow })
+        : Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Database unavailable.");
+}).AllowAnonymous();
 
 // Root Welcome & Health Page (so browser visits never 404)
 app.MapGet("/", () => Results.Content("""
@@ -281,9 +355,9 @@ app.MapGet("/", () => Results.Content("""
         <h1>StudyApp C# Backend API</h1>
         <p class="subtitle">ASP.NET Core 10 Clean Architecture engine powering AI document ingestion, active recall quiz sessions, and cross-platform synchronization.</p>
         
-        <a href="http://localhost:3000" class="btn-launch">
-            Open Flutter Web App (Port 3000) &rarr;
-        </a>
+        <div class="btn-launch" role="status">
+            Flutter client runs separately — API base URL: http://localhost:5000
+        </div>
 
         <div class="grid">
             <div class="card">
@@ -425,7 +499,10 @@ app.MapPost("/api/v1/courses/demo-pack", async (ApplicationDbContext db, ClaimsP
 // Student Notebooks API
 app.MapGet("/api/v1/notebooks", async (Guid? courseId, ApplicationDbContext db, ClaimsPrincipal user) =>
 {
-    var query = db.NotebookPages.AsQueryable();
+    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    if (!Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
+
+    var query = db.NotebookPages.Where(note => note.Course != null && note.Course.UserId == userId);
     if (courseId.HasValue && courseId.Value != Guid.Empty)
     {
         query = query.Where(n => n.CourseId == courseId.Value);
@@ -434,14 +511,59 @@ app.MapGet("/api/v1/notebooks", async (Guid? courseId, ApplicationDbContext db, 
     return Results.Ok(notes);
 }).RequireAuthorization();
 
-app.MapPost("/api/v1/notebooks", async (NotebookPage note, ApplicationDbContext db) =>
+app.MapPost("/api/v1/notebooks", async (NotebookPage note, ApplicationDbContext db, ClaimsPrincipal user) =>
 {
-    if (string.IsNullOrWhiteSpace(note.Title)) return Results.BadRequest(new { message = "Note title cannot be empty." });
+    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    if (!Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
+    if (note.CourseId == Guid.Empty || string.IsNullOrWhiteSpace(note.Title) || string.IsNullOrWhiteSpace(note.ContentMarkdown))
+    {
+        return Results.BadRequest(new { message = "Course, title, and note content are required." });
+    }
+    var ownsCourse = await db.Courses.AnyAsync(course => course.Id == note.CourseId && course.UserId == userId);
+    if (!ownsCourse) return Results.NotFound(new { message = "Course not found." });
+
     note.Id = Guid.NewGuid();
     note.CreatedAt = DateTime.UtcNow;
+    note.UpdatedAt = note.CreatedAt;
     db.NotebookPages.Add(note);
     await db.SaveChangesAsync();
     return Results.Ok(note);
+}).RequireAuthorization();
+
+app.MapPut("/api/v1/notebooks/{id:guid}", async (Guid id, NotebookPage update, ApplicationDbContext db, ClaimsPrincipal user) =>
+{
+    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    if (!Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
+    if (string.IsNullOrWhiteSpace(update.Title) || string.IsNullOrWhiteSpace(update.ContentMarkdown))
+    {
+        return Results.BadRequest(new { message = "Note title and content are required." });
+    }
+
+    var note = await db.NotebookPages
+        .Include(page => page.Course)
+        .SingleOrDefaultAsync(page => page.Id == id && page.Course != null && page.Course.UserId == userId);
+    if (note is null) return Results.NotFound(new { message = "Note not found." });
+
+    note.Title = update.Title.Trim();
+    note.ContentMarkdown = update.ContentMarkdown;
+    note.UpdatedAt = DateTime.UtcNow;
+    await db.SaveChangesAsync();
+    return Results.Ok(note);
+}).RequireAuthorization();
+
+app.MapDelete("/api/v1/notebooks/{id:guid}", async (Guid id, ApplicationDbContext db, ClaimsPrincipal user) =>
+{
+    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    if (!Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
+
+    var note = await db.NotebookPages
+        .Include(page => page.Course)
+        .SingleOrDefaultAsync(page => page.Id == id && page.Course != null && page.Course.UserId == userId);
+    if (note is null) return Results.NotFound(new { message = "Note not found." });
+
+    db.NotebookPages.Remove(note);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
 }).RequireAuthorization();
 
 app.MapControllers();

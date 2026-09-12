@@ -1,6 +1,7 @@
 ﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using StudyApp.Application.Common.Interfaces;
 using StudyApp.Application.DTOs.Auth;
@@ -10,6 +11,7 @@ namespace StudyApp.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/auth")]
+[EnableRateLimiting("auth")]
 public class AuthController : ControllerBase
 {
     private readonly IApplicationDbContext _context;
@@ -29,7 +31,14 @@ public class AuthController : ControllerBase
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
-        var existing = await _context.Users.AnyAsync(u => u.Email.ToLower() == request.Email.ToLower());
+        var email = request.Email?.Trim().ToLowerInvariant();
+        var fullName = request.FullName?.Trim();
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@') || string.IsNullOrWhiteSpace(fullName) || fullName.Length > 150 || string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 8)
+        {
+            return BadRequest(new { message = "Enter a valid email, name, and a password of at least 8 characters." });
+        }
+
+        var existing = await _context.Users.AnyAsync(u => u.Email == email);
         if (existing)
         {
             return BadRequest(new { message = "An account with this email already exists." });
@@ -37,8 +46,8 @@ public class AuthController : ControllerBase
 
         var user = new User
         {
-            Email = request.Email.ToLower().Trim(),
-            FullName = request.FullName.Trim(),
+            Email = email,
+            FullName = fullName,
             PasswordHash = _passwordHasher.HashPassword(request.Password)
         };
 
@@ -52,7 +61,13 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == request.Email.ToLower().Trim());
+        var email = request.Email?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(request.Password))
+        {
+            return BadRequest(new { message = "Email and password are required." });
+        }
+
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
         if (user == null || !_passwordHasher.VerifyPassword(request.Password, user.PasswordHash))
         {
             return Unauthorized(new { message = "Invalid email or password." });

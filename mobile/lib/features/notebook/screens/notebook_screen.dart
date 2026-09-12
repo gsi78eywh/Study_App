@@ -1,6 +1,7 @@
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
+
 import "../../../core/network/api_client.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../courses/models/course_models.dart";
@@ -65,7 +66,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
             title: item["title"]?.toString() ?? "Untitled Note",
             content: item["content"]?.toString() ?? "",
             tags: item["tags"]?.toString() ?? "#Notes",
-            updatedAt: DateTime.tryParse(item["updatedAt"]?.toString() ?? "") ?? DateTime.now(),
+            updatedAt:
+                DateTime.tryParse(item["updatedAt"]?.toString() ?? "") ??
+                DateTime.now(),
           );
         }).toList();
 
@@ -88,15 +91,25 @@ class _NotebookScreenState extends State<NotebookScreen> {
     final titleController = TextEditingController();
     final contentController = TextEditingController();
     final tagsController = TextEditingController(text: "#Lecture #KeyConcepts");
-    String selectedCourse = widget.courses.isNotEmpty ? widget.courses.first.code : "BIO-101";
+    String selectedCourse = widget.courses.isNotEmpty
+        ? widget.courses.first.code
+        : "BIO-101";
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModalState) => AlertDialog(
           backgroundColor: ctx.surfaceColor,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text("Create Digital Lecture Note", style: GoogleFonts.outfit(color: ctx.textPrimary, fontWeight: FontWeight.bold)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Text(
+            "Create Digital Lecture Note",
+            style: GoogleFonts.outfit(
+              color: ctx.textPrimary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           content: SingleChildScrollView(
             child: SizedBox(
               width: 480,
@@ -107,15 +120,35 @@ class _NotebookScreenState extends State<NotebookScreen> {
                   if (widget.courses.isNotEmpty) ...[
                     Row(
                       children: [
-                        Text("Course: ", style: TextStyle(color: ctx.textSecondary)),
+                        Text(
+                          "Course: ",
+                          style: TextStyle(color: ctx.textSecondary),
+                        ),
                         const SizedBox(width: 8),
                         DropdownButton<String>(
-                          value: widget.courses.any((c) => c.code == selectedCourse) ? selectedCourse : widget.courses.first.code,
+                          value:
+                              widget.courses.any(
+                                (c) => c.code == selectedCourse,
+                              )
+                              ? selectedCourse
+                              : widget.courses.first.code,
                           dropdownColor: ctx.surfaceColor,
-                          style: TextStyle(color: ctx.textPrimary, fontWeight: FontWeight.bold),
-                          items: widget.courses.map((c) => DropdownMenuItem(value: c.code, child: Text(c.code))).toList(),
+                          style: TextStyle(
+                            color: ctx.textPrimary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          items: widget.courses
+                              .map(
+                                (c) => DropdownMenuItem(
+                                  value: c.code,
+                                  child: Text(c.code),
+                                ),
+                              )
+                              .toList(),
                           onChanged: (val) {
-                            if (val != null) setModalState(() => selectedCourse = val);
+                            if (val != null) {
+                              setModalState(() => selectedCourse = val);
+                            }
                           },
                         ),
                       ],
@@ -166,33 +199,49 @@ class _NotebookScreenState extends State<NotebookScreen> {
 
                 if (title.isEmpty || content.isEmpty) return;
 
-                final newNote = NoteItem(
-                  id: "note-${DateTime.now().millisecondsSinceEpoch}",
-                  courseCode: selectedCourse,
-                  title: title,
-                  content: content,
-                  tags: tags.isEmpty ? "#Notes" : tags,
-                  updatedAt: DateTime.now(),
-                );
-
-                setState(() => _notes.insert(0, newNote));
-                Navigator.pop(ctx);
-
                 try {
-                  await widget.apiClient.dio.post("/api/v1/notebooks", data: {
-                    "courseCode": selectedCourse,
-                    "title": title,
-                    "content": content,
-                    "tags": tags,
-                  });
-                } catch (_) {}
+                  final course = widget.courses.firstWhere(
+                    (item) => item.code == selectedCourse,
+                  );
+                  final response = await widget.apiClient.dio.post(
+                    "/api/v1/notebooks",
+                    data: {
+                      "courseId": course.id,
+                      "title": title,
+                      "contentMarkdown": content,
+                    },
+                  );
+                  final saved = response.data as Map<String, dynamic>;
+                  final newNote = NoteItem(
+                    id:
+                        saved["id"]?.toString() ??
+                        "note-${DateTime.now().millisecondsSinceEpoch}",
+                    courseCode: selectedCourse,
+                    title: title,
+                    content: content,
+                    tags: tags.isEmpty ? "#Notes" : tags,
+                    updatedAt: DateTime.now(),
+                  );
+                  if (!mounted) return;
+                  if (!ctx.mounted) return;
+                  setState(() => _notes.insert(0, newNote));
+                  Navigator.pop(ctx);
 
-                if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text("Note saved to digital notebook"),
                       backgroundColor: AppColors.accent,
                       duration: Duration(seconds: 2),
+                    ),
+                  );
+                } catch (_) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        "Unable to save note. Check your connection and try again.",
+                      ),
+                      backgroundColor: AppColors.danger,
                     ),
                   );
                 }
@@ -222,7 +271,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
               child: Text(
                 note.courseCode,
                 style: TextStyle(
-                  color: ctx.isDarkMode ? AppColors.primaryLight : AppColors.primaryDark,
+                  color: ctx.isDarkMode
+                      ? AppColors.primaryLight
+                      : AppColors.primaryDark,
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                 ),
@@ -232,7 +283,11 @@ class _NotebookScreenState extends State<NotebookScreen> {
             Expanded(
               child: Text(
                 note.title,
-                style: GoogleFonts.outfit(color: ctx.textPrimary, fontWeight: FontWeight.bold, fontSize: 18),
+                style: GoogleFonts.outfit(
+                  color: ctx.textPrimary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
               ),
             ),
           ],
@@ -244,12 +299,20 @@ class _NotebookScreenState extends State<NotebookScreen> {
             children: [
               Text(
                 note.tags,
-                style: const TextStyle(color: AppColors.accent, fontSize: 13, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  color: AppColors.accent,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 12),
               SelectableText(
                 note.content,
-                style: TextStyle(color: ctx.textPrimary, fontSize: 14, height: 1.6),
+                style: TextStyle(
+                  color: ctx.textPrimary,
+                  fontSize: 14,
+                  height: 1.6,
+                ),
               ),
             ],
           ),
@@ -259,9 +322,14 @@ class _NotebookScreenState extends State<NotebookScreen> {
             icon: const Icon(Icons.copy_rounded, size: 16),
             label: const Text("Copy Text"),
             onPressed: () {
-              Clipboard.setData(ClipboardData(text: "${note.title}\n\n${note.content}"));
+              Clipboard.setData(
+                ClipboardData(text: "${note.title}\n\n${note.content}"),
+              );
               ScaffoldMessenger.of(ctx).showSnackBar(
-                const SnackBar(content: Text("Copied note to clipboard!"), duration: Duration(seconds: 2)),
+                const SnackBar(
+                  content: Text("Copied note to clipboard!"),
+                  duration: Duration(seconds: 2),
+                ),
               );
             },
           ),
@@ -291,11 +359,16 @@ class _NotebookScreenState extends State<NotebookScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = context.isDarkMode;
-    final availableCourses = <String>["ALL", ...widget.courses.map((c) => c.code).toSet()];
+    final availableCourses = <String>[
+      "ALL",
+      ...widget.courses.map((c) => c.code).toSet(),
+    ];
 
     final filtered = _notes.where((note) {
-      final matchesCourse = _selectedFilter == "ALL" || note.courseCode == _selectedFilter;
-      final matchesSearch = _searchQuery.isEmpty ||
+      final matchesCourse =
+          _selectedFilter == "ALL" || note.courseCode == _selectedFilter;
+      final matchesSearch =
+          _searchQuery.isEmpty ||
           note.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           note.content.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           note.tags.toLowerCase().contains(_searchQuery.toLowerCase());
@@ -321,23 +394,40 @@ class _NotebookScreenState extends State<NotebookScreen> {
                         children: [
                           Text(
                             "Digital Notebook",
-                            style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.bold, color: context.textPrimary),
+                            style: GoogleFonts.outfit(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: context.textPrimary,
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             "Personalized lecture notes, derivations & formulas",
-                            style: GoogleFonts.inter(fontSize: 13, color: context.textSecondary),
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: context.textSecondary,
+                            ),
                           ),
                         ],
                       ),
                       ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          backgroundColor: isDark
+                              ? AppColors.primary
+                              : AppColors.primaryDark,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
                         icon: const Icon(Icons.add_rounded, size: 18),
-                        label: const Text("New Note", style: TextStyle(fontWeight: FontWeight.bold)),
+                        label: const Text(
+                          "New Note",
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
                         onPressed: _showAddNoteDialog,
                       ),
                     ],
@@ -350,11 +440,18 @@ class _NotebookScreenState extends State<NotebookScreen> {
                     style: TextStyle(color: context.textPrimary),
                     decoration: InputDecoration(
                       hintText: "Search notes by title, keyword, or tag...",
-                      prefixIcon: Icon(Icons.search_rounded, color: context.textSecondary),
+                      prefixIcon: Icon(
+                        Icons.search_rounded,
+                        color: context.textSecondary,
+                      ),
                       suffixIcon: _searchQuery.isNotEmpty
                           ? IconButton(
-                              icon: Icon(Icons.clear, color: context.textSecondary),
-                              onPressed: () => setState(() => _searchQuery = ""),
+                              icon: Icon(
+                                Icons.clear,
+                                color: context.textSecondary,
+                              ),
+                              onPressed: () =>
+                                  setState(() => _searchQuery = ""),
                             )
                           : null,
                     ),
@@ -371,25 +468,36 @@ class _NotebookScreenState extends State<NotebookScreen> {
                             padding: const EdgeInsets.only(right: 8),
                             child: FilterChip(
                               selected: isSelected,
-                              label: Text(code == "ALL" ? "All Subjects" : code),
+                              label: Text(
+                                code == "ALL" ? "All Subjects" : code,
+                              ),
                               labelStyle: TextStyle(
                                 color: isSelected
                                     ? Colors.white
-                                    : (isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    : (isDark
+                                          ? AppColors.darkTextSecondary
+                                          : AppColors.lightTextSecondary),
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
                                 fontSize: 13,
                               ),
-                              selectedColor: isDark ? AppColors.primary : AppColors.primaryDark,
+                              selectedColor: isDark
+                                  ? AppColors.primary
+                                  : AppColors.primaryDark,
                               backgroundColor: context.surfaceColor,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(20),
                                 side: BorderSide(
                                   color: isSelected
-                                      ? (isDark ? AppColors.primary : AppColors.primaryDark)
+                                      ? (isDark
+                                            ? AppColors.primary
+                                            : AppColors.primaryDark)
                                       : context.cardBorderColor,
                                 ),
                               ),
-                              onSelected: (_) => setState(() => _selectedFilter = code),
+                              onSelected: (_) =>
+                                  setState(() => _selectedFilter = code),
                             ),
                           );
                         }).toList(),
@@ -408,11 +516,21 @@ class _NotebookScreenState extends State<NotebookScreen> {
                       ),
                       child: Column(
                         children: [
-                          Icon(Icons.menu_book_rounded, size: 56, color: context.textSecondary.withValues(alpha: 0.6)),
+                          Icon(
+                            Icons.menu_book_rounded,
+                            size: 56,
+                            color: context.textSecondary.withValues(alpha: 0.6),
+                          ),
                           const SizedBox(height: 16),
                           Text(
-                            _notes.isEmpty ? "Your Notebook is Empty" : "No Matching Notes Found",
-                            style: GoogleFonts.outfit(fontSize: 18, color: context.textPrimary, fontWeight: FontWeight.bold),
+                            _notes.isEmpty
+                                ? "Your Notebook is Empty"
+                                : "No Matching Notes Found",
+                            style: GoogleFonts.outfit(
+                              fontSize: 18,
+                              color: context.textPrimary,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 8),
                           Text(
@@ -420,7 +538,11 @@ class _NotebookScreenState extends State<NotebookScreen> {
                                 ? "Capture lecture takeaways, formulas, or synthesis summaries to build your personal study knowledge base."
                                 : "Try searching with a different keyword or select another subject filter.",
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.5),
+                            style: TextStyle(
+                              color: context.textSecondary,
+                              fontSize: 13,
+                              height: 1.5,
+                            ),
                           ),
                           const SizedBox(height: 20),
                           Wrap(
@@ -430,23 +552,41 @@ class _NotebookScreenState extends State<NotebookScreen> {
                             children: [
                               ElevatedButton.icon(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
-                                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  backgroundColor: isDark
+                                      ? AppColors.primary
+                                      : AppColors.primaryDark,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 18,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                 ),
                                 icon: const Icon(Icons.add_rounded, size: 18),
                                 label: const Text("Create Your First Note"),
                                 onPressed: _showAddNoteDialog,
                               ),
-                              if (widget.onLoadStarterPack != null && widget.courses.isEmpty)
+                              if (widget.onLoadStarterPack != null &&
+                                  widget.courses.isEmpty)
                                 OutlinedButton.icon(
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: AppColors.accent,
-                                    side: const BorderSide(color: AppColors.accent),
-                                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    side: const BorderSide(
+                                      color: AppColors.accent,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 18,
+                                      vertical: 12,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
                                   ),
-                                  icon: const Icon(Icons.auto_awesome, size: 18),
+                                  icon: const Icon(
+                                    Icons.auto_awesome,
+                                    size: 18,
+                                  ),
                                   label: const Text("Load Starter Demo Pack"),
                                   onPressed: widget.onLoadStarterPack,
                                 ),
@@ -472,15 +612,22 @@ class _NotebookScreenState extends State<NotebookScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: AppColors.primary.withValues(alpha: 0.15),
+                                    color: AppColors.primary.withValues(
+                                      alpha: 0.15,
+                                    ),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
                                     note.courseCode,
                                     style: TextStyle(
-                                      color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                                      color: isDark
+                                          ? AppColors.primaryLight
+                                          : AppColors.primaryDark,
                                       fontWeight: FontWeight.bold,
                                       fontSize: 12,
                                     ),
@@ -488,26 +635,41 @@ class _NotebookScreenState extends State<NotebookScreen> {
                                 ),
                                 Text(
                                   "${note.updatedAt.month}/${note.updatedAt.day}",
-                                  style: TextStyle(color: context.textSecondary, fontSize: 12),
+                                  style: TextStyle(
+                                    color: context.textSecondary,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 10),
                             Text(
                               note.title,
-                              style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary),
+                              style: GoogleFonts.outfit(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: context.textPrimary,
+                              ),
                             ),
                             const SizedBox(height: 6),
                             Text(
                               note.tags,
-                              style: const TextStyle(color: AppColors.accent, fontSize: 12, fontWeight: FontWeight.w600),
+                              style: const TextStyle(
+                                color: AppColors.accent,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                             const SizedBox(height: 10),
                             Text(
                               note.content,
                               maxLines: 3,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.4),
+                              style: TextStyle(
+                                color: context.textSecondary,
+                                fontSize: 13,
+                                height: 1.4,
+                              ),
                             ),
                             const SizedBox(height: 12),
                             Row(
@@ -518,16 +680,26 @@ class _NotebookScreenState extends State<NotebookScreen> {
                                     style: TextButton.styleFrom(
                                       foregroundColor: AppColors.accent,
                                     ),
-                                    icon: const Icon(Icons.auto_awesome, size: 16),
-                                    label: const Text("Synthesize in AI Studio"),
+                                    icon: const Icon(
+                                      Icons.auto_awesome,
+                                      size: 16,
+                                    ),
+                                    label: const Text(
+                                      "Synthesize in AI Studio",
+                                    ),
                                     onPressed: widget.onNavigateToStudio,
                                   ),
                                 const SizedBox(width: 8),
                                 TextButton.icon(
                                   style: TextButton.styleFrom(
-                                    foregroundColor: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                                    foregroundColor: isDark
+                                        ? AppColors.primaryLight
+                                        : AppColors.primaryDark,
                                   ),
-                                  icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                                  icon: const Icon(
+                                    Icons.open_in_new_rounded,
+                                    size: 16,
+                                  ),
                                   label: const Text("View Full Note"),
                                   onPressed: () => _showNoteDetail(note),
                                 ),

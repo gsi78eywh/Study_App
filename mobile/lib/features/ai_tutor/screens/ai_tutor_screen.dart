@@ -1,6 +1,7 @@
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
+
 import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/theme/app_theme.dart";
@@ -56,20 +57,25 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedCourseContext = widget.initialCourseContext ??
+    _selectedCourseContext =
+        widget.initialCourseContext ??
         (widget.courses.isNotEmpty ? widget.courses.first.name : null);
 
     // Initial greeting from Gemini
-    _messages.add(ChatMessage(
-      role: "assistant",
-      text: "👋 Hi! I'm your **Gemini Study Tutor**, powered by Google Gemini AI.\n\n"
-          "I can help you master complex coursework, explain tricky equations, break down practice problems, and give you conceptual clarity.\n\n"
-          "What topic or question are we tackling today?",
-      modelUsed: "gemini-flash-latest",
-      timestamp: DateTime.now(),
-    ));
+    _messages.add(
+      ChatMessage(
+        role: "assistant",
+        text:
+            "👋 Hi! I'm your **Gemini Study Tutor**, powered by Google Gemini AI.\n\n"
+            "I can help you master complex coursework, explain tricky equations, break down practice problems, and give you conceptual clarity.\n\n"
+            "What topic or question are we tackling today?",
+        modelUsed: "gemini-flash-latest",
+        timestamp: DateTime.now(),
+      ),
+    );
 
-    if (widget.initialPrompt != null && widget.initialPrompt!.trim().isNotEmpty) {
+    if (widget.initialPrompt != null &&
+        widget.initialPrompt!.trim().isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _sendMessage(widget.initialPrompt!.trim());
       });
@@ -101,11 +107,9 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
 
     _textController.clear();
     setState(() {
-      _messages.add(ChatMessage(
-        role: "user",
-        text: query,
-        timestamp: DateTime.now(),
-      ));
+      _messages.add(
+        ChatMessage(role: "user", text: query, timestamp: DateTime.now()),
+      );
       _isLoading = true;
     });
     _scrollToBottom();
@@ -113,10 +117,12 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     try {
       final history = _messages
           .where((m) => m.role == "user" || m.role == "assistant")
-          .map((m) => {
-                "role": m.role == "assistant" ? "model" : "user",
-                "content": m.text,
-              })
+          .map(
+            (m) => {
+              "role": m.role == "assistant" ? "model" : "user",
+              "content": m.text,
+            },
+          )
           .toList();
 
       if (history.isNotEmpty) history.removeLast();
@@ -126,34 +132,43 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
         data: {
           "message": query,
           "contextTopic": _selectedCourseContext,
-          "history": history.length > 6 ? history.sublist(history.length - 6) : history,
+          "history": history.length > 6
+              ? history.sublist(history.length - 6)
+              : history,
         },
       );
 
       if (response.statusCode == 200 && response.data != null) {
-        final reply = response.data["reply"] as String? ?? "No response received.";
-        final model = response.data["modelUsed"] as String? ?? "gemini-flash-latest";
+        final reply =
+            response.data["reply"] as String? ?? "No response received.";
+        final model =
+            response.data["modelUsed"] as String? ?? "gemini-flash-latest";
 
         if (mounted) {
           setState(() {
-            _messages.add(ChatMessage(
-              role: "assistant",
-              text: reply,
-              modelUsed: model,
-              timestamp: DateTime.now(),
-            ));
+            _messages.add(
+              ChatMessage(
+                role: "assistant",
+                text: reply,
+                modelUsed: model,
+                timestamp: DateTime.now(),
+              ),
+            );
           });
         }
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _messages.add(ChatMessage(
-            role: "assistant",
-            text: "⚠️ Gemini Tutor connection error: $e\n\nPlease check your network or try again shortly.",
-            modelUsed: "offline-fallback",
-            timestamp: DateTime.now(),
-          ));
+          _messages.add(
+            ChatMessage(
+              role: "assistant",
+              text:
+                  "⚠️ Gemini Tutor connection error: $e\n\nPlease check your network or try again shortly.",
+              modelUsed: "offline-fallback",
+              timestamp: DateTime.now(),
+            ),
+          );
         });
       }
     } finally {
@@ -165,21 +180,53 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
   }
 
   Future<void> _saveExplanationToNotebook(String text) async {
+    if (widget.courses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Create a course before saving a notebook entry."),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
     try {
-      final title = text.split('\n').first.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), '').trim();
-      final cleanTitle = title.isNotEmpty ? (title.length > 40 ? title.substring(0, 40) : title) : "Gemini Study Note";
-      await widget.apiClient.dio.post("/api/v1/notebooks", data: {
-        "courseCode": widget.courses.isNotEmpty ? widget.courses.first.code : "TUTOR",
-        "title": cleanTitle,
-        "content": text,
-        "tags": "#GeminiTutor #ExamPrep",
-      });
+      final title = text
+          .split('\n')
+          .first
+          .replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), '')
+          .trim();
+      final cleanTitle = title.isNotEmpty
+          ? (title.length > 40 ? title.substring(0, 40) : title)
+          : "Gemini Study Note";
+      await widget.apiClient.dio.post(
+        "/api/v1/notebooks",
+        data: {
+          "courseId": widget.courses.first.id,
+          "title": cleanTitle,
+          "contentMarkdown": text,
+        },
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("✨ Saved explanation directly to your Digital Notebook!"), backgroundColor: AppColors.accent),
+          const SnackBar(
+            content: Text(
+              "✨ Saved explanation directly to your Digital Notebook!",
+            ),
+            backgroundColor: AppColors.accent,
+          ),
         );
       }
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Unable to save this explanation to the notebook."),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -195,13 +242,21 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF6366F1), Color(0xFF8B5CF6), Color(0xFFEC4899)],
+                  colors: [
+                    Color(0xFF6366F1),
+                    Color(0xFF8B5CF6),
+                    Color(0xFFEC4899),
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 20),
+              child: const Icon(
+                Icons.auto_awesome_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
             ),
             const SizedBox(width: 12),
             Column(
@@ -209,11 +264,18 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
               children: [
                 Text(
                   "Gemini Study Tutor",
-                  style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 17, color: context.textPrimary),
+                  style: GoogleFonts.outfit(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 17,
+                    color: context.textPrimary,
+                  ),
                 ),
                 Text(
                   "Google Gemini Multimodal AI Engine",
-                  style: GoogleFonts.inter(fontSize: 11, color: context.textSecondary),
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    color: context.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -236,10 +298,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                     child: Text("All Subjects (General)"),
                   ),
                   ...widget.courses.map(
-                    (c) => PopupMenuItem(
-                      value: c.name,
-                      child: Text(c.name),
-                    ),
+                    (c) => PopupMenuItem(value: c.name, child: Text(c.name)),
                   ),
                 ],
               ),
@@ -253,14 +312,23 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
             if (_selectedCourseContext != null)
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: isDark ? const Color(0xFF1E293B) : const Color(0xFFEEF2FF),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                color: isDark
+                    ? const Color(0xFF1E293B)
+                    : const Color(0xFFEEF2FF),
                 child: Center(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 900),
                     child: Row(
                       children: [
-                        const Icon(Icons.school_outlined, size: 16, color: AppColors.accent),
+                        const Icon(
+                          Icons.school_outlined,
+                          size: 16,
+                          color: AppColors.accent,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -268,7 +336,9 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                             style: GoogleFonts.inter(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
-                              color: isDark ? AppColors.darkTextPrimary : const Color(0xFF3730A3),
+                              color: isDark
+                                  ? AppColors.darkTextPrimary
+                                  : const Color(0xFF3730A3),
                             ),
                           ),
                         ),
@@ -297,13 +367,19 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                           prompt,
                           style: TextStyle(
                             fontSize: 12,
-                            color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+                            color: isDark
+                                ? AppColors.darkTextPrimary
+                                : AppColors.lightTextPrimary,
                           ),
                         ),
                         backgroundColor: context.surfaceColor,
                         side: BorderSide(color: context.cardBorderColor),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        onPressed: () => _sendMessage(prompt.replaceFirst(RegExp(r'^[^a-zA-Z0-9]+'), '')),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        onPressed: () => _sendMessage(
+                          prompt.replaceFirst(RegExp(r'^[^a-zA-Z0-9]+'), ''),
+                        ),
                       );
                     },
                   ),
@@ -318,7 +394,10 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                   constraints: const BoxConstraints(maxWidth: 900),
                   child: ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     itemCount: _messages.length,
                     itemBuilder: (context, index) {
                       final msg = _messages[index];
@@ -327,7 +406,9 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 14),
                         child: Row(
-                          mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+                          mainAxisAlignment: isUser
+                              ? MainAxisAlignment.end
+                              : MainAxisAlignment.start,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             if (!isUser) ...[
@@ -335,11 +416,18 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                                 padding: const EdgeInsets.all(6),
                                 decoration: BoxDecoration(
                                   gradient: const LinearGradient(
-                                    colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                                    colors: [
+                                      Color(0xFF6366F1),
+                                      Color(0xFF8B5CF6),
+                                    ],
                                   ),
                                   borderRadius: BorderRadius.circular(10),
                                 ),
-                                child: const Icon(Icons.auto_awesome, color: Colors.white, size: 14),
+                                child: const Icon(
+                                  Icons.auto_awesome,
+                                  color: Colors.white,
+                                  size: 14,
+                                ),
                               ),
                               const SizedBox(width: 10),
                             ],
@@ -348,20 +436,30 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                                 padding: const EdgeInsets.all(14),
                                 decoration: BoxDecoration(
                                   color: isUser
-                                      ? (isDark ? const Color(0xFF4F46E5) : const Color(0xFF4338CA))
+                                      ? (isDark
+                                            ? const Color(0xFF4F46E5)
+                                            : const Color(0xFF4338CA))
                                       : context.surfaceColor,
                                   border: Border.all(
-                                    color: isUser ? Colors.transparent : context.cardBorderColor,
+                                    color: isUser
+                                        ? Colors.transparent
+                                        : context.cardBorderColor,
                                   ),
                                   borderRadius: BorderRadius.only(
                                     topLeft: const Radius.circular(16),
                                     topRight: const Radius.circular(16),
-                                    bottomLeft: Radius.circular(isUser ? 16 : 4),
-                                    bottomRight: Radius.circular(isUser ? 4 : 16),
+                                    bottomLeft: Radius.circular(
+                                      isUser ? 16 : 4,
+                                    ),
+                                    bottomRight: Radius.circular(
+                                      isUser ? 4 : 16,
+                                    ),
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                                      color: Colors.black.withValues(
+                                        alpha: isDark ? 0.2 : 0.04,
+                                      ),
                                       blurRadius: 6,
                                       offset: const Offset(0, 2),
                                     ),
@@ -375,7 +473,9 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                                       style: GoogleFonts.inter(
                                         fontSize: 14,
                                         height: 1.5,
-                                        color: isUser ? Colors.white : context.textPrimary,
+                                        color: isUser
+                                            ? Colors.white
+                                            : context.textPrimary,
                                       ),
                                     ),
                                     const SizedBox(height: 6),
@@ -388,7 +488,9 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                                             style: GoogleFonts.inter(
                                               fontSize: 10,
                                               color: isUser
-                                                  ? Colors.white.withValues(alpha: 0.7)
+                                                  ? Colors.white.withValues(
+                                                      alpha: 0.7,
+                                                    )
                                                   : context.textSecondary,
                                             ),
                                           ),
@@ -397,13 +499,20 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                                         if (!isUser) ...[
                                           InkWell(
                                             onTap: () {
-                                              Clipboard.setData(ClipboardData(text: msg.text));
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(
-                                                  content: Text("Copied explanation to clipboard!"),
-                                                  duration: Duration(seconds: 2),
-                                                ),
+                                              Clipboard.setData(
+                                                ClipboardData(text: msg.text),
                                               );
+                                              ScaffoldMessenger.of(context)
+                                                  .showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text(
+                                                        "Copied explanation to clipboard!",
+                                                      ),
+                                                      duration: Duration(
+                                                        seconds: 2,
+                                                      ),
+                                                    ),
+                                                  );
                                             },
                                             child: Icon(
                                               Icons.copy_rounded,
@@ -413,15 +522,26 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                                           ),
                                           const SizedBox(width: 12),
                                           InkWell(
-                                            onTap: () => _saveExplanationToNotebook(msg.text),
+                                            onTap: () =>
+                                                _saveExplanationToNotebook(
+                                                  msg.text,
+                                                ),
                                             child: Row(
                                               mainAxisSize: MainAxisSize.min,
                                               children: [
-                                                Icon(Icons.bookmark_add_outlined, size: 14, color: AppColors.accent),
+                                                Icon(
+                                                  Icons.bookmark_add_outlined,
+                                                  size: 14,
+                                                  color: AppColors.accent,
+                                                ),
                                                 const SizedBox(width: 4),
                                                 Text(
                                                   "Save to Notebook",
-                                                  style: TextStyle(fontSize: 11, color: AppColors.accent, fontWeight: FontWeight.w600),
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: AppColors.accent,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
                                                 ),
                                               ],
                                             ),
@@ -449,14 +569,20 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 900),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 10,
+                    ),
                     alignment: Alignment.centerLeft,
                     child: Row(
                       children: [
                         const SizedBox(
                           width: 14,
                           height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.accent,
+                          ),
                         ),
                         const SizedBox(width: 10),
                         Text(
@@ -488,13 +614,24 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                       Expanded(
                         child: TextField(
                           controller: _textController,
-                          style: GoogleFonts.inter(color: context.textPrimary, fontSize: 14),
+                          style: GoogleFonts.inter(
+                            color: context.textPrimary,
+                            fontSize: 14,
+                          ),
                           decoration: InputDecoration(
                             hintText: "Ask Gemini any academic concept, formula, or question...",
-                            hintStyle: GoogleFonts.inter(color: context.textSecondary, fontSize: 13),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            hintStyle: GoogleFonts.inter(
+                              color: context.textSecondary,
+                              fontSize: 13,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
                             filled: true,
-                            fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                            fillColor: isDark
+                                ? const Color(0xFF0F172A)
+                                : const Color(0xFFF1F5F9),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(24),
                               borderSide: BorderSide.none,
@@ -512,8 +649,14 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                           shape: BoxShape.circle,
                         ),
                         child: IconButton(
-                          icon: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
-                          onPressed: _isLoading ? null : () => _sendMessage(_textController.text),
+                          icon: const Icon(
+                            Icons.send_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                          onPressed: _isLoading
+                              ? null
+                              : () => _sendMessage(_textController.text),
                         ),
                       ),
                     ],

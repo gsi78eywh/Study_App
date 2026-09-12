@@ -40,7 +40,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   Timer? _stepTimer;
   String? _errorMessage;
 
-  final Set<String> _selectedModes = {"Flashcards", "Identification", "Enumeration"};
+  final Set<String> _selectedModes = {"Multiple Choice", "Identification", "Enumeration"};
 
   final List<String> _loadingSteps = [
     "Reading notes & analyzing multimodal handwriting/diagrams...",
@@ -153,7 +153,21 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
             "title": _titleController.text.trim(),
             "content": _textController.text.trim(),
             "targetCount": _targetCount,
-            "questionTypes": _selectedModes.map((m) => m.toLowerCase()).toList(),
+            "questionTypes": _selectedModes.map((m) {
+              return switch (m) {
+                "Multiple Choice" => "multiple_choice",
+                "Identification" => "identification",
+                "Enumeration" => "enumeration",
+                "Cloze / Fill-in" => "cloze",
+                "True / False" => "true_false",
+                "Matching Type" => "matching",
+                "Short Answer" => "short_answer",
+                "Scenario Drills" => "scenario",
+                "Flashcards" => "flashcards",
+                "Summary" => "summary",
+                _ => m.toLowerCase().replaceAll(" ", "_").replaceAll("/", "").replaceAll("  ", "_")
+              };
+            }).toList(),
             "fastMode": _fastMode,
           },
         );
@@ -180,7 +194,21 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           "file": multipartFile,
           "courseId": _selectedCourseId,
           "title": _titleController.text.trim(),
-          "questionTypes": _selectedModes.map((m) => m.toLowerCase()).join(","),
+          "questionTypes": _selectedModes.map((m) {
+              return switch (m) {
+                "Multiple Choice" => "multiple_choice",
+                "Identification" => "identification",
+                "Enumeration" => "enumeration",
+                "Cloze / Fill-in" => "cloze",
+                "True / False" => "true_false",
+                "Matching Type" => "matching",
+                "Short Answer" => "short_answer",
+                "Scenario Drills" => "scenario",
+                "Flashcards" => "flashcards",
+                "Summary" => "summary",
+                _ => m.toLowerCase().replaceAll(" ", "_").replaceAll("/", "").replaceAll("  ", "_")
+              };
+            }).join(","),
           "targetCount": _targetCount,
           "fastMode": _fastMode.toString(),
         });
@@ -591,7 +619,18 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: ["Flashcards", "Identification", "Enumeration", "Summary"].map((mode) {
+                    children: [
+                      "Multiple Choice",
+                      "Identification",
+                      "Enumeration",
+                      "Cloze / Fill-in",
+                      "True / False",
+                      "Matching Type",
+                      "Short Answer",
+                      "Scenario Drills",
+                      "Flashcards",
+                      "Summary",
+                    ].map((mode) {
                       final isSelected = _selectedModes.contains(mode);
                       return FilterChip(
                         selected: isSelected,

@@ -1,9 +1,9 @@
-﻿import "package:dio/dio.dart";
+import "package:dio/dio.dart";
+
 import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/services/session_service.dart";
 import "../../courses/models/course_models.dart";
-import "../../quiz/models/quiz_models.dart";
 
 class SyncResult {
   final bool success;
@@ -29,52 +29,39 @@ class SyncService {
 
   SyncService({required this.apiClient, required this.sessionService});
 
-  Future<SyncResult> performSync({
-    List<CourseModel> localCourses = const [],
-    List<StudySetModel> localStudySets = const [],
-    List<TestSessionSubmission> pendingSessions = const [],
-    bool fullFetch = false,
-  }) async {
+  Future<SyncResult> performSync({bool fullFetch = false}) async {
     try {
       final lastSync = fullFetch
           ? DateTime.fromMillisecondsSinceEpoch(0)
-          : (sessionService.lastSyncAt ?? DateTime.fromMillisecondsSinceEpoch(0));
+          : (sessionService.lastSyncAt ??
+                DateTime.fromMillisecondsSinceEpoch(0));
 
       final payload = {
         "lastSyncedAt": lastSync.toIso8601String(),
-        "courses": localCourses.map((c) => {
-          "id": c.id,
-          "code": c.code,
-          "name": c.name,
-          "colorHex": c.colorHex,
-          "updatedAt": (c.updatedAt ?? c.createdAt).toIso8601String(),
-          "isDeleted": false,
-        }).toList(),
-        "studySets": localStudySets.map((s) => {
-          "id": s.id,
-          "courseId": s.courseId,
-          "title": s.title,
-          "description": s.description ?? "",
-          "updatedAt": s.createdAt.toIso8601String(),
-          "isDeleted": false,
-        }).toList(),
+        // Courses, study sets, questions, and scored sessions are server-owned.
+        // Sending cached UI state here previously allowed an older device to
+        // overwrite newer server data and allowed client-calculated scores.
+        "courses": [],
+        "studySets": [],
         "questions": [],
-        "testSessions": pendingSessions.map((ts) => ts.toJson()).toList(),
+        "testSessions": [],
       };
 
-      final response = await apiClient.dio.post(ApiConstants.sync, data: payload);
+      final response = await apiClient.dio.post(
+        ApiConstants.sync,
+        data: payload,
+      );
       if (response.statusCode == 200 && response.data != null) {
         final data = response.data as Map<String, dynamic>;
-        final serverTime = DateTime.tryParse(data["serverTimestamp"] ?? "") ?? DateTime.now();
+        final serverTime =
+            DateTime.tryParse(data["serverTimestamp"] ?? "") ?? DateTime.now();
         await sessionService.setLastSync(serverTime);
 
         final rawCourses = data["updatedCourses"] as List? ?? [];
         final rawSets = data["updatedStudySets"] as List? ?? [];
 
         // Build merged course list
-        final Map<String, CourseModel> courseMap = {
-          for (final c in localCourses) c.id: c
-        };
+        final Map<String, CourseModel> courseMap = {};
 
         for (final raw in rawCourses) {
           final id = raw["id"]?.toString() ?? "";
@@ -85,7 +72,10 @@ class SyncService {
             code: raw["code"] ?? existing?.code ?? "COURSE",
             name: raw["name"] ?? existing?.name ?? "Untitled Course",
             colorHex: raw["colorHex"] ?? existing?.colorHex ?? "#6366F1",
-            createdAt: DateTime.tryParse(raw["updatedAt"] ?? "") ?? existing?.createdAt ?? DateTime.now(),
+            createdAt:
+                DateTime.tryParse(raw["updatedAt"] ?? "") ??
+                existing?.createdAt ??
+                DateTime.now(),
             studySets: existing?.studySets ?? [],
           );
         }
@@ -105,8 +95,11 @@ class SyncService {
             courseId: courseId,
             title: raw["title"] ?? "Untitled Set",
             description: raw["description"],
-            questionCount: (raw["questions"] as List?)?.length ?? (raw["questionCount"] ?? 0),
-            createdAt: DateTime.tryParse(raw["updatedAt"] ?? "") ?? DateTime.now(),
+            questionCount:
+                (raw["questions"] as List?)?.length ??
+                (raw["questionCount"] ?? 0),
+            createdAt:
+                DateTime.tryParse(raw["updatedAt"] ?? "") ?? DateTime.now(),
           );
 
           if (existingSetIndex >= 0) {
@@ -133,10 +126,16 @@ class SyncService {
           studySetsReceived: rawSets.length,
         );
       } else {
-        return SyncResult(success: false, message: "Sync returned unexpected status: ${response.statusCode}");
+        return SyncResult(
+          success: false,
+          message: "Sync returned unexpected status: ${response.statusCode}",
+        );
       }
     } on DioException catch (e) {
-      return SyncResult(success: false, message: e.error?.toString() ?? e.message ?? "Sync failed.");
+      return SyncResult(
+        success: false,
+        message: e.error?.toString() ?? e.message ?? "Sync failed.",
+      );
     } catch (e) {
       return SyncResult(success: false, message: "Sync error: $e");
     }

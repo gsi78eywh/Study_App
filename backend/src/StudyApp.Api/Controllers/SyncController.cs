@@ -31,60 +31,127 @@ public class SyncController : ControllerBase
         }
 
         var now = DateTime.UtcNow;
+        var courses = request.Courses ?? new List<SyncCourseDto>();
+        var studySets = request.StudySets ?? new List<SyncStudySetDto>();
+        var questions = request.Questions ?? new List<SyncQuestionDto>();
+        var testSessions = request.TestSessions ?? new List<SyncTestSessionDto>();
+        var acceptedCourseIds = new HashSet<Guid>();
 
-        // 1. Process incoming offline Courses (safely handle existing IDs)
-        foreach (var c in request.Courses)
+        // The authoritative API owns all mutable learning data. Sync is pull-only:
+        // accepting cached entities here would let a stale device overwrite newer
+        // server state. Scores must instead be submitted with answers to Practice.
+        if (courses.Count > 0 || studySets.Count > 0 || questions.Count > 0 || testSessions.Count > 0)
         {
+            return BadRequest(new
+            {
+                message = "Sync is pull-only. Use the authoritative course, ingestion, and practice endpoints for changes. Practice sessions must be submitted to /api/v1/practice/sessions."
+            });
+        }
+
+        // 1. Process incoming offline courses. Every update is constrained to the
+        // authenticated owner; client generated IDs never grant access to a record.
+        foreach (var c in courses.Where(c => c.Id != Guid.Empty))
+        {
+            if (string.IsNullOrWhiteSpace(c.Code) || c.Code.Trim().Length > 32 ||
+                string.IsNullOrWhiteSpace(c.Name) || c.Name.Trim().Length > 150 ||
+                !System.Text.RegularExpressions.Regex.IsMatch(c.ColorHex ?? string.Empty, "^#[0-9A-Fa-f]{6}$"))
+            {
+                continue;
+            }
+            var courseCode = c.Code!.Trim();
+            var courseName = c.Name!.Trim();
+            var colorHex = c.ColorHex!.Trim().ToUpperInvariant();
+
             var existing = await _context.Courses.FirstOrDefaultAsync(x => x.Id == c.Id);
             if (existing == null)
             {
+                if (c.IsDeleted) continue;
                 _context.Courses.Add(new Course
                 {
                     Id = c.Id,
                     UserId = userId,
-                    Code = c.Code,
-                    Name = c.Name,
-                    ColorHex = c.ColorHex,
+                    Code = courseCode,
+                    Name = courseName,
+                    ColorHex = colorHex,
                     CreatedAt = now,
-                    UpdatedAt = c.UpdatedAt
+                    UpdatedAt = now
                 });
+                acceptedCourseIds.Add(c.Id);
             }
             else if (existing.UserId == userId)
             {
-                existing.Code = c.Code;
-                existing.Name = c.Name;
-                existing.ColorHex = c.ColorHex;
-                existing.UpdatedAt = c.UpdatedAt;
+                // A stale cache cannot overwrite a change that the server has
+                // already observed after the client's advertised version.
+                if (!c.IsDeleted && existing.UpdatedAt.HasValue && c.UpdatedAt <= existing.UpdatedAt.Value)
+                {
+                    acceptedCourseIds.Add(c.Id);
+                    continue;
+                }
+                if (c.IsDeleted)
+                {
+                    _context.Courses.Remove(existing);
+                    continue;
+                }
+                existing.Code = courseCode;
+                existing.Name = courseName;
+                existing.ColorHex = colorHex;
+                existing.UpdatedAt = now;
+                acceptedCourseIds.Add(c.Id);
             }
         }
 
+        var persistedCourseIds = await _context.Courses
+            .Where(c => c.UserId == userId)
+            .Select(c => c.Id)
+            .ToListAsync();
+        acceptedCourseIds.UnionWith(persistedCourseIds);
+
         // 2. Process incoming offline StudySets
-        foreach (var s in request.StudySets)
+        foreach (var s in studySets.Where(s => s.Id != Guid.Empty && acceptedCourseIds.Contains(s.CourseId)))
         {
+            if (string.IsNullOrWhiteSpace(s.Title) || s.Title.Trim().Length > 160 || s.Description?.Length > 10_000)
+            {
+                continue;
+            }
+            var studySetTitle = s.Title!.Trim();
+            var studySetDescription = s.Description ?? string.Empty;
+
             var existing = await _context.StudySets.FirstOrDefaultAsync(x => x.Id == s.Id);
             if (existing == null)
             {
+                if (s.IsDeleted) continue;
                 _context.StudySets.Add(new StudySet
                 {
                     Id = s.Id,
                     CourseId = s.CourseId,
-                    Title = s.Title,
-                    Description = s.Description,
+                    Title = studySetTitle,
+                    Description = studySetDescription,
                     CreatedAt = now,
-                    UpdatedAt = s.UpdatedAt
+                    UpdatedAt = now
                 });
             }
-            else
+            else if (await _context.Courses.AnyAsync(c => c.Id == existing.CourseId && c.UserId == userId))
             {
-                existing.Title = s.Title;
-                existing.Description = s.Description;
-                existing.UpdatedAt = s.UpdatedAt;
+                if (!s.IsDeleted && existing.UpdatedAt.HasValue && s.UpdatedAt <= existing.UpdatedAt.Value)
+                {
+                    continue;
+                }
+                if (s.IsDeleted)
+                {
+                    _context.StudySets.Remove(existing);
+                    continue;
+                }
+                existing.Title = studySetTitle;
+                existing.Description = studySetDescription;
+                existing.UpdatedAt = now;
             }
         }
 
         // 3. Process incoming offline Questions
-        foreach (var q in request.Questions)
+        foreach (var q in questions.Where(q => q.Id != Guid.Empty))
         {
+            var ownsStudySet = await _context.StudySets.AnyAsync(s => s.Id == q.StudySetId && s.Course != null && s.Course.UserId == userId);
+            if (!ownsStudySet && !studySets.Any(s => s.Id == q.StudySetId && acceptedCourseIds.Contains(s.CourseId) && !s.IsDeleted)) continue;
             var existing = await _context.Questions.FirstOrDefaultAsync(x => x.Id == q.Id);
             if (existing == null)
             {
@@ -100,11 +167,21 @@ public class SyncController : ControllerBase
                     SortOrder = q.SortOrder
                 });
             }
+            else if (await _context.StudySets.AnyAsync(s => s.Id == existing.StudySetId && s.Course != null && s.Course.UserId == userId))
+            {
+                existing.Prompt = q.Prompt;
+                existing.HintsJson = q.HintsJson;
+                existing.Explanation = q.Explanation;
+                existing.Difficulty = q.Difficulty;
+                existing.SortOrder = q.SortOrder;
+            }
         }
 
         // 4. Process incoming offline TestSessions (Score records)
-        foreach (var ts in request.TestSessions)
+        foreach (var ts in testSessions.Where(session => session.Id != Guid.Empty))
         {
+            var ownsStudySet = await _context.StudySets.AnyAsync(s => s.Id == ts.StudySetId && s.Course != null && s.Course.UserId == userId);
+            if (!ownsStudySet && !studySets.Any(s => s.Id == ts.StudySetId && acceptedCourseIds.Contains(s.CourseId) && !s.IsDeleted)) continue;
             var existing = await _context.TestSessions.FirstOrDefaultAsync(x => x.Id == ts.Id);
             if (existing == null)
             {
@@ -118,6 +195,13 @@ public class SyncController : ControllerBase
                     TimeSpentSeconds = ts.TimeSpentSeconds,
                     CompletedAt = ts.CompletedAt
                 });
+            }
+            else if (await _context.StudySets.AnyAsync(s => s.Id == existing.StudySetId && s.Course != null && s.Course.UserId == userId))
+            {
+                existing.Score = ts.Score;
+                existing.TotalQuestions = ts.TotalQuestions;
+                existing.TimeSpentSeconds = ts.TimeSpentSeconds;
+                existing.CompletedAt = ts.CompletedAt;
             }
         }
 

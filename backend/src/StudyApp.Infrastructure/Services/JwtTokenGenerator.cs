@@ -19,7 +19,11 @@ public class JwtTokenGenerator : IJwtTokenGenerator
 
     public (string Token, DateTime ExpiresAt) GenerateToken(User user)
     {
-        var secret = _configuration["JwtSettings:Secret"] ?? "SuperSecretKeyForStudyAppDevelopmentEnvironment2026!LongEnoughForHmac256";
+        var secret = _configuration["JwtSettings:Secret"];
+        if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32)
+        {
+            throw new InvalidOperationException("JwtSettings:Secret must be configured with at least 32 characters.");
+        }
         var issuer = _configuration["JwtSettings:Issuer"] ?? "StudyApp";
         var audience = _configuration["JwtSettings:Audience"] ?? "StudyAppMobileClient";
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret))

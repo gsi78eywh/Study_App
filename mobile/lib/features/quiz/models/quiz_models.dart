@@ -1,4 +1,4 @@
-﻿import "dart:convert";
+import "dart:convert";
 
 enum QuestionTypeEnum {
   multipleChoice,
@@ -6,6 +6,24 @@ enum QuestionTypeEnum {
   enumeration,
   bulletPoints,
   logicalThinking,
+  cloze,
+  trueFalse,
+  matching,
+  shortAnswer,
+  scenario,
+}
+
+/// Numeric values are the API contract with backend StudyMode.
+abstract final class StudyModeValue {
+  static const int flashcards = 1;
+  static const int multipleChoice = 2;
+  static const int identification = 3;
+  static const int enumeration = 4;
+  static const int bulletPoints = 5;
+  static const int logicSprint = 6;
+  static const int speedCram = 7;
+  static const int simulatedExam = 8;
+  static const int rapidFireBlitz = 13;
 }
 
 class QuestionOptionModel {
@@ -39,8 +57,12 @@ class QuestionModel {
   final List<String> hints;
   final String? explanation;
   final List<QuestionOptionModel> options;
+  final List<String> matchingTerms;
+  final List<String> matchingDefinitions;
   final int difficulty;
   final int sortOrder;
+  final bool? isTrue; // for true_false questions
+  final List<Map<String, String>>? matchingPairs; // for matching questions
 
   QuestionModel({
     required this.id,
@@ -50,8 +72,12 @@ class QuestionModel {
     required this.hints,
     this.explanation,
     required this.options,
+    this.matchingTerms = const [],
+    this.matchingDefinitions = const [],
     this.difficulty = 2,
     this.sortOrder = 1,
+    this.isTrue,
+    this.matchingPairs,
   });
 
   factory QuestionModel.fromJson(Map<String, dynamic> json) {
@@ -70,17 +96,103 @@ class QuestionModel {
     final rawType = json["type"];
     QuestionTypeEnum qType = QuestionTypeEnum.multipleChoice;
     if (rawType is int) {
-      if (rawType == 1) qType = QuestionTypeEnum.identification;
-      if (rawType == 2) qType = QuestionTypeEnum.enumeration;
-      if (rawType == 3) qType = QuestionTypeEnum.bulletPoints;
-      if (rawType == 4) qType = QuestionTypeEnum.logicalThinking;
+      switch (rawType) {
+        case 2:
+          {
+            qType = QuestionTypeEnum.identification;
+            break;
+          }
+        case 3:
+          {
+            qType = QuestionTypeEnum.enumeration;
+            break;
+          }
+        case 4:
+          {
+            qType = QuestionTypeEnum.bulletPoints;
+            break;
+          }
+        case 5:
+          {
+            qType = QuestionTypeEnum.logicalThinking;
+            break;
+          }
+        case 6:
+          {
+            qType = QuestionTypeEnum.cloze;
+            break;
+          }
+        case 7:
+          {
+            qType = QuestionTypeEnum.trueFalse;
+            break;
+          }
+        case 8:
+          {
+            qType = QuestionTypeEnum.matching;
+            break;
+          }
+        case 9:
+          {
+            qType = QuestionTypeEnum.shortAnswer;
+            break;
+          }
+        case 10:
+          {
+            qType = QuestionTypeEnum.scenario;
+            break;
+          }
+      }
     } else if (rawType is String) {
       final s = rawType.toLowerCase();
-      if (s.contains("ident")) qType = QuestionTypeEnum.identification;
-      if (s.contains("enum")) qType = QuestionTypeEnum.enumeration;
-      if (s.contains("bullet")) qType = QuestionTypeEnum.bulletPoints;
-      if (s.contains("logic")) qType = QuestionTypeEnum.logicalThinking;
+      if (s.contains("ident")) {
+        qType = QuestionTypeEnum.identification;
+      } else if (s.contains("enum")) {
+        qType = QuestionTypeEnum.enumeration;
+      } else if (s.contains("bullet")) {
+        qType = QuestionTypeEnum.bulletPoints;
+      } else if (s.contains("logic")) {
+        qType = QuestionTypeEnum.logicalThinking;
+      } else if (s.contains("cloze") || s.contains("fill")) {
+        qType = QuestionTypeEnum.cloze;
+      } else if (s.contains("true") || s.contains("tf")) {
+        qType = QuestionTypeEnum.trueFalse;
+      } else if (s.contains("match")) {
+        qType = QuestionTypeEnum.matching;
+      } else if (s.contains("short")) {
+        qType = QuestionTypeEnum.shortAnswer;
+      } else if (s.contains("scenario") || s.contains("case")) {
+        qType = QuestionTypeEnum.scenario;
+      }
     }
+
+    // Parse matching pairs if present
+    List<Map<String, String>>? matchingPairs;
+    final pairsRaw = json["matchingPairs"] ?? json["correctAnswer"];
+    if (qType == QuestionTypeEnum.matching && pairsRaw is List) {
+      matchingPairs = pairsRaw
+          .whereType<Map<String, dynamic>>()
+          .map(
+            (p) => {
+              "term": p["term"]?.toString() ?? "",
+              "definition": p["definition"]?.toString() ?? "",
+            },
+          )
+          .toList();
+    }
+
+    final matchingTerms =
+        (json["matchingTerms"] as List?)
+            ?.map((item) => item.toString())
+            .where((item) => item.isNotEmpty)
+            .toList() ??
+        const <String>[];
+    final matchingDefinitions =
+        (json["matchingDefinitions"] as List?)
+            ?.map((item) => item.toString())
+            .where((item) => item.isNotEmpty)
+            .toList() ??
+        const <String>[];
 
     return QuestionModel(
       id: json["id"]?.toString() ?? "",
@@ -89,14 +201,33 @@ class QuestionModel {
       prompt: json["prompt"] ?? "",
       hints: parsedHints,
       explanation: json["explanation"],
-      options: (json["options"] as List<dynamic>?)
-              ?.map((o) => QuestionOptionModel.fromJson(o as Map<String, dynamic>))
+      options:
+          (json["options"] as List<dynamic>?)
+              ?.map(
+                (o) => QuestionOptionModel.fromJson(o as Map<String, dynamic>),
+              )
               .toList() ??
           [],
       difficulty: json["difficulty"] ?? 2,
       sortOrder: json["sortOrder"] ?? 1,
+      isTrue: json["isTrue"] as bool?,
+      matchingTerms: matchingTerms,
+      matchingDefinitions: matchingDefinitions,
+      matchingPairs: matchingPairs,
     );
   }
+}
+
+class PracticeAnswerSubmission {
+  final String questionId;
+  final String answer;
+
+  const PracticeAnswerSubmission({
+    required this.questionId,
+    required this.answer,
+  });
+
+  Map<String, dynamic> toJson() => {"questionId": questionId, "answer": answer};
 }
 
 class TestSessionSubmission {
@@ -107,6 +238,7 @@ class TestSessionSubmission {
   final int totalQuestions;
   final int timeSpentSeconds;
   final DateTime completedAt;
+  final List<PracticeAnswerSubmission> answers;
 
   TestSessionSubmission({
     required this.id,
@@ -116,15 +248,23 @@ class TestSessionSubmission {
     required this.totalQuestions,
     required this.timeSpentSeconds,
     required this.completedAt,
+    this.answers = const [],
   });
 
   Map<String, dynamic> toJson() => {
-        "id": id,
-        "studySetId": studySetId,
-        "mode": mode,
-        "score": score,
-        "totalQuestions": totalQuestions,
-        "timeSpentSeconds": timeSpentSeconds,
-        "completedAt": completedAt.toIso8601String(),
-      };
+    "id": id,
+    "studySetId": studySetId,
+    "mode": mode,
+    "score": score,
+    "totalQuestions": totalQuestions,
+    "timeSpentSeconds": timeSpentSeconds,
+    "completedAt": completedAt.toIso8601String(),
+  };
+
+  Map<String, dynamic> toPracticeJson() => {
+    "studySetId": studySetId,
+    "mode": mode,
+    "timeSpentSeconds": timeSpentSeconds,
+    "answers": answers.map((answer) => answer.toJson()).toList(),
+  };
 }
