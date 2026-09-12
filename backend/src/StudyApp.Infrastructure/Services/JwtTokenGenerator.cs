@@ -19,10 +19,13 @@ public class JwtTokenGenerator : IJwtTokenGenerator
 
     public (string Token, DateTime ExpiresAt) GenerateToken(User user)
     {
-        var secret = _configuration["JwtSettings:Secret"] ?? "SuperSecretKeyForStudyAppDevelopmentEnvironment2026!";
+        var secret = _configuration["JwtSettings:Secret"] ?? "SuperSecretKeyForStudyAppDevelopmentEnvironment2026!LongEnoughForHmac256";
         var issuer = _configuration["JwtSettings:Issuer"] ?? "StudyApp";
         var audience = _configuration["JwtSettings:Audience"] ?? "StudyAppMobileClient";
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret))
+        {
+            KeyId = "studyapp-jwt-key"
+        };
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
         var expiresAt = DateTime.UtcNow.AddDays(30); // Long-lived for offline mobile sessions

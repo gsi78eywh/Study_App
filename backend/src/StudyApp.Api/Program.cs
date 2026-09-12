@@ -56,6 +56,11 @@ builder.Services.AddScoped<IAiQuestionGenerator, SemanticKernelQuestionGenerator
 
 // 4. Configure JWT Authentication
 var jwtSecret = builder.Configuration["JwtSettings:Secret"] ?? "SuperSecretKeyForStudyAppDevelopmentEnvironment2026!LongEnoughForHmac256";
+var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret))
+{
+    KeyId = "studyapp-jwt-key"
+};
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -67,7 +72,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ValidIssuer = builder.Configuration["JwtSettings:Issuer"] ?? "StudyApp",
             ValidAudience = builder.Configuration["JwtSettings:Audience"] ?? "StudyAppMobileClient",
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret))
+            IssuerSigningKey = signingKey
         };
     });
 
