@@ -53,3 +53,8 @@ appsettings.*.local.json
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Local databases
+*.db
+*.db-shm
+*.db-wal
