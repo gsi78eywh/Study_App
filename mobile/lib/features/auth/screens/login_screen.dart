@@ -1,4 +1,4 @@
-﻿import "package:flutter/material.dart";
+import "package:flutter/material.dart";
 import "package:dio/dio.dart";
 import "package:google_fonts/google_fonts.dart";
 import "../../../core/constants/api_constants.dart";
@@ -112,24 +112,26 @@ class _LoginScreenState extends State<LoginScreen> {
         backgroundColor: ctx.surfaceColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text("API Server Endpoint", style: GoogleFonts.outfit(color: ctx.textPrimary, fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "Configure backend URL for Flutter Web or local device testing:",
-              style: TextStyle(color: ctx.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: urlController,
-              style: TextStyle(color: ctx.textPrimary),
-              decoration: const InputDecoration(
-                labelText: "Base URL",
-                hintText: "http://localhost:5000",
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Configure backend URL for Flutter Web or local device testing:",
+                style: TextStyle(color: ctx.textSecondary, fontSize: 13),
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: urlController,
+                style: TextStyle(color: ctx.textPrimary),
+                decoration: const InputDecoration(
+                  labelText: "Base URL",
+                  hintText: "http://localhost:5000",
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(

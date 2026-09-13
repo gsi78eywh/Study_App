@@ -233,65 +233,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
               fontWeight: FontWeight.bold,
             ),
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: codeController,
-                style: TextStyle(color: ctx.textPrimary),
-                decoration: const InputDecoration(
-                  labelText: "Course Code",
-                  hintText: "e.g. CS204",
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: codeController,
+                  style: TextStyle(color: ctx.textPrimary),
+                  decoration: const InputDecoration(
+                    labelText: "Course Code",
+                    hintText: "e.g. CS204",
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: nameController,
-                style: TextStyle(color: ctx.textPrimary),
-                decoration: const InputDecoration(
-                  labelText: "Course Name",
-                  hintText: "e.g. Algorithms & Data Structures",
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameController,
+                  style: TextStyle(color: ctx.textPrimary),
+                  decoration: const InputDecoration(
+                    labelText: "Course Name",
+                    hintText: "e.g. Algorithms & Data Structures",
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Text("Accent: ", style: TextStyle(color: ctx.textSecondary)),
-                  ...[
-                    "#6366F1",
-                    "#10B981",
-                    "#F59E0B",
-                    "#EF4444",
-                    "#8B5CF6",
-                    "#06B6D4",
-                  ].map((hex) {
-                    final color = Color(
-                      int.parse("FF${hex.replaceAll('#', '')}", radix: 16),
-                    );
-                    return GestureDetector(
-                      onTap: () => setModalState(() => selectedColor = hex),
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: color,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: selectedColor == hex
-                                ? (ctx.isDarkMode
-                                      ? Colors.white
-                                      : Colors.black87)
-                                : Colors.transparent,
-                            width: 2,
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Text("Accent: ", style: TextStyle(color: ctx.textSecondary)),
+                    ...[
+                      "#6366F1",
+                      "#10B981",
+                      "#F59E0B",
+                      "#EF4444",
+                      "#8B5CF6",
+                      "#06B6D4",
+                    ].map((hex) {
+                      final color = Color(
+                        int.parse("FF${hex.replaceAll('#', '')}", radix: 16),
+                      );
+                      return GestureDetector(
+                        onTap: () => setModalState(() => selectedColor = hex),
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: selectedColor == hex
+                                  ? (ctx.isDarkMode
+                                        ? Colors.white
+                                        : Colors.black87)
+                                  : Colors.transparent,
+                              width: 2,
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  }),
-                ],
-              ),
-            ],
+                      );
+                    }),
+                  ],
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
