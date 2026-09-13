@@ -76,37 +76,70 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Widget _buildWorkflowStep(
+  String _cleanDescription(String? raw) {
+    if (raw == null || raw.trim().isEmpty) {
+      return "Active recall practice deck and exam questions generated from lecture notes.";
+    }
+    var cleaned = raw
+        .replaceAll(RegExp(r'\*\*Question\s*\d+:[^*]*\*\*', caseSensitive: false), '')
+        .replaceAll(RegExp(r'Question\s*\d+:', caseSensitive: false), '')
+        .replaceAll(RegExp(r'Answer:\s*[A-D]', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\*\*([^*]+)\*\*'), r'$1')
+        .replaceAll(RegExp(r'[*#_`•\-]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (cleaned.length < 8) {
+      return "Active recall practice deck and exam questions generated from lecture notes.";
+    }
+    if (cleaned.length > 135) {
+      cleaned = "${cleaned.substring(0, 132)}...";
+    }
+    return cleaned;
+  }
+
+  Widget _buildQuickActionCard(
     String title,
     String desc,
     IconData icon,
+    Color color,
     VoidCallback onTap,
   ) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: context.surfaceColor,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: context.cardBorderColor),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 20, color: const Color(0xFF6366F1)),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-            ),
-            Text(
-              desc,
-              style: TextStyle(color: context.textSecondary, fontSize: 10),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: color.withValues(alpha: 0.25)),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, size: 22, color: color),
+              const SizedBox(height: 6),
+              Text(
+                title,
+                style: GoogleFonts.outfit(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                  color: context.textPrimary,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              Text(
+                desc,
+                style: TextStyle(
+                  color: context.textSecondary,
+                  fontSize: 10,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1185,7 +1218,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Text(
                           _courses.isEmpty
                               ? "Ready to organize your study workspace"
-                              : "Targeting mastery across ${_courses.length} courses",
+                              : (_courses.length == 1
+                                  ? "Targeting mastery across 1 course"
+                                  : "Targeting mastery across ${_courses.length} courses"),
                           style: GoogleFonts.inter(
                             fontSize: 13,
                             color: context.textSecondary,
@@ -1383,11 +1418,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               const SizedBox(height: 16),
 
-              // 3-Step Active Recall Workflow Guide
+              // Quick Study Hub (1-Tap Workflows)
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: context.secondaryBg,
+                  color: context.surfaceColor,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: context.cardBorderColor),
                 ),
@@ -1400,15 +1435,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Row(
                           children: [
                             const Icon(
-                              Icons.auto_awesome,
-                              color: Color(0xFF8B5CF6),
+                              Icons.bolt_rounded,
+                              color: Color(0xFFF59E0B),
                               size: 18,
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             Text(
-                              "Active Recall Study Workflow",
+                              "Quick Study Hub",
                               style: GoogleFonts.outfit(
-                                fontSize: 14,
+                                fontSize: 13,
                                 fontWeight: FontWeight.bold,
                                 color: context.textPrimary,
                               ),
@@ -1416,7 +1451,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ],
                         ),
                         Text(
-                          "Instant & Offline-Ready",
+                          "Direct 1-Tap Action",
                           style: GoogleFonts.inter(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
@@ -1425,48 +1460,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     Row(
                       children: [
-                        Expanded(
-                          child: _buildWorkflowStep(
-                            "1. Ingest",
-                            "Photos, PDFs, notes",
-                            Icons.camera_alt_outlined,
-                            () => setState(() => _currentTabIndex = 3),
+                        _buildQuickActionCard(
+                          "Upload Notes",
+                          "PDF, docs & images",
+                          Icons.add_photo_alternate_outlined,
+                          const Color(0xFF6366F1),
+                          () => setState(() => _currentTabIndex = 3),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildQuickActionCard(
+                          "Focus Timer",
+                          "25m session",
+                          Icons.timer_outlined,
+                          const Color(0xFFEC4899),
+                          () => PomodoroTimerSheet.show(
+                            context,
+                            focusMinutes:
+                                _settingsService.settings.pomodoroFocusMinutes,
+                            shortBreakMinutes:
+                                _settingsService.settings.pomodoroShortBreakMinutes,
                           ),
                         ),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 4),
-                          child: Icon(
-                            Icons.chevron_right_rounded,
-                            color: Colors.grey,
-                            size: 18,
-                          ),
-                        ),
-                        Expanded(
-                          child: _buildWorkflowStep(
-                            "2. Synthesize",
-                            "Cards & drills",
-                            Icons.psychology_outlined,
-                            () => setState(() => _currentTabIndex = 3),
-                          ),
-                        ),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 4),
-                          child: Icon(
-                            Icons.chevron_right_rounded,
-                            color: Colors.grey,
-                            size: 18,
-                          ),
-                        ),
-                        Expanded(
-                          child: _buildWorkflowStep(
-                            "3. Master",
-                            "Spaced practice",
-                            Icons.style_outlined,
-                            () => setState(() => _currentTabIndex = 1),
-                          ),
+                        const SizedBox(width: 8),
+                        _buildQuickActionCard(
+                          "Flashcards",
+                          "Spaced recall",
+                          Icons.style_outlined,
+                          const Color(0xFF10B981),
+                          () => setState(() => _currentTabIndex = 1),
                         ),
                       ],
                     ),
@@ -1743,23 +1767,62 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: context.secondaryBg,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                "${course.studySets.length} sets",
-                                style: TextStyle(
-                                  color: context.textSecondary,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: context.secondaryBg,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    "${course.studySets.length} sets",
+                                    style: TextStyle(
+                                      color: context.textSecondary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 8),
+                                InkWell(
+                                  onTap: () => setState(() => _currentTabIndex = 3),
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: courseColor.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.add_rounded,
+                                          size: 13,
+                                          color: courseColor,
+                                        ),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          "Add Set",
+                                          style: TextStyle(
+                                            color: courseColor,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -1799,236 +1862,249 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         else
                           ...course.studySets.map((set) {
                             return Container(
-                              margin: const EdgeInsets.only(bottom: 12),
+                              margin: const EdgeInsets.only(bottom: 14),
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color: context.secondaryBg,
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: context.cardBorderColor,
-                                ),
+                                color: context.surfaceColor,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: context.cardBorderColor),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
                                     children: [
                                       Expanded(
-                                        child: Text(
-                                          set.title,
-                                          style: TextStyle(
-                                            color: context.textPrimary,
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 15,
-                                          ),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.all(7),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF6366F1).withValues(alpha: 0.12),
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              child: const Icon(
+                                                Icons.school_rounded,
+                                                size: 16,
+                                                color: Color(0xFF6366F1),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                set.title,
+                                                style: GoogleFonts.outfit(
+                                                  color: context.textPrimary,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 16,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 3,
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                              Icons.verified_rounded,
+                                              size: 12,
+                                              color: Color(0xFF10B981),
                                             ),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFF10B981)
-                                                  .withValues(alpha: 0.15),
-                                              borderRadius:
-                                                  BorderRadius.circular(6),
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                const Icon(
-                                                  Icons.school_rounded,
-                                                  size: 12,
-                                                  color: Color(0xFF10B981),
-                                                ),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  "${((set.questionCount * 13) % 20 + 80)}% Ready",
-                                                  style: const TextStyle(
-                                                    color: Color(0xFF10B981),
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 3,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: AppColors.primary
-                                                  .withValues(
-                                                alpha: 0.15,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(
-                                                6,
-                                              ),
-                                            ),
-                                            child: Text(
-                                              "${set.questionCount} Questions",
-                                              style: TextStyle(
-                                                color: isDark
-                                                    ? AppColors.primaryLight
-                                                    : AppColors.primaryDark,
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              "${((set.questionCount * 13) % 20 + 80)}% Ready",
+                                              style: const TextStyle(
+                                                color: Color(0xFF10B981),
                                                 fontSize: 11,
                                                 fontWeight: FontWeight.bold,
                                               ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primary.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          "${set.questionCount} Questions",
+                                          style: TextStyle(
+                                            color: isDark
+                                                ? AppColors.primaryLight
+                                                : AppColors.primaryDark,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      PopupMenuButton<String>(
+                                        icon: Icon(
+                                          Icons.more_vert_rounded,
+                                          size: 20,
+                                          color: context.textSecondary,
+                                        ),
+                                        tooltip: "Set Options",
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        onSelected: (val) {
+                                          if (val == "cram") _showCramSheet(set);
+                                          if (val == "export") _exportStudyGuide(set);
+                                          if (val == "delete") _confirmDeleteStudySet(course, set);
+                                        },
+                                        itemBuilder: (ctx) => [
+                                          const PopupMenuItem(
+                                            value: "cram",
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.menu_book_rounded, size: 18, color: Color(0xFF6366F1)),
+                                                SizedBox(width: 8),
+                                                Text("Exam Cram Sheet"),
+                                              ],
+                                            ),
+                                          ),
+                                          const PopupMenuItem(
+                                            value: "export",
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.download_rounded, size: 18, color: Color(0xFF10B981)),
+                                                SizedBox(width: 8),
+                                                Text("Export Study Guide"),
+                                              ],
+                                            ),
+                                          ),
+                                          const PopupMenuDivider(),
+                                          const PopupMenuItem(
+                                            value: "delete",
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),
+                                                SizedBox(width: 8),
+                                                Text("Delete Set", style: TextStyle(color: AppColors.danger)),
+                                              ],
                                             ),
                                           ),
                                         ],
                                       ),
                                     ],
                                   ),
-                                  if (set.description != null &&
-                                      set.description!.isNotEmpty) ...[
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      set.description!,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: context.textSecondary,
-                                        fontSize: 12,
-                                      ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _cleanDescription(set.description),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: context.textSecondary,
+                                      fontSize: 12,
+                                      height: 1.4,
                                     ),
-                                  ],
+                                  ),
                                   const SizedBox(height: 14),
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.menu_book_rounded,
-                                          size: 18,
-                                          color: Color(0xFF6366F1),
-                                        ),
-                                        tooltip: "Exam Cram Sheet",
-                                        onPressed: () => _showCramSheet(set),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.download_rounded,
-                                          size: 18,
-                                          color: Color(0xFF10B981),
-                                        ),
-                                        tooltip: "Export Study Guide",
-                                        onPressed: () => _exportStudyGuide(set),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.delete_outline_rounded,
-                                          size: 18,
-                                          color: AppColors.danger,
-                                        ),
-                                        tooltip: "Delete Study Set",
-                                        onPressed: () =>
-                                            _confirmDeleteStudySet(course, set),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      OutlinedButton.icon(
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor:
-                                              context.textSecondary,
-                                          side: BorderSide(
-                                            color: context.cardBorderColor,
-                                          ),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 8,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              8,
+                                      Expanded(
+                                        flex: 3,
+                                        child: ElevatedButton.icon(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: isDark
+                                                ? AppColors.primary
+                                                : AppColors.primaryDark,
+                                            foregroundColor: Colors.white,
+                                            padding: const EdgeInsets.symmetric(vertical: 12),
+                                            elevation: 0,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(10),
                                             ),
                                           ),
-                                        ),
-                                        icon: const Icon(
-                                          Icons.style_outlined,
-                                          size: 16,
-                                        ),
-                                        label: const Text(
-                                          "Flashcards",
-                                          style: TextStyle(fontSize: 12),
-                                        ),
-                                        onPressed: () {
-                                          Navigator.of(context).push(
-                                            MaterialPageRoute(
-                                              builder: (_) => FlashcardsScreen(
-                                                courses: _courses,
-                                                initialStudySetId: set.id,
-                                                apiClient: widget.apiClient,
-                                              ),
+                                          icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                                          label: const Text(
+                                            "Practice",
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
                                             ),
-                                          );
-                                        },
+                                          ),
+                                          onPressed: () => _showModePicker(set),
+                                        ),
                                       ),
                                       const SizedBox(width: 8),
-                                      OutlinedButton.icon(
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: AppColors.warning,
-                                          side: const BorderSide(
-                                            color: AppColors.warning,
-                                          ),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 8,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              8,
+                                      Expanded(
+                                        flex: 2,
+                                        child: OutlinedButton.icon(
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: AppColors.warning,
+                                            side: const BorderSide(color: AppColors.warning),
+                                            padding: const EdgeInsets.symmetric(vertical: 12),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(10),
                                             ),
                                           ),
-                                        ),
-                                        icon: const Icon(
-                                          Icons.bolt_rounded,
-                                          size: 16,
-                                        ),
-                                        label: const Text(
-                                          "Blitz",
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
+                                          icon: const Icon(Icons.bolt_rounded, size: 16),
+                                          label: const Text(
+                                            "Blitz",
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 12,
+                                            ),
                                           ),
+                                          onPressed: () => _startRapidFire(set),
                                         ),
-                                        onPressed: () => _startRapidFire(set),
                                       ),
-                                      const SizedBox(width: 6),
-                                      ElevatedButton.icon(
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: isDark
-                                              ? AppColors.primary
-                                              : AppColors.primaryDark,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 14,
-                                            vertical: 10,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              8,
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        flex: 2,
+                                        child: OutlinedButton.icon(
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: context.textSecondary,
+                                            side: BorderSide(color: context.cardBorderColor),
+                                            padding: const EdgeInsets.symmetric(vertical: 12),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(10),
                                             ),
                                           ),
-                                          textStyle: const TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.bold,
+                                          icon: const Icon(Icons.style_outlined, size: 16),
+                                          label: const Text(
+                                            "Cards",
+                                            style: TextStyle(fontSize: 12),
                                           ),
+                                          onPressed: () {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (_) => FlashcardsScreen(
+                                                  courses: _courses,
+                                                  initialStudySetId: set.id,
+                                                  apiClient: widget.apiClient,
+                                                ),
+                                              ),
+                                            );
+                                          },
                                         ),
-                                        icon: const Icon(
-                                          Icons.play_arrow_rounded,
-                                          size: 18,
-                                        ),
-                                        label: const Text("Practice"),
-                                        onPressed: () => _showModePicker(set),
                                       ),
                                     ],
                                   ),
@@ -2164,24 +2240,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       ),
-      floatingActionButton: _currentTabIndex == 0
-          ? FloatingActionButton.extended(
-              onPressed: () => setState(() => _currentTabIndex = 4),
-              backgroundColor: const Color(0xFF6366F1),
-              icon: const Icon(
-                Icons.auto_awesome,
-                color: Colors.white,
-                size: 20,
-              ),
-              label: Text(
-                "Ask Gemini",
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            )
-          : null,
+      floatingActionButton: null,
     );
   }
 }
