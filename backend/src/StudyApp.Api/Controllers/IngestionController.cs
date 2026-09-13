@@ -221,6 +221,8 @@ public class IngestionController : ControllerBase
             Explanation = includeAnswerKey ? q.Explanation : null,
             SourceReference = ReadSourceReference(q.ThinkingBreakdownJson),
             MatchingPairs = q.Type == QuestionType.Matching ? ReadMatchingPairs(q.Rubrics) : null,
+            MatchingTerms = q.Type == QuestionType.Matching ? ReadMatchingPairs(q.Rubrics).Select(p => p.Term).ToList() : null,
+            MatchingDefinitions = q.Type == QuestionType.Matching ? ReadMatchingPairs(q.Rubrics).Select(p => p.Definition).ToList() : null,
             q.Difficulty,
             q.SortOrder,
             Options = q.Options.Select(o => new

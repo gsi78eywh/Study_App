@@ -420,6 +420,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 8),
             _modeTile(
               ctx,
+              "🔄 True / False Practice",
+              "Instant verification of factual statements and concepts",
+              const Color(0xFF0EA5E9),
+              () {
+                Navigator.pop(ctx);
+                _startQuiz(set, mode: StudyModeValue.trueFalse);
+              },
+            ),
+            const SizedBox(height: 8),
+            _modeTile(
+              ctx,
+              "✍️ Active Recall & Identification",
+              "Type key terms and fill-in missing concepts",
+              const Color(0xFF10B981),
+              () {
+                Navigator.pop(ctx);
+                _startQuiz(set, mode: StudyModeValue.identification);
+              },
+            ),
+            const SizedBox(height: 8),
+            _modeTile(
+              ctx,
+              "📝 Enumeration & List Recall",
+              "Enumerate structured components and processes from notes",
+              const Color(0xFF8B5CF6),
+              () {
+                Navigator.pop(ctx);
+                _startQuiz(set, mode: StudyModeValue.enumeration);
+              },
+            ),
+            const SizedBox(height: 8),
+            _modeTile(
+              ctx,
+              "🧩 Two-Column Matching",
+              "Connect academic terms to their precise definitions",
+              const Color(0xFFF59E0B),
+              () {
+                Navigator.pop(ctx);
+                _startQuiz(set, mode: StudyModeValue.matchingType);
+              },
+            ),
+            const SizedBox(height: 8),
+            _modeTile(
+              ctx,
               "🃏 Flashcards (Spaced Repetition)",
               "Flip and rate your recall",
               AppColors.accent,

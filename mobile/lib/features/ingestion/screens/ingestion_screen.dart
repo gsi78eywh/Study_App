@@ -613,9 +613,82 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
                   const SizedBox(height: 20),
 
-                  // Exam Modes Chip Selection
-                  Text("Exam Modes & Question Types", style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                  // Exam Modes & Quick Preset Selectors
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text("Exam Modes & Question Types", style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                      Text("${_selectedModes.length} modes active", style: const TextStyle(color: AppColors.accent, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
                   const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        ActionChip(
+                          avatar: const Icon(Icons.auto_awesome, size: 14, color: Colors.white),
+                          label: const Text("🎯 All Types (Simulated Exam)"),
+                          backgroundColor: const Color(0xFF6366F1),
+                          labelStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          onPressed: () {
+                            setState(() {
+                              _selectedModes.addAll([
+                                "Multiple Choice",
+                                "Identification",
+                                "Enumeration",
+                                "Cloze / Fill-in",
+                                "True / False",
+                                "Matching Type",
+                                "Short Answer",
+                                "Scenario Drills",
+                              ]);
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        ActionChip(
+                          avatar: const Icon(Icons.check_circle_outline, size: 14, color: Colors.white),
+                          label: const Text("📚 Objective (MCQ + T/F)"),
+                          backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
+                          labelStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          onPressed: () {
+                            setState(() {
+                              _selectedModes.clear();
+                              _selectedModes.addAll(["Multiple Choice", "True / False"]);
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        ActionChip(
+                          avatar: const Icon(Icons.edit_note_rounded, size: 14, color: Colors.white),
+                          label: const Text("✍️ Active Recall (ID + Cloze + Enum)"),
+                          backgroundColor: const Color(0xFF10B981),
+                          labelStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          onPressed: () {
+                            setState(() {
+                              _selectedModes.clear();
+                              _selectedModes.addAll(["Identification", "Cloze / Fill-in", "Enumeration"]);
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        ActionChip(
+                          avatar: const Icon(Icons.hub_rounded, size: 14, color: Colors.white),
+                          label: const Text("🧩 Drills (Matching + Scenario)"),
+                          backgroundColor: const Color(0xFFF59E0B),
+                          labelStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          onPressed: () {
+                            setState(() {
+                              _selectedModes.clear();
+                              _selectedModes.addAll(["Matching Type", "Scenario Drills"]);
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,

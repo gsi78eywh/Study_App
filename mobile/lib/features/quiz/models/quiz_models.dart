@@ -24,6 +24,11 @@ abstract final class StudyModeValue {
   static const int speedCram = 7;
   static const int simulatedExam = 8;
   static const int rapidFireBlitz = 13;
+  static const int clozeTest = 14;
+  static const int trueFalse = 15;
+  static const int matchingType = 16;
+  static const int shortAnswer = 17;
+  static const int scenarioDrills = 18;
 }
 
 class QuestionOptionModel {
@@ -181,18 +186,39 @@ class QuestionModel {
           .toList();
     }
 
-    final matchingTerms =
-        (json["matchingTerms"] as List?)
+    final parsedOptions = (json["options"] as List<dynamic>?)
+            ?.map(
+              (o) => QuestionOptionModel.fromJson(o as Map<String, dynamic>),
+            )
+            .toList() ??
+        [];
+
+    final rawMatchingTerms = (json["matchingTerms"] as List?)
             ?.map((item) => item.toString())
             .where((item) => item.isNotEmpty)
             .toList() ??
         const <String>[];
-    final matchingDefinitions =
-        (json["matchingDefinitions"] as List?)
+    final rawMatchingDefinitions = (json["matchingDefinitions"] as List?)
             ?.map((item) => item.toString())
             .where((item) => item.isNotEmpty)
             .toList() ??
         const <String>[];
+
+    final matchingTerms = rawMatchingTerms.isNotEmpty
+        ? rawMatchingTerms
+        : (matchingPairs?.map((p) => p["term"] ?? "").where((s) => s.isNotEmpty).toList() ?? const <String>[]);
+    final matchingDefinitions = rawMatchingDefinitions.isNotEmpty
+        ? rawMatchingDefinitions
+        : (matchingPairs?.map((p) => p["definition"] ?? "").where((s) => s.isNotEmpty).toList() ?? const <String>[]);
+
+    bool? isTrue = json["isTrue"] as bool?;
+    if (isTrue == null && qType == QuestionTypeEnum.trueFalse) {
+      for (final opt in parsedOptions) {
+        final text = opt.optionText.trim().toLowerCase();
+        if (text == "true" && opt.isCorrect) isTrue = true;
+        if (text == "false" && opt.isCorrect) isTrue = false;
+      }
+    }
 
     return QuestionModel(
       id: json["id"]?.toString() ?? "",
@@ -201,16 +227,10 @@ class QuestionModel {
       prompt: json["prompt"] ?? "",
       hints: parsedHints,
       explanation: json["explanation"],
-      options:
-          (json["options"] as List<dynamic>?)
-              ?.map(
-                (o) => QuestionOptionModel.fromJson(o as Map<String, dynamic>),
-              )
-              .toList() ??
-          [],
+      options: parsedOptions,
       difficulty: json["difficulty"] ?? 2,
       sortOrder: json["sortOrder"] ?? 1,
-      isTrue: json["isTrue"] as bool?,
+      isTrue: isTrue,
       matchingTerms: matchingTerms,
       matchingDefinitions: matchingDefinitions,
       matchingPairs: matchingPairs,

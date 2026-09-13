@@ -13,6 +13,11 @@ void main() {
       expect(StudyModeValue.speedCram, 7);
       expect(StudyModeValue.simulatedExam, 8);
       expect(StudyModeValue.rapidFireBlitz, 13);
+      expect(StudyModeValue.clozeTest, 14);
+      expect(StudyModeValue.trueFalse, 15);
+      expect(StudyModeValue.matchingType, 16);
+      expect(StudyModeValue.shortAnswer, 17);
+      expect(StudyModeValue.scenarioDrills, 18);
     });
   });
 
@@ -125,6 +130,43 @@ void main() {
       // Verify all option texts are distinct
       final distinctTexts = q.options.map((o) => o.optionText).toSet();
       expect(distinctTexts.length, 4);
+    });
+
+    test("QuestionModel derives matching terms and definitions from matchingPairs", () {
+      final json = {
+        "id": "q-match-1",
+        "studySetId": "set-1",
+        "type": "Matching",
+        "prompt": "Match each term to its definition:",
+        "matchingPairs": [
+          {"term": "Mitochondria", "definition": "Powerhouse of the cell"},
+          {"term": "Ribosome", "definition": "Site of protein synthesis"}
+        ]
+      };
+
+      final q = QuestionModel.fromJson(json);
+
+      expect(q.type, QuestionTypeEnum.matching);
+      expect(q.matchingTerms, ["Mitochondria", "Ribosome"]);
+      expect(q.matchingDefinitions, ["Powerhouse of the cell", "Site of protein synthesis"]);
+    });
+
+    test("QuestionModel derives isTrue for TrueFalse question from options", () {
+      final json = {
+        "id": "q-tf-1",
+        "studySetId": "set-1",
+        "type": "TrueFalse",
+        "prompt": "True or False: The mitochondria produces ATP.",
+        "options": [
+          {"id": "opt-1", "optionText": "True", "isCorrect": true},
+          {"id": "opt-2", "optionText": "False", "isCorrect": false}
+        ]
+      };
+
+      final q = QuestionModel.fromJson(json);
+
+      expect(q.type, QuestionTypeEnum.trueFalse);
+      expect(q.isTrue, true);
     });
   });
 }
