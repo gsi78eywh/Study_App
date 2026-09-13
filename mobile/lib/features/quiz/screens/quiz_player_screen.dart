@@ -50,6 +50,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
   bool _hasSubmittedCurrent = false;
   int _revealedHintsCount = 0;
   final List<PracticeAnswerSubmission> _answers = [];
+  final Set<String> _starredQuestionIds = {};
 
   @override
   void initState() {
@@ -149,6 +150,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
           submission: submission,
           apiClient: widget.apiClient,
           sessionService: widget.sessionService,
+          starredCount: _starredQuestionIds.length,
         ),
       ),
     );
@@ -263,6 +265,28 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
           style: GoogleFonts.outfit(fontWeight: FontWeight.bold),
         ),
         actions: [
+          IconButton(
+            icon: Icon(
+              _starredQuestionIds.contains(q.id)
+                  ? Icons.star_rounded
+                  : Icons.star_outline_rounded,
+              color: _starredQuestionIds.contains(q.id)
+                  ? const Color(0xFFF59E0B)
+                  : context.textSecondary,
+            ),
+            tooltip: _starredQuestionIds.contains(q.id)
+                ? 'Bookmarked (tap to remove)'
+                : 'Star question for cram review',
+            onPressed: () {
+              setState(() {
+                if (_starredQuestionIds.contains(q.id)) {
+                  _starredQuestionIds.remove(q.id);
+                } else {
+                  _starredQuestionIds.add(q.id);
+                }
+              });
+            },
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Row(

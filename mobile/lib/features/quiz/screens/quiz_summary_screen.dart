@@ -15,6 +15,7 @@ class QuizSummaryScreen extends StatefulWidget {
   final ApiClient apiClient;
   final SessionService sessionService;
   final int? rapidFireMaxStreak;
+  final int? starredCount;
 
   const QuizSummaryScreen({
     super.key,
@@ -23,6 +24,7 @@ class QuizSummaryScreen extends StatefulWidget {
     required this.apiClient,
     required this.sessionService,
     this.rapidFireMaxStreak,
+    this.starredCount,
   });
 
   @override
@@ -202,6 +204,26 @@ class _QuizSummaryScreenState extends State<QuizSummaryScreen> {
                                     "🔥 ${widget.rapidFireMaxStreak}",
                                     style: const TextStyle(
                                       color: AppColors.warning,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            if (widget.starredCount != null && widget.starredCount! > 0)
+                              Column(
+                                children: [
+                                  const Text(
+                                    "Bookmarked",
+                                    style: TextStyle(
+                                      color: AppColors.darkTextSecondary,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    "⭐ ${widget.starredCount}",
+                                    style: const TextStyle(
+                                      color: Color(0xFFF59E0B),
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),

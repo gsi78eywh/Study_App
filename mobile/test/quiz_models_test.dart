@@ -168,5 +168,15 @@ void main() {
       expect(q.type, QuestionTypeEnum.trueFalse);
       expect(q.isTrue, true);
     });
+
+    test("QuestionOptionModel text getter aliases optionText", () {
+      final opt = QuestionOptionModel(
+        id: "opt-1",
+        optionText: "Enzyme kinetics",
+        isCorrect: true,
+      );
+      expect(opt.text, "Enzyme kinetics");
+      expect(opt.optionText, "Enzyme kinetics");
+    });
   });
 }

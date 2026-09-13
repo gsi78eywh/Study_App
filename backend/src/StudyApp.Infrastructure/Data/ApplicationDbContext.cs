@@ -44,31 +44,86 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
                   .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // Course configurations
+        // Course configurations & indexes
         modelBuilder.Entity<Course>(entity =>
         {
+            entity.HasIndex(c => c.UserId);
             entity.HasOne(c => c.User)
                   .WithMany(u => u.Courses)
                   .HasForeignKey(c => c.UserId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // Question -> Options cascade
+        // StudySet configurations & indexes
+        modelBuilder.Entity<StudySet>(entity =>
+        {
+            entity.HasIndex(s => s.CourseId);
+            entity.HasIndex(s => s.CreatedAt);
+            entity.HasOne(s => s.Course)
+                  .WithMany(c => c.StudySets)
+                  .HasForeignKey(s => s.CourseId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Question configurations & composite indexes for fast sorting
+        modelBuilder.Entity<Question>(entity =>
+        {
+            entity.HasIndex(q => q.StudySetId);
+            entity.HasIndex(q => new { q.StudySetId, q.SortOrder });
+            entity.HasOne(q => q.StudySet)
+                  .WithMany(s => s.Questions)
+                  .HasForeignKey(q => q.StudySetId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Question -> Options cascade & index
         modelBuilder.Entity<QuestionOption>(entity =>
         {
+            entity.HasIndex(o => o.QuestionId);
             entity.HasOne(o => o.Question)
                   .WithMany(q => q.Options)
                   .HasForeignKey(o => o.QuestionId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // Question -> Rubrics cascade
+        // Question -> Rubrics cascade & index
         modelBuilder.Entity<QuestionRubric>(entity =>
         {
+            entity.HasIndex(r => r.QuestionId);
             entity.HasOne(r => r.Question)
                   .WithMany(q => q.Rubrics)
                   .HasForeignKey(r => r.QuestionId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // NotebookPage indexes
+        modelBuilder.Entity<NotebookPage>(entity =>
+        {
+            entity.HasIndex(p => p.CourseId);
+            entity.HasIndex(p => p.UpdatedAt);
+            entity.HasIndex(p => new { p.CourseId, p.UpdatedAt });
+        });
+
+        // SourceDocument indexes
+        modelBuilder.Entity<SourceDocument>(entity =>
+        {
+            entity.HasIndex(d => d.StudySetId);
+        });
+
+        // TestSession indexes
+        modelBuilder.Entity<TestSession>(entity =>
+        {
+            entity.HasIndex(t => t.StudySetId);
+            entity.HasIndex(t => t.CompletedAt);
+            entity.HasIndex(t => new { t.StudySetId, t.CompletedAt });
+            entity.HasIndex(t => new { t.StudySetId, t.Mode });
+        });
+
+        // SessionAnswer indexes
+        modelBuilder.Entity<SessionAnswer>(entity =>
+        {
+            entity.HasIndex(a => a.TestSessionId);
+            entity.HasIndex(a => a.QuestionId);
         });
     }
 }

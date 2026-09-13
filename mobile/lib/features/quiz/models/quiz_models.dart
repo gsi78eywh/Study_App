@@ -44,6 +44,8 @@ class QuestionOptionModel {
     this.distractorRationale,
   });
 
+  String get text => optionText;
+
   factory QuestionOptionModel.fromJson(Map<String, dynamic> json) {
     return QuestionOptionModel(
       id: json["id"]?.toString() ?? "",

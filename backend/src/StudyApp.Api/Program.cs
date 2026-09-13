@@ -43,7 +43,10 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 {
     if (connectionString.Contains("Data Source=", StringComparison.OrdinalIgnoreCase) || connectionString.EndsWith(".db", StringComparison.OrdinalIgnoreCase))
     {
-        options.UseSqlite(connectionString);
+        options.UseSqlite(connectionString, sqliteOptions =>
+        {
+            sqliteOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+        });
     }
     else
     {
@@ -54,14 +57,20 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
             var connectTask = tcpClient.ConnectAsync("127.0.0.1", 5432);
             if (connectTask.Wait(1000) && tcpClient.Connected)
             {
-                options.UseNpgsql(connectionString);
+                options.UseNpgsql(connectionString, npgsqlOptions =>
+                {
+                    npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+                });
                 return;
             }
         }
         catch { }
 
         Console.WriteLine("[Database] PostgreSQL server on 127.0.0.1:5432 not reachable. Using local SQLite studyapp.db database.");
-        options.UseSqlite("Data Source=studyapp.db");
+        options.UseSqlite("Data Source=studyapp.db", sqliteOptions =>
+        {
+            sqliteOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+        });
     }
 });
 
