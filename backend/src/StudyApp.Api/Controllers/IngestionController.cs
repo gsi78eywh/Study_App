@@ -96,20 +96,27 @@ public class IngestionController : ControllerBase
         GeneratedStudySetResult result;
         string? extractedSourceText = null;
 
-        using var stream = file.OpenReadStream();
+        using var stream = new MemoryStream();
+        await file.CopyToAsync(stream);
+        stream.Position = 0;
+
+        if (!ValidateFileSignature(stream, ext))
+        {
+            return BadRequest(new { message = "Uploaded file content does not match the file extension signature." });
+        }
+        stream.Position = 0;
 
         if (ext is ".png" or ".jpg" or ".jpeg" or ".webp")
         {
-            // Multimodal Whiteboard / Handwritten Note / Textbook Photo Analysis
-            using var ms = new MemoryStream();
-            await stream.CopyToAsync(ms);
+            // Direct OCR / Image Text Extraction without AI hallucinations
             var mimeType = ext switch
             {
                 ".png" => "image/png",
                 ".webp" => "image/webp",
                 _ => "image/jpeg"
             };
-            result = await _aiGenerator.GenerateStudySetFromImageAsync(ms.ToArray(), mimeType, setHeader, typesList, targetNum);
+            extractedSourceText = await _documentExtractor.ExtractImageTextAsync(stream, mimeType);
+            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum);
         }
         else if (ext == ".pdf")
         {
@@ -123,7 +130,7 @@ public class IngestionController : ControllerBase
         }
         else if (ext is ".txt" or ".md")
         {
-            using var reader = new StreamReader(stream);
+            using var reader = new StreamReader(stream, leaveOpen: true);
             extractedSourceText = LimitSourceText(await reader.ReadToEndAsync());
             result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum);
         }
@@ -192,7 +199,7 @@ public class IngestionController : ControllerBase
     }
 
     [HttpGet("/api/v1/studysets/{id:guid}/questions")]
-    public async Task<IActionResult> GetStudySetQuestions(Guid id)
+    public async Task<IActionResult> GetStudySetQuestions(Guid id, [FromQuery] bool includeAnswerKey = true)
     {
         var setExists = await _context.StudySets.AnyAsync(s => s.Id == id && s.Course != null && s.Course.UserId == CurrentUserId());
         if (!setExists) return NotFound(new { message = "Study set not found." });
@@ -211,7 +218,7 @@ public class IngestionController : ControllerBase
             Type = q.Type.ToString(),
             q.Prompt,
             Hints = !string.IsNullOrEmpty(q.HintsJson) ? JsonSerializer.Deserialize<List<string>>(q.HintsJson, JsonOptions) : new List<string>(),
-            q.Explanation,
+            Explanation = includeAnswerKey ? q.Explanation : null,
             SourceReference = ReadSourceReference(q.ThinkingBreakdownJson),
             MatchingPairs = q.Type == QuestionType.Matching ? ReadMatchingPairs(q.Rubrics) : null,
             q.Difficulty,
@@ -220,8 +227,8 @@ public class IngestionController : ControllerBase
             {
                 Id = o.Id.ToString(),
                 OptionText = o.OptionText,
-                IsCorrect = o.IsCorrect,
-                DistractorRationale = o.DistractorRationale
+                IsCorrect = includeAnswerKey ? o.IsCorrect : false,
+                DistractorRationale = includeAnswerKey ? o.DistractorRationale : null
             }).ToList()
         }).ToList();
 
@@ -233,11 +240,17 @@ public class IngestionController : ControllerBase
     {
         var set = await _context.StudySets
             .Where(s => s.Id == id && s.Course != null && s.Course.UserId == CurrentUserId())
+            .Include(s => s.Course)
             .Include(s => s.Questions)
                 .ThenInclude(q => q.Options)
             .FirstOrDefaultAsync(s => s.Id == id);
 
         if (set == null) return NotFound(new { message = "Study set not found." });
+
+        if (set.Course != null)
+        {
+            set.Course.UpdatedAt = DateTime.UtcNow;
+        }
 
         if (set.Questions != null && set.Questions.Any())
         {
@@ -266,10 +279,106 @@ public class IngestionController : ControllerBase
                 source.FileUrl,
                 source.Status,
                 source.CreatedAt,
+                source.ExtractedText,
                 HasExtractedText = !string.IsNullOrEmpty(source.ExtractedText)
             })
             .ToListAsync();
         return Ok(sources);
+    }
+
+    [HttpGet("/api/v1/studysets/{id:guid}/export")]
+    public async Task<IActionResult> ExportStudySet(Guid id, [FromQuery] string format = "markdown")
+    {
+        var studySet = await _context.StudySets
+            .Where(s => s.Id == id && s.Course != null && s.Course.UserId == CurrentUserId())
+            .Include(s => s.Course)
+            .Include(s => s.SourceDocuments)
+            .Include(s => s.Questions)
+                .ThenInclude(q => q.Options)
+            .Include(s => s.Questions)
+                .ThenInclude(q => q.Rubrics)
+            .FirstOrDefaultAsync();
+
+        if (studySet == null) return NotFound(new { message = "Study set not found." });
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"# Study Guide: {studySet.Title}");
+        if (studySet.Course != null)
+        {
+            sb.AppendLine($"**Course:** {studySet.Course.Code} - {studySet.Course.Name}");
+        }
+        sb.AppendLine($"**Generated:** {studySet.CreatedAt:yyyy-MM-dd HH:mm:ss UTC}");
+        sb.AppendLine();
+        sb.AppendLine("## Overview & Academic Summary");
+        sb.AppendLine(studySet.Description);
+        sb.AppendLine();
+
+        if (studySet.SourceDocuments.Any())
+        {
+            sb.AppendLine("## Source Material & Extracted Text");
+            foreach (var doc in studySet.SourceDocuments)
+            {
+                sb.AppendLine($"### Source: {doc.FileName} ({doc.FileType})");
+                if (!string.IsNullOrWhiteSpace(doc.ExtractedText))
+                {
+                    sb.AppendLine(doc.ExtractedText);
+                }
+                sb.AppendLine();
+            }
+        }
+
+        if (studySet.Questions.Any())
+        {
+            sb.AppendLine("## Active Recall Practice Questions & Solutions");
+            int qNum = 1;
+            foreach (var q in studySet.Questions.OrderBy(x => x.SortOrder))
+            {
+                sb.AppendLine($"### Question {qNum++} [{q.Type}]");
+                sb.AppendLine(q.Prompt);
+                sb.AppendLine();
+
+                if (q.Options.Any())
+                {
+                    sb.AppendLine("**Options:**");
+                    char optChar = 'A';
+                    foreach (var opt in q.Options)
+                    {
+                        var marker = opt.IsCorrect ? " [CORRECT]" : "";
+                        sb.AppendLine($"- {optChar++}. {opt.OptionText}{marker}");
+                        if (!string.IsNullOrWhiteSpace(opt.DistractorRationale))
+                        {
+                            sb.AppendLine($"  *(Analysis: {opt.DistractorRationale})*");
+                        }
+                    }
+                    sb.AppendLine();
+                }
+
+                if (q.Rubrics.Any())
+                {
+                    sb.AppendLine("**Rubric / Key Criteria:**");
+                    foreach (var r in q.Rubrics.OrderBy(x => x.SortOrder))
+                    {
+                        sb.AppendLine($"- {r.ItemText}");
+                    }
+                    sb.AppendLine();
+                }
+
+                if (!string.IsNullOrWhiteSpace(q.Explanation))
+                {
+                    sb.AppendLine($"**Explanation:** {q.Explanation}");
+                    sb.AppendLine();
+                }
+            }
+        }
+
+        var exportContent = sb.ToString();
+
+        if (format.Equals("txt", StringComparison.OrdinalIgnoreCase))
+        {
+            return File(System.Text.Encoding.UTF8.GetBytes(exportContent), "text/plain", $"{SanitizeFileName(studySet.Title)}_StudyGuide.txt");
+        }
+
+        return File(System.Text.Encoding.UTF8.GetBytes(exportContent), "text/markdown", $"{SanitizeFileName(studySet.Title)}_StudyGuide.md");
     }
 
     private async Task<StudySet> SaveGeneratedSetAsync(
@@ -328,16 +437,21 @@ public class IngestionController : ControllerBase
 
             if (q.Options != null)
             {
+                var seenOptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var opt in q.Options)
                 {
-                    question.Options.Add(new QuestionOption
+                    var optText = opt.Text?.Trim() ?? string.Empty;
+                    if (optText.Length > 0 && seenOptions.Add(optText))
                     {
-                        Id = Guid.NewGuid(),
-                        QuestionId = question.Id,
-                        OptionText = opt.Text,
-                        IsCorrect = opt.IsCorrect,
-                        DistractorRationale = opt.DistractorRationale
-                    });
+                        question.Options.Add(new QuestionOption
+                        {
+                            Id = Guid.NewGuid(),
+                            QuestionId = question.Id,
+                            OptionText = optText,
+                            IsCorrect = opt.IsCorrect,
+                            DistractorRationale = opt.DistractorRationale
+                        });
+                    }
                 }
             }
 
@@ -345,13 +459,22 @@ public class IngestionController : ControllerBase
             // a durable answer key even though they do not render as a list of choices.
             if (!question.Options.Any(option => option.IsCorrect) && !string.IsNullOrWhiteSpace(q.CorrectAnswer))
             {
-                question.Options.Add(new QuestionOption
+                var correctText = q.CorrectAnswer.Trim();
+                var existing = question.Options.FirstOrDefault(o => string.Equals(o.OptionText, correctText, StringComparison.OrdinalIgnoreCase));
+                if (existing != null)
                 {
-                    Id = Guid.NewGuid(),
-                    QuestionId = question.Id,
-                    OptionText = q.CorrectAnswer.Trim(),
-                    IsCorrect = true
-                });
+                    existing.IsCorrect = true;
+                }
+                else
+                {
+                    question.Options.Add(new QuestionOption
+                    {
+                        Id = Guid.NewGuid(),
+                        QuestionId = question.Id,
+                        OptionText = correctText,
+                        IsCorrect = true
+                    });
+                }
             }
 
             // Synonyms are accepted by identification and cloze grading without
@@ -444,6 +567,13 @@ public class IngestionController : ControllerBase
         }
 
         _context.StudySets.Add(studySet);
+
+        var parentCourse = await _context.Courses.FirstOrDefaultAsync(c => c.Id == courseId);
+        if (parentCourse != null)
+        {
+            parentCourse.UpdatedAt = DateTime.UtcNow;
+        }
+
         await _context.SaveChangesAsync();
 
         return studySet;
@@ -516,5 +646,35 @@ public class IngestionController : ControllerBase
     {
         const int maxCharacters = 150_000;
         return content.Length <= maxCharacters ? content : $"{content[..maxCharacters]}\n\n[Content truncated at {maxCharacters:N0} characters]";
+    }
+
+    private static bool ValidateFileSignature(Stream stream, string ext)
+    {
+        var buffer = new byte[12];
+        int bytesRead = stream.Read(buffer, 0, buffer.Length);
+        if (stream.CanSeek)
+        {
+            stream.Position = 0;
+        }
+
+        if (bytesRead < 4) return false;
+
+        return ext switch
+        {
+            ".pdf" => buffer[0] == 0x25 && buffer[1] == 0x50 && buffer[2] == 0x44 && buffer[3] == 0x46, // %PDF
+            ".docx" => buffer[0] == 0x50 && buffer[1] == 0x4B && (buffer[2] == 0x03 || buffer[2] == 0x05) && (buffer[3] == 0x04 || buffer[3] == 0x06), // PK.. (ZIP)
+            ".png" => buffer[0] == 0x89 && buffer[1] == 0x50 && buffer[2] == 0x4E && buffer[3] == 0x47, // .PNG
+            ".jpg" or ".jpeg" => buffer[0] == 0xFF && buffer[1] == 0xD8 && buffer[2] == 0xFF, // JPEG
+            ".webp" => bytesRead >= 12 && buffer[0] == 0x52 && buffer[1] == 0x49 && buffer[2] == 0x46 && buffer[3] == 0x46
+                                       && buffer[8] == 0x57 && buffer[9] == 0x45 && buffer[10] == 0x42 && buffer[11] == 0x50,
+            ".txt" or ".md" => !buffer.Take(bytesRead).Contains((byte)0), // Plain text should not contain NUL bytes
+            _ => false
+        };
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        return string.Join("_", name.Split(invalid, StringSplitOptions.RemoveEmptyEntries)).Trim();
     }
 }

@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using StudyApp.Application.Common.Interfaces;
 using StudyApp.Domain.Entities;
 
@@ -20,6 +20,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<NotebookPage> NotebookPages => Set<NotebookPage>();
     public DbSet<TestSession> TestSessions => Set<TestSession>();
     public DbSet<SessionAnswer> SessionAnswers => Set<SessionAnswer>();
+    public DbSet<UserSettings> UserSettings => Set<UserSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -31,6 +32,16 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasIndex(u => u.Email).IsUnique();
             entity.Property(u => u.Email).HasMaxLength(255).IsRequired();
             entity.Property(u => u.FullName).HasMaxLength(150).IsRequired();
+        });
+
+        // UserSettings configurations (1-to-1 with User)
+        modelBuilder.Entity<UserSettings>(entity =>
+        {
+            entity.HasIndex(s => s.UserId).IsUnique();
+            entity.HasOne(s => s.User)
+                  .WithOne()
+                  .HasForeignKey<UserSettings>(s => s.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Course configurations

@@ -1,4 +1,4 @@
-﻿import "package:flutter/material.dart";
+import "package:flutter/material.dart";
 import "package:google_fonts/google_fonts.dart";
 
 class AppColors {
@@ -32,6 +32,7 @@ extension ThemeHelper on BuildContext {
   Color get textPrimary => isDarkMode ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
   Color get textSecondary => isDarkMode ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
   Color get secondaryBg => isDarkMode ? const Color(0xFF131D31) : const Color(0xFFF1F5F9);
+  Color get scaffoldBg => isDarkMode ? AppColors.darkBg : AppColors.lightBg;
 }
 
 class AppTheme {

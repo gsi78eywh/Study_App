@@ -8,6 +8,7 @@ import "../../courses/models/course_models.dart";
 class SyncResult {
   final bool success;
   final String message;
+  final bool isUnauthorized;
   final List<CourseModel> syncedCourses;
   final int coursesReceived;
   final int studySetsReceived;
@@ -16,6 +17,7 @@ class SyncResult {
   SyncResult({
     required this.success,
     required this.message,
+    this.isUnauthorized = false,
     this.syncedCourses = const [],
     this.coursesReceived = 0,
     this.studySetsReceived = 0,
@@ -29,7 +31,10 @@ class SyncService {
 
   SyncService({required this.apiClient, required this.sessionService});
 
-  Future<SyncResult> performSync({bool fullFetch = false}) async {
+  Future<SyncResult> performSync({
+    bool fullFetch = false,
+    List<CourseModel> currentCourses = const [],
+  }) async {
     try {
       final lastSync = fullFetch
           ? DateTime.fromMillisecondsSinceEpoch(0)
@@ -60,12 +65,19 @@ class SyncService {
         final rawCourses = data["updatedCourses"] as List? ?? [];
         final rawSets = data["updatedStudySets"] as List? ?? [];
 
-        // Build merged course list
+        // Build merged course list, seeded with current in-memory courses
         final Map<String, CourseModel> courseMap = {};
+        for (final c in currentCourses) {
+          courseMap[c.id] = c;
+        }
 
         for (final raw in rawCourses) {
           final id = raw["id"]?.toString() ?? "";
           if (id.isEmpty) continue;
+          if (raw["isDeleted"] == true) {
+            courseMap.remove(id);
+            continue;
+          }
           final existing = courseMap[id];
           courseMap[id] = CourseModel(
             id: id,
@@ -90,22 +102,28 @@ class SyncService {
           final setList = List<StudySetModel>.from(targetCourse.studySets);
           final existingSetIndex = setList.indexWhere((s) => s.id == setId);
 
-          final newSet = StudySetModel(
-            id: setId,
-            courseId: courseId,
-            title: raw["title"] ?? "Untitled Set",
-            description: raw["description"],
-            questionCount:
-                (raw["questions"] as List?)?.length ??
-                (raw["questionCount"] ?? 0),
-            createdAt:
-                DateTime.tryParse(raw["updatedAt"] ?? "") ?? DateTime.now(),
-          );
-
-          if (existingSetIndex >= 0) {
-            setList[existingSetIndex] = newSet;
+          if (raw["isDeleted"] == true) {
+            if (existingSetIndex >= 0) {
+              setList.removeAt(existingSetIndex);
+            }
           } else {
-            setList.add(newSet);
+            final newSet = StudySetModel(
+              id: setId,
+              courseId: courseId,
+              title: raw["title"] ?? "Untitled Set",
+              description: raw["description"],
+              questionCount:
+                  (raw["questions"] as List?)?.length ??
+                  (raw["questionCount"] ?? 0),
+              createdAt:
+                  DateTime.tryParse(raw["updatedAt"] ?? "") ?? DateTime.now(),
+            );
+
+            if (existingSetIndex >= 0) {
+              setList[existingSetIndex] = newSet;
+            } else {
+              setList.add(newSet);
+            }
           }
 
           courseMap[courseId] = CourseModel(
@@ -132,8 +150,10 @@ class SyncService {
         );
       }
     } on DioException catch (e) {
+      final isAuth = e.response?.statusCode == 401;
       return SyncResult(
         success: false,
+        isUnauthorized: isAuth,
         message: e.error?.toString() ?? e.message ?? "Sync failed.",
       );
     } catch (e) {

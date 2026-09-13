@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -33,9 +33,11 @@ public class AuthController : ControllerBase
     {
         var email = request.Email?.Trim().ToLowerInvariant();
         var fullName = request.FullName?.Trim();
-        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@') || string.IsNullOrWhiteSpace(fullName) || fullName.Length > 150 || string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 8)
+        if (string.IsNullOrWhiteSpace(email) || email.Length > 254 || !System.Net.Mail.MailAddress.TryCreate(email, out _) ||
+            string.IsNullOrWhiteSpace(fullName) || fullName.Length > 150 ||
+            string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 8 || request.Password.Length > 128)
         {
-            return BadRequest(new { message = "Enter a valid email, name, and a password of at least 8 characters." });
+            return BadRequest(new { message = "Enter a valid email (max 254 chars), name (max 150 chars), and a password between 8 and 128 characters." });
         }
 
         var existing = await _context.Users.AnyAsync(u => u.Email == email);
@@ -62,9 +64,9 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         var email = request.Email?.Trim().ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(request.Password))
+        if (string.IsNullOrWhiteSpace(email) || email.Length > 254 || string.IsNullOrWhiteSpace(request.Password) || request.Password.Length > 128)
         {
-            return BadRequest(new { message = "Email and password are required." });
+            return BadRequest(new { message = "Valid email and password (max 128 characters) are required." });
         }
 
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);

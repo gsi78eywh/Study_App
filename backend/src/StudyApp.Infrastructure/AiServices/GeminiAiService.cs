@@ -46,7 +46,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         _model = _configuration["AiSettings:ModelId"] ?? "gemini-flash-latest";
     }
 
-    public async Task<GeneratedStudySetResult> GenerateStudySetAsync(
+    public Task<GeneratedStudySetResult> GenerateStudySetAsync(
         string rawText,
         string title,
         List<string> requestedTypes,
@@ -55,7 +55,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
     {
         if (string.IsNullOrWhiteSpace(rawText))
         {
-            return GenerateEmptyFallback(title);
+            return Task.FromResult(GenerateEmptyFallback(title));
         }
 
         var textHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawText)));
@@ -65,117 +65,12 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         if (_cache.TryGetValue(cacheKey, out var cached) && cached.Data is GeneratedStudySetResult cachedResult)
         {
             _logger.LogInformation("Returning cached study set for {Title} (0ms response)", title);
-            return cachedResult;
+            return Task.FromResult(cachedResult);
         }
 
-        if (!string.IsNullOrWhiteSpace(_apiKey))
-        {
-            var typesList = requestedTypes.Count > 0
-                ? string.Join(", ", requestedTypes)
-                : "multiple_choice, identification, enumeration";
-
-            var systemPrompt = """
-            You are an elite university professor and academic curriculum architect.
-            Analyze the study material and synthesize active recall practice tests.
-
-            QUESTION TYPES GUIDANCE (honor the requested types exactly):
-            - multiple_choice: 4 options (1 correct, 3 plausible distractors). Each wrong option must have 'distractorRationale'. Include 'explanation'.
-            - identification: Direct recall — student types the exact term. Include 'prompt', 'correctAnswer', 'hints'.
-            - enumeration: Multi-item retrieval (e.g. "List the 5 OSI layers"). 'correctAnswer' is a comma-separated or numbered list.
-            - cloze: Extract a key sentence from the notes and blank out one critical keyword with ____. 'correctAnswer' = blanked keyword. 'prompt' includes the full sentence with ____.
-            - true_false: A declarative statement the student judges as True or False. Set 'isTrue' in options: one "True" option (isCorrect = true if statement IS true, false if it's false) and one "False" option (inverse). Include 'correction' hint if statement is false.
-            - matching: Generate 4 term–definition pairs. Encode as: prompt = "Match each term to its correct definition", options = the 4 correct pairs with isCorrect=true. 'correctAnswer' = JSON array of {term, definition} pairs.
-            - short_answer: Open-ended conceptual question. 'correctAnswer' = model answer paragraph. 'hints' = 3-5 keyword rubric items the student should mention.
-            - scenario: A mini case study or word problem. 'prompt' = scenario description + question. Treat as multiple_choice with 4 options OR as short_answer.
-
-            OUTPUT FORMAT: Return pure valid JSON:
-            {
-              "summary": "Academic overview of the notes...",
-              "highYieldBulletPoints": ["Point 1", "Point 2", "Point 3", "Point 4", "Point 5"],
-              "questions": [
-                {
-                  "type": "multiple_choice | identification | enumeration | cloze | true_false | matching | short_answer | scenario",
-                  "prompt": "Question text or fill-in sentence with ____",
-                  "hints": ["Rubric keyword 1", "Rubric keyword 2"],
-                  "correctAnswer": "The correct answer text",
-                  "isTrue": null,
-                  "options": [
-                    { "text": "Correct Answer", "isCorrect": true, "distractorRationale": null },
-                    { "text": "Distractor A", "isCorrect": false, "distractorRationale": "Why wrong" },
-                    { "text": "Distractor B", "isCorrect": false, "distractorRationale": "Why wrong" },
-                    { "text": "Distractor C", "isCorrect": false, "distractorRationale": "Why wrong" }
-                  ],
-                  "explanation": "Full conceptual explanation",
-                  "sourceReference": "Exact heading, page marker, or short source passage supporting this question"
-                }
-              ]
-            }
-            """;
-
-            var userPrompt = $"""
-            TOPIC / TITLE: {title}
-            TARGET QUESTION COUNT: {targetCount}
-            REQUESTED QUESTION TYPES: [{typesList}]
-
-            COURSE STUDY MATERIAL:
-            {rawText}
-            """;
-
-            var payload = new
-            {
-                contents = new[]
-                {
-                    new
-                    {
-                        parts = new[]
-                        {
-                            new { text = systemPrompt + "\n\n" + userPrompt }
-                        }
-                    }
-                },
-                generationConfig = new
-                {
-                    responseMimeType = "application/json",
-                    temperature = 0.2
-                }
-            };
-
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromSeconds(20));
-
-            try
-            {
-                var responseJson = await CallNativeGeminiAsync(payload, cts.Token);
-                if (!string.IsNullOrWhiteSpace(responseJson))
-                {
-                    var cleanJson = ExtractJsonBlock(responseJson);
-                    var parsed = JsonSerializer.Deserialize<AiResponsePayload>(cleanJson, JsonOptions);
-                    if (parsed?.Questions != null && parsed.Questions.Count > 0)
-                    {
-                        _logger.LogInformation("Synthesized {Count} questions for '{Title}' using Gemini native API",
-                            parsed.Questions.Count, title);
-
-                        var result = new GeneratedStudySetResult(
-                            Guid.NewGuid(),
-                            title,
-                            parsed.Summary ?? $"Synthesized summary for {title}.",
-                            parsed.HighYieldBulletPoints ?? new List<string>(),
-                            parsed.Questions
-                        );
-
-                        _cache[cacheKey] = (DateTime.UtcNow, result);
-                        return result;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Gemini call for '{Title}' did not complete, activating intelligent local synthesizer", title);
-            }
-        }
-
-        var localResult = AnalyzeAndSynthesizeLocally(title, rawText, targetCount);
-        return localResult;
+        var result = NoteScriptSynthesizer.SynthesizeFromNotes(title, rawText, requestedTypes, targetCount);
+        _cache[cacheKey] = (DateTime.UtcNow, result);
+        return Task.FromResult(result);
     }
 
     public async Task<GeneratedStudySetResult> GenerateStudySetFromImageAsync(
@@ -201,53 +96,11 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             return cachedResult;
         }
 
+        string? extractedOcrText = null;
+
         if (!string.IsNullOrWhiteSpace(_apiKey))
         {
-            var typesList = requestedTypes.Count > 0
-                ? string.Join(", ", requestedTypes)
-                : "multiple_choice, identification, enumeration";
-
-            var systemPrompt = $$"""
-            You are an expert academic curriculum designer, visual OCR analyzer, and university tutor.
-            Analyze the attached image of student study materials (which may contain handwritten lecture notes, whiteboard equations, diagrams, slides, or textbook pages).
-            
-            TASKS:
-            1. Extract all text, formulas, diagrams, definitions, and concepts shown in the image.
-            2. Write a comprehensive high-yield summary of everything in the image.
-            3. Extract 5 high-yield bullet points (laws, definitions, steps, key formulas).
-            4. Generate exactly {{targetCount}} high-yield active recall practice questions based directly on the contents of the image.
-            5. Honor the requested exam types: [{{typesList}}]. Use this guidance per type:
-               - multiple_choice: 4 options (1 correct + 3 plausible distractors with distractorRationale), explanation.
-               - identification: direct recall prompt, correctAnswer, hints.
-               - enumeration: multi-item list prompt, correctAnswer as comma-separated list.
-               - cloze: take a key sentence from the image, blank one critical word with ____, correctAnswer = that word.
-               - true_false: declarative statement, options = ["True" (isCorrect=true/false), "False" (inverse)], include correction if false.
-               - matching: 4 term-definition pairs, options = correct pairs with isCorrect=true, correctAnswer = JSON array.
-               - short_answer: open conceptual question from image, correctAnswer = model paragraph, hints = rubric keywords.
-               - scenario: mini case study using image context, treated as multiple_choice or short_answer.
-
-            OUTPUT FORMAT: Return pure valid JSON matching this schema:
-            {
-              "summary": "Full academic summary of the image content...",
-              "highYieldBulletPoints": ["Point 1", "Point 2", "Point 3", "Point 4", "Point 5"],
-              "questions": [
-                {
-                  "type": "multiple_choice",
-                  "prompt": "Question based directly on the uploaded image?",
-                  "hints": ["Hint 1", "Hint 2"],
-                  "correctAnswer": "Correct Option Text",
-                  "options": [
-                    { "text": "Correct Option Text", "isCorrect": true, "distractorRationale": null },
-                    { "text": "Plausible Distractor 1", "isCorrect": false, "distractorRationale": "Why this is incorrect" },
-                    { "text": "Plausible Distractor 2", "isCorrect": false, "distractorRationale": "Why this is incorrect" },
-                    { "text": "Plausible Distractor 3", "isCorrect": false, "distractorRationale": "Why this is incorrect" }
-                  ],
-                  "explanation": "Detailed explanation citing the visual context from the image.",
-                  "sourceReference": "Image attachment: the visible heading, diagram label, or sentence used"
-                }
-              ]
-            }
-            """;
+            var ocrPrompt = "You are a precise, verbatim OCR transcription engine. Extract and transcribe all text, notes, equations, questions, options, and answers visible in this image verbatim. Do not generate new questions, do not summarize, and do not add external commentary. Return ONLY the verbatim transcribed text from the image.";
 
             var payload = new
             {
@@ -257,7 +110,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                     {
                         parts = new object[]
                         {
-                            new { text = systemPrompt },
+                            new { text = ocrPrompt },
                             new
                             {
                                 inlineData = new
@@ -271,8 +124,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 },
                 generationConfig = new
                 {
-                    responseMimeType = "application/json",
-                    temperature = 0.2
+                    temperature = 0.1
                 }
             };
 
@@ -284,34 +136,23 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 var responseJson = await CallNativeGeminiAsync(payload, cts.Token);
                 if (!string.IsNullOrWhiteSpace(responseJson))
                 {
-                    var cleanJson = ExtractJsonBlock(responseJson);
-                    var parsed = JsonSerializer.Deserialize<AiResponsePayload>(cleanJson, JsonOptions);
-                    if (parsed?.Questions != null && parsed.Questions.Count > 0)
-                    {
-                        _logger.LogInformation("Successfully extracted {Count} visual questions from image for '{Title}'",
-                            parsed.Questions.Count, title);
-
-                        var result = new GeneratedStudySetResult(
-                            Guid.NewGuid(),
-                            title,
-                            parsed.Summary ?? $"Synthesized visual study set for {title}.",
-                            parsed.HighYieldBulletPoints ?? new List<string>(),
-                            parsed.Questions
-                        );
-
-                        _cache[cacheKey] = (DateTime.UtcNow, result);
-                        return result;
-                    }
+                    extractedOcrText = responseJson.Trim();
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Multimodal vision call for '{Title}' did not complete, falling back to local synthesizer", title);
+                _logger.LogWarning(ex, "Multimodal OCR call for '{Title}' did not complete, using local extractor", title);
             }
         }
 
-        var fallbackResult = AnalyzeAndSynthesizeLocally(title, $"[Visual Lecture Material: {title}]", targetCount);
-        return fallbackResult;
+        if (string.IsNullOrWhiteSpace(extractedOcrText))
+        {
+            extractedOcrText = $"[Notes extracted from uploaded image: {title}]";
+        }
+
+        var result = NoteScriptSynthesizer.SynthesizeFromNotes(title, extractedOcrText, requestedTypes, targetCount);
+        _cache[cacheKey] = (DateTime.UtcNow, result);
+        return result;
     }
 
     public async Task<AskTutorResponse> AskTutorAsync(
@@ -325,8 +166,9 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         }
 
         var systemInstruction = """
-        You are 'Gemini Study Tutor', an encouraging, academically rigorous AI tutor for university students.
+        You are 'Gemini Study Tutor', an encouraging, academically rigorous AI tutor and coding mentor for university students.
         Guidelines:
+        - When a student asks for code (e.g. HTML, CSS, JavaScript, Python, C#, Java, SQL), provide complete, working, modern code formatted inside Markdown code blocks with language syntax highlighting and concise line-by-line explanations.
         - Provide clear conceptual explanations followed by step-by-step logic.
         - Break down formulas, equations, or legal/scientific terminology clearly.
         - When a student asks for practice or help, provide clear explanations.
@@ -369,14 +211,14 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         };
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(TimeSpan.FromSeconds(15));
+        cts.CancelAfter(TimeSpan.FromSeconds(35));
 
         try
         {
-            var responseText = await CallNativeGeminiAsync(payload, cts.Token);
+            var (responseText, modelUsed) = await CallNativeGeminiWithFallbackAsync(payload, cts.Token);
             if (!string.IsNullOrWhiteSpace(responseText))
             {
-                var response = new AskTutorResponse(responseText, "gemini-flash-latest", DateTime.UtcNow);
+                var response = new AskTutorResponse(responseText, modelUsed, DateTime.UtcNow);
                 _cache[cacheKey] = (DateTime.UtcNow, response);
                 return response;
             }
@@ -386,62 +228,105 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             _logger.LogWarning(ex, "Gemini tutor call error");
         }
 
+        // When offline or cloud Gemini is unreachable, sleep to prevent inaccurate results
         return new AskTutorResponse(
-            $"I received your question about **{request.Message}**. In the context of {request.ContextTopic ?? "your course"}, key concepts should be approached methodically: identify the core definition, determine relevant variables or boundary conditions, and verify each step.",
-            "offline-tutor",
+            "😴 **Gemini Tutor is currently offline / asleep.**\n\nTo prevent inaccurate or incomplete academic results, the AI tutor requires an active internet connection to Google Gemini. Please check your network connection and try again.",
+            "offline-sleep",
             DateTime.UtcNow
         );
     }
 
-    private async Task<string?> CallNativeGeminiAsync(object payload, CancellationToken cancellationToken)
+    private async Task<(string? Text, string ModelUsed)> CallNativeGeminiWithFallbackAsync(object payload, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_apiKey)) return null;
+        if (string.IsNullOrWhiteSpace(_apiKey)) return (null, "offline-sleep");
+
+        var modelsToTry = new[] { _model, "gemini-flash-lite-latest" }
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         var acquired = await _concurrencyLimiter.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
         if (!acquired)
         {
             _logger.LogWarning("Concurrency limiter saturated, skipping cloud call");
-            return null;
+            return (null, "offline-sleep");
         }
 
         try
         {
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/{_model}:generateContent?key={_apiKey}";
             var json = JsonSerializer.Serialize(payload, JsonOptions);
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            using var response = await _httpClient.SendAsync(request, cancellationToken);
-            if (response.IsSuccessStatusCode)
+            foreach (var modelName in modelsToTry)
             {
-                var responseStr = await response.Content.ReadAsStringAsync(cancellationToken);
-                using var doc = JsonDocument.Parse(responseStr);
+                if (cancellationToken.IsCancellationRequested) break;
 
-                if (doc.RootElement.TryGetProperty("candidates", out var candidates) && candidates.GetArrayLength() > 0)
+                for (int attempt = 1; attempt <= 2; attempt++)
                 {
-                    var firstCandidate = candidates[0];
-                    if (firstCandidate.TryGetProperty("content", out var content) &&
-                        content.TryGetProperty("parts", out var parts) &&
-                        parts.GetArrayLength() > 0)
+                    try
                     {
-                        var text = parts[0].GetProperty("text").GetString();
-                        return text;
+                        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={_apiKey}";
+                        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+                        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                        using var response = await _httpClient.SendAsync(request, cancellationToken);
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var responseStr = await response.Content.ReadAsStringAsync(cancellationToken);
+                            using var doc = JsonDocument.Parse(responseStr);
+
+                            if (doc.RootElement.TryGetProperty("candidates", out var candidates) && candidates.GetArrayLength() > 0)
+                            {
+                                var firstCandidate = candidates[0];
+                                if (firstCandidate.TryGetProperty("content", out var content) &&
+                                    content.TryGetProperty("parts", out var parts) &&
+                                    parts.GetArrayLength() > 0)
+                                {
+                                    var text = parts[0].GetProperty("text").GetString();
+                                    if (!string.IsNullOrWhiteSpace(text))
+                                    {
+                                        return (text, modelName);
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            var statusCode = (int)response.StatusCode;
+                            var err = await response.Content.ReadAsStringAsync(cancellationToken);
+                            _logger.LogWarning("Gemini API ({Model}, attempt {Attempt}) returned {Status}: {Error}", modelName, attempt, response.StatusCode, err);
+
+                            if (statusCode == 503 || statusCode == 429)
+                            {
+                                if (attempt < 2)
+                                {
+                                    await Task.Delay(500, cancellationToken);
+                                    continue;
+                                }
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _logger.LogWarning(ex, "Gemini API call to {Model} threw an exception on attempt {Attempt}", modelName, attempt);
                     }
                 }
             }
-            else
-            {
-                var err = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogWarning("Gemini native API returned {Status}: {Error}", response.StatusCode, err);
-            }
 
-            return null;
+            return (null, "offline-sleep");
         }
         finally
         {
             _concurrencyLimiter.Release();
         }
+    }
+
+    private async Task<string?> CallNativeGeminiAsync(object payload, CancellationToken cancellationToken)
+    {
+        var (text, _) = await CallNativeGeminiWithFallbackAsync(payload, cancellationToken);
+        return text;
     }
 
     private static string ExtractJsonBlock(string raw)
@@ -487,140 +372,12 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
     private GeneratedStudySetResult AnalyzeAndSynthesizeLocally(string title, string rawText, int targetCount)
     {
-        var cleanLines = rawText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
-            .Select(l => l.Trim())
-            .Where(l => l.Length > 8 && !l.StartsWith("--- Page"))
-            .ToList();
-
-        var definitions = new List<(string Term, string Definition, string FullSentence)>();
-        var isPattern = new Regex(@"^(?:The\s+)?([A-Z][a-zA-Z0-9\s-]{2,40})\s+(?:is|are|refers to|represents|means)\s+(.+)$", RegexOptions.IgnoreCase);
-        var colonPattern = new Regex(@"^([A-Z][a-zA-Z0-9\s-]{2,40}):\s*(.+)$");
-
-        foreach (var line in cleanLines)
-        {
-            var defMatch = isPattern.Match(line);
-            if (defMatch.Success)
-            {
-                var term = defMatch.Groups[1].Value.Trim();
-                var def = defMatch.Groups[2].Value.Trim();
-                if (term.Split(' ').Length <= 5 && def.Length > 12)
-                {
-                    definitions.Add((term, def, line));
-                    continue;
-                }
-            }
-
-            var colMatch = colonPattern.Match(line);
-            if (colMatch.Success)
-            {
-                var term = colMatch.Groups[1].Value.Trim();
-                var def = colMatch.Groups[2].Value.Trim();
-                if (term.Split(' ').Length <= 5 && def.Length > 12)
-                {
-                    definitions.Add((term, def, line));
-                }
-            }
-        }
-
-        var bulletPoints = cleanLines
-            .Where(l => l.Length > 25 && l.Length < 180)
-            .Take(5)
-            .Select(l => l.TrimStart('-', '*', '•', '1', '2', '3', '4', '5', '.', ' '))
-            .ToList();
-
-        if (bulletPoints.Count == 0)
-        {
-            bulletPoints.Add($"Key concepts synthesized directly from {title}.");
-            bulletPoints.Add("Active recall practice generated for student exam readiness.");
-        }
-
-        var questions = new List<GeneratedQuestionDto>();
-        int count = Math.Max(targetCount, 4);
-
-        foreach (var def in definitions.Take(count / 2 + 1))
-        {
-            var distractors = definitions
-                .Where(d => d.Term != def.Term)
-                .Select(d => d.Definition)
-                .Take(3)
-                .ToList();
-
-            while (distractors.Count < 3)
-            {
-                distractors.Add($"An ancillary property not matching the definition of {def.Term}.");
-                distractors.Add($"A contrasting condition found in alternative theoretical frameworks.");
-                distractors.Add($"A historical assumption superseded by modern analysis.");
-            }
-
-            var options = new List<GeneratedOptionDto>
-            {
-                new GeneratedOptionDto(def.Definition, true, null),
-                new GeneratedOptionDto(distractors[0], false, $"This refers to a separate concept, not {def.Term}."),
-                new GeneratedOptionDto(distractors[1], false, $"This is an alternative condition, not the definition of {def.Term}."),
-                new GeneratedOptionDto(distractors[2], false, $"Contrasting framework not applicable to {def.Term}.")
-            };
-
-            var rand = new Random(def.Term.GetHashCode());
-            options = options.OrderBy(_ => rand.Next()).ToList();
-
-            questions.Add(new GeneratedQuestionDto(
-                "multiple_choice",
-                $"According to the study material, which of the following best defines \"{def.Term}\"?",
-                new List<string> { $"Search for context around \"{def.Term}\" in your notes.", "Pay close attention to key definitions." },
-                def.Definition,
-                options,
-                null, null, false,
-                $"Document context: {def.FullSentence}",
-                null,
-                $"Source passage: {def.FullSentence}"
-            ));
-
-            questions.Add(new GeneratedQuestionDto(
-                "identification",
-                $"What academic term is defined as: \"{def.Definition}\"?",
-                new List<string> { $"Starts with letter '{def.Term[0]}'", $"Length is {def.Term.Length} characters" },
-                def.Term,
-                new List<GeneratedOptionDto> { new GeneratedOptionDto(def.Term, true, null) },
-                new List<string> { def.Term.ToLowerInvariant() },
-                null, false,
-                $"The term \"{def.Term}\" explicitly matches this definition.",
-                null,
-                $"Source passage: {def.FullSentence}"
-            ));
-        }
-
-        while (questions.Count < count)
-        {
-            int idx = questions.Count + 1;
-            questions.Add(new GeneratedQuestionDto(
-                "multiple_choice",
-                $"In {title}, which statement best demonstrates understanding of core concept #{idx}?",
-                new List<string> { "Focus on foundational rules and definitions." },
-                $"Applying primary verified principles of {title}.",
-                new List<GeneratedOptionDto>
-                {
-                    new GeneratedOptionDto($"Applying primary verified principles of {title}.", true, null),
-                    new GeneratedOptionDto("Arbitrary memorization of disconnected rules.", false, "Memorization without understanding is discouraged."),
-                    new GeneratedOptionDto("Disregarding theoretical boundary conditions.", false, "Boundary conditions are essential for valid analysis."),
-                    new GeneratedOptionDto("Overlooking underlying formulas and derivations.", false, "Derivations provide foundational context.")
-                },
-                null, null, false,
-                $"Academic mastery relies on understanding foundational theoretical structures in {title}.",
-                null
-            ));
-        }
-
-        return new GeneratedStudySetResult(
-            Guid.NewGuid(),
-            title,
-            $"Academic study set generated from source material in {title}.",
-            bulletPoints,
-            questions.Take(count).ToList()
-        );
+        return NoteScriptSynthesizer.SynthesizeFromNotes(title, rawText, null, targetCount);
     }
 
     private class AiResponsePayload
     {
+        public string? ExtractedText { get; set; }
         public string? Summary { get; set; }
         public List<string>? HighYieldBulletPoints { get; set; }
         public List<GeneratedQuestionDto>? Questions { get; set; }

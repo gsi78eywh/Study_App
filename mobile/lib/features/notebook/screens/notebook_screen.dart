@@ -64,7 +64,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
             id: item["id"]?.toString() ?? UniqueKey().toString(),
             courseCode: item["courseCode"]?.toString() ?? "GENERAL",
             title: item["title"]?.toString() ?? "Untitled Note",
-            content: item["content"]?.toString() ?? "",
+            content: (item["contentMarkdown"] ?? item["content"])?.toString() ?? "",
             tags: item["tags"]?.toString() ?? "#Notes",
             updatedAt:
                 DateTime.tryParse(item["updatedAt"]?.toString() ?? "") ??
@@ -200,9 +200,21 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 if (title.isEmpty || content.isEmpty) return;
 
                 try {
-                  final course = widget.courses.firstWhere(
-                    (item) => item.code == selectedCourse,
+                  final course = widget.courses.cast<CourseModel?>().firstWhere(
+                    (item) => item?.code == selectedCourse,
+                    orElse: () => widget.courses.isNotEmpty ? widget.courses.first : null,
                   );
+                  if (course == null) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Please create a course before creating notes."),
+                          backgroundColor: AppColors.warning,
+                        ),
+                      );
+                    }
+                    return;
+                  }
                   final response = await widget.apiClient.dio.post(
                     "/api/v1/notebooks",
                     data: {

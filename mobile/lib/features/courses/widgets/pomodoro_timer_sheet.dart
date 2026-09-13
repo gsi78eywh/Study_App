@@ -1,17 +1,31 @@
-﻿import "dart:async";
+import "dart:async";
 import "package:flutter/material.dart";
 import "package:google_fonts/google_fonts.dart";
 import "../../../core/theme/app_theme.dart";
 
 class PomodoroTimerSheet extends StatefulWidget {
-  const PomodoroTimerSheet({super.key});
+  final int focusMinutes;
+  final int shortBreakMinutes;
 
-  static void show(BuildContext context) {
+  const PomodoroTimerSheet({
+    super.key,
+    this.focusMinutes = 25,
+    this.shortBreakMinutes = 5,
+  });
+
+  static void show(
+    BuildContext context, {
+    int focusMinutes = 25,
+    int shortBreakMinutes = 5,
+  }) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => const PomodoroTimerSheet(),
+      builder: (_) => PomodoroTimerSheet(
+        focusMinutes: focusMinutes,
+        shortBreakMinutes: shortBreakMinutes,
+      ),
     );
   }
 
@@ -20,10 +34,10 @@ class PomodoroTimerSheet extends StatefulWidget {
 }
 
 class _PomodoroTimerSheetState extends State<PomodoroTimerSheet> {
-  static const int focusDuration = 25 * 60;
-  static const int breakDuration = 5 * 60;
+  int get focusDuration => widget.focusMinutes * 60;
+  int get breakDuration => widget.shortBreakMinutes * 60;
 
-  int _selectedModeIndex = 0; // 0: Focus (25m), 1: Short Break (5m)
+  int _selectedModeIndex = 0; // 0: Focus, 1: Short Break
   late int _remainingSeconds;
   bool _isRunning = false;
   Timer? _timer;
@@ -167,7 +181,7 @@ class _PomodoroTimerSheetState extends State<PomodoroTimerSheet> {
                         ),
                         child: Center(
                           child: Text(
-                            "🧠 Focus (25m)",
+                            "🧠 Focus (${widget.focusMinutes}m)",
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 13,
@@ -191,7 +205,7 @@ class _PomodoroTimerSheetState extends State<PomodoroTimerSheet> {
                         ),
                         child: Center(
                           child: Text(
-                            "☕ Break (5m)",
+                            "☕ Break (${widget.shortBreakMinutes}m)",
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 13,

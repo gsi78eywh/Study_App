@@ -1,4 +1,4 @@
-﻿import "package:dio/dio.dart";
+import "package:dio/dio.dart";
 import "../constants/api_constants.dart";
 import "../services/session_service.dart";
 
@@ -37,7 +37,7 @@ class ApiClient {
         onError: (DioException e, handler) {
           String errorMessage = "A network error occurred.";
           if (e.response?.statusCode == 401) {
-            errorMessage = "Session expired. Tap the logout icon in the top right to sign in fresh.";
+            errorMessage = "Session expired (401 Unauthorized). Please sign in again.";
           } else if (e.response?.data is Map && (e.response?.data as Map).containsKey("message")) {
             errorMessage = e.response?.data["message"];
           } else if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout) {

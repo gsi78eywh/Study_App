@@ -1,4 +1,4 @@
-﻿namespace StudyApp.Application.DTOs.Ingestion;
+namespace StudyApp.Application.DTOs.Ingestion;
 
 public record GenerateFromTextRequest(
     Guid CourseId,
@@ -37,5 +37,6 @@ public record GeneratedStudySetResult(
     string Title,
     string Summary,
     List<string> HighYieldBulletPoints,
-    List<GeneratedQuestionDto> Questions
+    List<GeneratedQuestionDto> Questions,
+    string? ExtractedText = null
 );

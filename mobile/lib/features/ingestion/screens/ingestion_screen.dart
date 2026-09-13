@@ -1,4 +1,4 @@
-﻿import "dart:async";
+import "dart:async";
 import "package:flutter/material.dart";
 import "package:dio/dio.dart";
 import "package:file_picker/file_picker.dart";
@@ -43,10 +43,10 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   final Set<String> _selectedModes = {"Multiple Choice", "Identification", "Enumeration"};
 
   final List<String> _loadingSteps = [
-    "Reading notes & analyzing multimodal handwriting/diagrams...",
-    "Extracting core concepts & generating active-recall prompts...",
-    "Structuring flashcards, identification drills & enumeration...",
-    "Finalizing high-yield study set and caching locally...",
+    "Reading notes & extracting handwriting/document text...",
+    "Parsing questions, answers & active-recall prompts...",
+    "Structuring multiple-choice drills (A, B, C, D) & flashcards...",
+    "Finalizing high-yield study set and saving locally...",
   ];
 
   @override
@@ -277,7 +277,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
     return Scaffold(
       appBar: AppBar(
-        title: Text("AI Study Synthesizer Studio", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: context.textPrimary)),
+        title: Text("Study Notes Extractor & Studio", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: context.textPrimary)),
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: isDark ? AppColors.primaryLight : AppColors.primaryDark,
@@ -300,7 +300,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Gemini multimodal banner
+                  // Direct extraction banner
                   Container(
                     margin: const EdgeInsets.only(bottom: 16),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -325,7 +325,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                             ),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
+                          child: const Icon(Icons.menu_book_rounded, color: Colors.white, size: 20),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -333,7 +333,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                "Multimodal Vision & Gemini Engine",
+                                "Direct Note & Document Extractor",
                                 style: GoogleFonts.outfit(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 14,
@@ -341,7 +341,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                 ),
                               ),
                               Text(
-                                "Reads raw handwriting, whiteboard photos, diagrams, and lengthy PDFs directly without OCR setup.",
+                                "Directly extracts questions, answers, and concepts from notes, handwritten whiteboard photos, and documents without AI hallucinations.",
                                 style: GoogleFonts.inter(
                                   fontSize: 12,
                                   color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF4338CA),
@@ -570,7 +570,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: const Text(
-                                      "📸 Whiteboard / Diagram detected - Direct Gemini Vision Ingestion",
+                                      "📸 Whiteboard / Diagram detected - Direct Note Text Extraction",
                                       style: TextStyle(color: Color(0xFF818CF8), fontSize: 11, fontWeight: FontWeight.bold),
                                     ),
                                   )
@@ -736,11 +736,11 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                             height: 20,
                             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                           )
-                        : const Icon(Icons.auto_awesome),
+                        : const Icon(Icons.menu_book_rounded),
                     label: Text(
                       _isLoading
-                          ? "Synthesizing with Gemini..."
-                          : (_fastMode ? "⚡ Generate Instantly (<100ms)" : "Generate AI Study Set (Gemini)"),
+                          ? "Extracting & Synthesizing Study Set..."
+                          : (_fastMode ? "⚡ Instant Extraction (<100ms)" : "Generate Study Set from Notes"),
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                     ),
                     onPressed: _isLoading ? null : _handleGenerate,

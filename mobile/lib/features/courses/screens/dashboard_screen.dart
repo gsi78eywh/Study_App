@@ -1,4 +1,6 @@
+import "package:dio/dio.dart";
 import "package:flutter/material.dart";
+import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
 
 import "../../../core/network/api_client.dart";
@@ -15,6 +17,8 @@ import "../../quiz/screens/quiz_player_screen.dart";
 import "../../quiz/screens/rapid_fire_screen.dart";
 import "../../sync/services/sync_service.dart";
 import "../../ai_tutor/screens/ai_tutor_screen.dart";
+import "../../settings/services/settings_service.dart";
+import "../../settings/screens/settings_screen.dart";
 import "../../../core/constants/api_constants.dart";
 import "../widgets/pomodoro_timer_sheet.dart";
 
@@ -34,6 +38,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   late final SyncService _syncService;
+  late final SettingsService _settingsService;
   int _currentTabIndex = 0;
   List<CourseModel> _courses = [];
   bool _isSyncing = false;
@@ -110,6 +115,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _settingsService = SettingsService(
+      widget.sessionService.prefs,
+      widget.apiClient,
+    );
+    _settingsService.fetchRemoteSettings();
     _syncService = SyncService(
       apiClient: widget.apiClient,
       sessionService: widget.sessionService,
@@ -127,19 +137,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     setState(() => _isSyncing = true);
-    final result = await _syncService.performSync(fullFetch: fullFetch);
+    final result = await _syncService.performSync(
+      fullFetch: fullFetch,
+      currentCourses: _courses,
+    );
     if (!mounted) return;
 
     setState(() {
       _isSyncing = false;
       _isLoadingCourses = false;
-      if (result.success && result.syncedCourses.isNotEmpty) {
+      if (result.success && (result.syncedCourses.isNotEmpty || fullFetch)) {
         _courses = result.syncedCourses;
       }
     });
 
-    if (result.message.contains("401") ||
-        result.message.toLowerCase().contains("unauthorized")) {
+    if (result.isUnauthorized ||
+        result.message.contains("401") ||
+        result.message.toLowerCase().contains("unauthorized") ||
+        result.message.toLowerCase().contains("session expired")) {
       await widget.sessionService.clearAuth();
       if (mounted) {
         Navigator.of(context).pushReplacement(
@@ -254,10 +269,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
               onPressed: () async {
                 final code = codeController.text.trim();
                 final name = nameController.text.trim();
-                if (code.isEmpty || name.isEmpty) return;
+                if (code.isEmpty || name.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("Course code and name are required."),
+                      backgroundColor: AppColors.danger,
+                    ),
+                  );
+                  return;
+                }
 
                 try {
-                  await widget.apiClient.dio.post(
+                  final response = await widget.apiClient.dio.post(
                     "/api/v1/courses",
                     data: {
                       "code": code,
@@ -268,17 +291,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   if (!mounted) return;
                   if (!ctx.mounted) return;
                   Navigator.pop(ctx);
-                  await _fetchCoursesAndSync(fullFetch: true);
-                } catch (_) {
-                  if (!mounted) return;
+
+                  if (response.data is Map<String, dynamic>) {
+                    final newCourse = CourseModel.fromJson(response.data);
+                    setState(() {
+                      _courses = [..._courses, newCourse];
+                    });
+                  }
+
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        "Unable to create the course. Please try again.",
-                      ),
+                    SnackBar(
+                      content: Text("Course '$code' created successfully!"),
+                      backgroundColor: AppColors.accent,
+                    ),
+                  );
+
+                  await _fetchCoursesAndSync(fullFetch: true);
+                } catch (e) {
+                  if (!mounted) return;
+                  String msg = "Unable to create the course. Please try again.";
+                  bool isUnauthorized = false;
+
+                  if (e is DioException) {
+                    if (e.response?.statusCode == 401) {
+                      isUnauthorized = true;
+                      msg = "Session expired. Please sign in again.";
+                    } else if (e.response?.data is Map &&
+                        (e.response?.data as Map)["message"] != null) {
+                      msg = (e.response!.data as Map)["message"].toString();
+                    } else if (e.error != null && e.error.toString().isNotEmpty) {
+                      msg = e.error.toString();
+                    }
+                  }
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(msg),
                       backgroundColor: AppColors.danger,
                     ),
                   );
+
+                  if (isUnauthorized) {
+                    await widget.sessionService.clearAuth();
+                    if (mounted) {
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      Navigator.of(context).pushReplacement(
+                        MaterialPageRoute(
+                          builder: (_) => LoginScreen(
+                            apiClient: widget.apiClient,
+                            sessionService: widget.sessionService,
+                          ),
+                        ),
+                      );
+                    }
+                  }
                 }
               },
               child: const Text("Create"),
@@ -332,12 +398,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 16),
             _modeTile(
               ctx,
+              "🎯 Simulated Exam (All Question Types)",
+              "Full comprehensive exam: MCQ, Fill-in-the-Blank, True/False, Matching & more",
+              const Color(0xFF6366F1),
+              () {
+                Navigator.pop(ctx);
+                _startQuiz(set, mode: StudyModeValue.simulatedExam);
+              },
+            ),
+            const SizedBox(height: 8),
+            _modeTile(
+              ctx,
               "📚 Multiple Choice Practice",
               "Server-graded multiple-choice questions",
               isDark ? AppColors.primary : AppColors.primaryDark,
               () {
                 Navigator.pop(ctx);
-                _startQuiz(set);
+                _startQuiz(set, mode: StudyModeValue.multipleChoice);
               },
             ),
             const SizedBox(height: 8),
@@ -363,11 +440,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _modeTile(
               ctx,
               "⚡ Rapid-Fire Blitz",
-              "10 seconds per question — race the clock!",
+              "${_settingsService.settings.blitzSecondsPerQuestion} seconds per question — race the clock!",
               AppColors.warning,
               () {
                 Navigator.pop(ctx);
                 _startRapidFire(set);
+              },
+            ),
+            const SizedBox(height: 8),
+            _modeTile(
+              ctx,
+              "📥 Export Study Guide",
+              "View or copy formatted study guide with summary and OCR text",
+              const Color(0xFF10B981),
+              () {
+                Navigator.pop(ctx);
+                _exportStudyGuide(set);
               },
             ),
             const SizedBox(height: 16),
@@ -445,7 +533,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final resp = await widget.apiClient.dio.get(
         "/api/v1/practice/studysets/${set.id}/questions",
-        queryParameters: {"mode": StudyModeValue.rapidFireBlitz, "count": 15},
+        queryParameters: {
+          "mode": StudyModeValue.rapidFireBlitz,
+          "count": _settingsService.settings.defaultQuestionCount,
+        },
       );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -472,6 +563,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               questions: questions,
               apiClient: widget.apiClient,
               sessionService: widget.sessionService,
+              secondsPerQuestion:
+                  _settingsService.settings.blitzSecondsPerQuestion,
             ),
           ),
         );
@@ -489,7 +582,108 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _startQuiz(StudySetModel set) async {
+  Future<void> _exportStudyGuide(StudySetModel set) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text("Generating exported study guide..."),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final response = await widget.apiClient.dio.get(
+        "/api/v1/studysets/${set.id}/export",
+        queryParameters: {"format": "markdown"},
+      );
+      if (mounted) Navigator.of(context).pop();
+      final markdownContent = response.data?.toString() ?? "";
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: ctx.surfaceColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.description_outlined, color: AppColors.accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  "Exported Study Guide",
+                  style: GoogleFonts.outfit(
+                    fontWeight: FontWeight.bold,
+                    color: ctx.textPrimary,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: SelectableText(
+                markdownContent,
+                style: TextStyle(
+                  color: ctx.textPrimary,
+                  fontFamily: "monospace",
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton.icon(
+              icon: const Icon(Icons.copy_rounded, size: 16),
+              label: const Text("Copy Markdown"),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: markdownContent));
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(
+                    content: Text("Exported study guide copied to clipboard!"),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Done"),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Failed to export study guide: $e"),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _startQuiz(StudySetModel set, {int? mode, int? count}) async {
+    final effectiveMode = mode ?? _settingsService.settings.preferredStudyMode;
+    final effectiveCount = count ?? _settingsService.settings.defaultQuestionCount;
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -514,7 +708,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final response = await widget.apiClient.dio.get(
         "/api/v1/practice/studysets/${set.id}/questions",
-        queryParameters: {"mode": StudyModeValue.multipleChoice, "count": 30},
+        queryParameters: {"mode": effectiveMode, "count": effectiveCount},
       );
       if (response.statusCode == 200 && response.data is List) {
         final List list = response.data;
@@ -548,6 +742,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             questions: questions,
             apiClient: widget.apiClient,
             sessionService: widget.sessionService,
+            initialMode: effectiveMode,
+            instantFeedback: _settingsService.settings.instantFeedback,
+            shuffleOptions: _settingsService.settings.shuffleOptions,
           ),
         ),
       );
@@ -585,7 +782,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   "/api/v1/studysets/${set.id}",
                 );
                 setState(() {
-                  course.studySets.removeWhere((s) => s.id == set.id);
+                  final newSets = List<StudySetModel>.from(course.studySets)
+                    ..removeWhere((s) => s.id == set.id);
+                  final idx = _courses.indexWhere((c) => c.id == course.id);
+                  if (idx >= 0) {
+                    _courses[idx] = CourseModel(
+                      id: course.id,
+                      code: course.code,
+                      name: course.name,
+                      colorHex: course.colorHex,
+                      createdAt: course.createdAt,
+                      updatedAt: DateTime.now(),
+                      studySets: newSets,
+                    );
+                  }
                 });
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -737,6 +947,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             : () => _fetchCoursesAndSync(showSnackBar: true),
                       ),
                       IconButton(
+                        icon: const Icon(
+                          Icons.settings_outlined,
+                          color: Color(0xFF6366F1),
+                        ),
+                        tooltip: "Study Configurations",
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => SettingsScreen(
+                                apiClient: widget.apiClient,
+                                sessionService: widget.sessionService,
+                                settingsService: _settingsService,
+                                onLogout: _handleLogout,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      IconButton(
                         icon: Icon(
                           Icons.logout_rounded,
                           color: context.textSecondary,
@@ -810,7 +1039,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       color: context.cardBorderColor,
                     ),
                     InkWell(
-                      onTap: () => PomodoroTimerSheet.show(context),
+                      onTap: () => PomodoroTimerSheet.show(
+                        context,
+                        focusMinutes:
+                            _settingsService.settings.pomodoroFocusMinutes,
+                        shortBreakMinutes:
+                            _settingsService.settings.pomodoroShortBreakMinutes,
+                      ),
                       borderRadius: BorderRadius.circular(8),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
@@ -1334,6 +1569,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.download_rounded,
+                                          size: 18,
+                                          color: Color(0xFF10B981),
+                                        ),
+                                        tooltip: "Export Study Guide",
+                                        onPressed: () => _exportStudyGuide(set),
+                                      ),
                                       IconButton(
                                         icon: const Icon(
                                           Icons.delete_outline_rounded,

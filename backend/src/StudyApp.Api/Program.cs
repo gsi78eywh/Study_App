@@ -1,4 +1,4 @@
-﻿using System.Threading.RateLimiting;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Diagnostics;
 using System.Security.Claims;
@@ -165,9 +165,23 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0,
             AutoReplenishment = true
         }));
+
+    options.AddPolicy("ingestion", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        httpContext.User?.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 5,
+            AutoReplenishment = true
+        }));
 });
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+    });
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
@@ -177,6 +191,33 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     db.Database.EnsureCreated();
+    if (db.Database.IsSqlite())
+    {
+        db.Database.ExecuteSqlRaw("""
+            CREATE TABLE IF NOT EXISTS "UserSettings" (
+                "Id" TEXT NOT NULL PRIMARY KEY,
+                "UserId" TEXT NOT NULL,
+                "DefaultQuestionCount" INTEGER NOT NULL,
+                "PreferredStudyMode" INTEGER NOT NULL,
+                "InstantFeedback" INTEGER NOT NULL,
+                "ShuffleOptions" INTEGER NOT NULL,
+                "DailyStudyGoalMinutes" INTEGER NOT NULL,
+                "DailyQuestionTarget" INTEGER NOT NULL,
+                "BlitzSecondsPerQuestion" INTEGER NOT NULL,
+                "PomodoroFocusMinutes" INTEGER NOT NULL,
+                "PomodoroShortBreakMinutes" INTEGER NOT NULL,
+                "PomodoroLongBreakMinutes" INTEGER NOT NULL,
+                "DefaultAiDifficulty" INTEGER NOT NULL,
+                "PreferredQuestionTypes" TEXT NOT NULL,
+                "SoundEffectsEnabled" INTEGER NOT NULL,
+                "HapticFeedbackEnabled" INTEGER NOT NULL,
+                "ThemePreference" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL,
+                CONSTRAINT "FK_UserSettings_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_UserSettings_UserId" ON "UserSettings" ("UserId");
+        """);
+    }
     Console.WriteLine("[Database] Database schema verified and ready for student records.");
 }
 
@@ -414,164 +455,6 @@ app.MapGet("/", () => Results.Content("""
 </html>
 """, "text/html"));
 
-// Starter Demo Pack Endpoint (1-click active workspace for students)
-app.MapPost("/api/v1/courses/demo-pack", async (ApplicationDbContext db, ClaimsPrincipal user) =>
-{
-    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-    if (!Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
-
-    var existing = await db.Courses.AnyAsync(c => c.UserId == userId);
-    if (existing)
-    {
-        return Results.Ok(new { message = "Workspace already initialized." });
-    }
-
-    var bioCourse = new Course
-    {
-        Id = Guid.NewGuid(),
-        UserId = userId,
-        Code = "BIO-101",
-        Name = "General Cellular Biology & Genetics",
-        ColorHex = "#10B981",
-        CreatedAt = DateTime.UtcNow,
-        UpdatedAt = DateTime.UtcNow
-    };
-
-    var bioSet = new StudySet
-    {
-        Id = Guid.NewGuid(),
-        CourseId = bioCourse.Id,
-        Title = "Photosynthesis & Cellular Respiration",
-        Description = "Exam mastery deck covering light reactions, the Calvin cycle, and mitochondrial ATP synthesis.",
-        CreatedAt = DateTime.UtcNow,
-        UpdatedAt = DateTime.UtcNow
-    };
-
-    var q1 = new Question
-    {
-        Id = Guid.NewGuid(),
-        StudySetId = bioSet.Id,
-        Type = QuestionType.MultipleChoice,
-        Prompt = "During the light-dependent reactions of photosynthesis, what is the primary role of water photolysis?",
-        HintsJson = "[\"Consider what resupplies lost electrons to the photosystem.\",\"Oxygen is released as a byproduct.\"]",
-        Explanation = "Photolysis splits water into protons, electrons, and O2 to resupply photo-excited chlorophyll.",
-        Difficulty = 2,
-        SortOrder = 1
-    };
-    q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Replenish electrons in photo-excited chlorophyll", IsCorrect = true });
-    q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Provide carbon atoms for glucose synthesis", IsCorrect = false, DistractorRationale = "Carbon is supplied by carbon dioxide in the Calvin cycle." });
-    q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Directly phosphorylate ADP without a proton gradient", IsCorrect = false, DistractorRationale = "ATP is generated via ATP synthase and the proton gradient." });
-    q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Cleave RuBisCO enzyme complexes", IsCorrect = false, DistractorRationale = "RuBisCO operates in the stroma and is not cleaved by water." });
-    bioSet.Questions.Add(q1);
-
-    var q2 = new Question
-    {
-        Id = Guid.NewGuid(),
-        StudySetId = bioSet.Id,
-        Type = QuestionType.Identification,
-        Prompt = "What specialized enzyme in the chloroplast stroma catalyzes the initial fixation of carbon dioxide to ribulose 1,5-bisphosphate (RuBP)?",
-        HintsJson = "[\"Abbreviated with 7 letters (RuB...)\",\"Most abundant enzyme on Earth.\"]",
-        Explanation = "RuBisCO (Ribulose-1,5-bisphosphate carboxylase-oxygenase) catalyzes the crucial initial carbon-fixing step.",
-        Difficulty = 2,
-        SortOrder = 2
-    };
-    q2.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q2.Id, OptionText = "RuBisCO", IsCorrect = true });
-    bioSet.Questions.Add(q2);
-
-    bioCourse.StudySets.Add(bioSet);
-    db.Courses.Add(bioCourse);
-
-    var sampleNote = new NotebookPage
-    {
-        Id = Guid.NewGuid(),
-        CourseId = bioCourse.Id,
-        Title = "Photosynthesis: Light vs Dark Reactions Summary",
-        ContentMarkdown = "# Photosynthesis Core Principles\n\n- **Light Reactions:** Thylakoid membrane. Uses H2O + photons -> ATP + NADPH + O2.\n- **Calvin Cycle:** Stroma. Uses CO2 + ATP + NADPH -> G3P (Glucose precursor).\n- **Key Rate Limiter:** RuBisCO temperature and CO2/O2 concentration ratio.",
-        CreatedAt = DateTime.UtcNow,
-        UpdatedAt = DateTime.UtcNow
-    };
-    db.NotebookPages.Add(sampleNote);
-
-    await db.SaveChangesAsync();
-    return Results.Ok(new { success = true, courseId = bioCourse.Id, message = "Starter Demo Pack loaded successfully!" });
-}).RequireAuthorization();
-
-// Student Notebooks API
-app.MapGet("/api/v1/notebooks", async (Guid? courseId, ApplicationDbContext db, ClaimsPrincipal user) =>
-{
-    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-    if (!Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
-
-    var query = db.NotebookPages.Where(note => note.Course != null && note.Course.UserId == userId);
-    if (courseId.HasValue && courseId.Value != Guid.Empty)
-    {
-        query = query.Where(n => n.CourseId == courseId.Value);
-    }
-    var notes = await query.OrderByDescending(n => n.CreatedAt).ToListAsync();
-    return Results.Ok(notes);
-}).RequireAuthorization();
-
-app.MapPost("/api/v1/notebooks", async (NotebookPage note, ApplicationDbContext db, ClaimsPrincipal user) =>
-{
-    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-    if (!Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
-    if (note.CourseId == Guid.Empty || string.IsNullOrWhiteSpace(note.Title) || string.IsNullOrWhiteSpace(note.ContentMarkdown))
-    {
-        return Results.BadRequest(new { message = "Course, title, and note content are required." });
-    }
-    var ownsCourse = await db.Courses.AnyAsync(course => course.Id == note.CourseId && course.UserId == userId);
-    if (!ownsCourse) return Results.NotFound(new { message = "Course not found." });
-
-    note.Id = Guid.NewGuid();
-    note.CreatedAt = DateTime.UtcNow;
-    note.UpdatedAt = note.CreatedAt;
-    db.NotebookPages.Add(note);
-    await db.SaveChangesAsync();
-    return Results.Ok(note);
-}).RequireAuthorization();
-
-app.MapPut("/api/v1/notebooks/{id:guid}", async (Guid id, NotebookPage update, ApplicationDbContext db, ClaimsPrincipal user) =>
-{
-    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-    if (!Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
-    if (string.IsNullOrWhiteSpace(update.Title) || string.IsNullOrWhiteSpace(update.ContentMarkdown))
-    {
-        return Results.BadRequest(new { message = "Note title and content are required." });
-    }
-
-    var note = await db.NotebookPages
-        .Include(page => page.Course)
-        .SingleOrDefaultAsync(page => page.Id == id && page.Course != null && page.Course.UserId == userId);
-    if (note is null) return Results.NotFound(new { message = "Note not found." });
-
-    note.Title = update.Title.Trim();
-    note.ContentMarkdown = update.ContentMarkdown;
-    note.UpdatedAt = DateTime.UtcNow;
-    await db.SaveChangesAsync();
-    return Results.Ok(note);
-}).RequireAuthorization();
-
-app.MapDelete("/api/v1/notebooks/{id:guid}", async (Guid id, ApplicationDbContext db, ClaimsPrincipal user) =>
-{
-    var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-    if (!Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
-
-    var note = await db.NotebookPages
-        .Include(page => page.Course)
-        .SingleOrDefaultAsync(page => page.Id == id && page.Course != null && page.Course.UserId == userId);
-    if (note is null) return Results.NotFound(new { message = "Note not found." });
-
-    db.NotebookPages.Remove(note);
-    await db.SaveChangesAsync();
-    return Results.NoContent();
-}).RequireAuthorization();
-
 app.MapControllers();
-
-Console.WriteLine("=================================================");
-Console.WriteLine("  StudyApp Backend API is running!");
-Console.WriteLine("  Listening on: http://localhost:5000");
-Console.WriteLine("  Ready for student authentication & sync.");
-Console.WriteLine("=================================================");
 
 app.Run();

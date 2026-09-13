@@ -1,4 +1,4 @@
-﻿import "package:flutter/material.dart";
+import "package:flutter/material.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 class SessionService {
@@ -19,6 +19,7 @@ class SessionService {
     return SessionService(prefs);
   }
 
+  SharedPreferences get prefs => _prefs;
   String? get token => _prefs.getString(_keyToken);
   String? get userId => _prefs.getString(_keyUserId);
   String? get email => _prefs.getString(_keyEmail);
@@ -32,11 +33,17 @@ class SessionService {
   ThemeMode get themeMode {
     final mode = _prefs.getString(_keyThemeMode);
     if (mode == "light") return ThemeMode.light;
+    if (mode == "system") return ThemeMode.system;
     return ThemeMode.dark;
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {
-    await _prefs.setString(_keyThemeMode, mode == ThemeMode.light ? "light" : "dark");
+    final val = mode == ThemeMode.light
+        ? "light"
+        : mode == ThemeMode.system
+            ? "system"
+            : "dark";
+    await _prefs.setString(_keyThemeMode, val);
   }
 
   bool get isAuthenticated => token != null && token!.isNotEmpty;
@@ -67,6 +74,7 @@ class SessionService {
     await _prefs.remove(_keyUserId);
     await _prefs.remove(_keyEmail);
     await _prefs.remove(_keyFullName);
+    await _prefs.remove(_keyLastSync);
   }
 
   Future<void> clearAuth() => clear();

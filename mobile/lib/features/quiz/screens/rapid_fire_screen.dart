@@ -92,9 +92,11 @@ class _RapidFireScreenState extends State<RapidFireScreen>
   }
 
   void _onTimeout() {
+    if (_hasAnswered) return;
     final question = widget.questions[_currentIndex];
     setState(() {
       _hasAnswered = true;
+      _answers.removeWhere((a) => a.questionId == question.id);
       _answers.add(
         PracticeAnswerSubmission(questionId: question.id, answer: ''),
       );
@@ -124,6 +126,7 @@ class _RapidFireScreenState extends State<RapidFireScreen>
         answer = q.type == QuestionTypeEnum.matching ? jsonEncode({}) : ans;
     }
 
+    _answers.removeWhere((a) => a.questionId == q.id);
     _answers.add(PracticeAnswerSubmission(questionId: q.id, answer: answer!));
     _pulseController.forward(from: 0);
 
@@ -416,8 +419,17 @@ class _RapidFireScreenState extends State<RapidFireScreen>
     switch (q.type) {
       case QuestionTypeEnum.multipleChoice:
       case QuestionTypeEnum.scenario:
+        final seenOptionTexts = <String>{};
+        final distinctOptions = q.options.where((opt) {
+          final trimmed = opt.optionText.trim().toLowerCase();
+          return trimmed.isNotEmpty && seenOptionTexts.add(trimmed);
+        }).toList();
+
         return Column(
-          children: q.options.map((opt) {
+          children: distinctOptions.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final opt = entry.value;
+            final letter = String.fromCharCode(65 + idx);
             final isSelected = _selectedOptionId == opt.id;
             return Container(
               margin: const EdgeInsets.only(bottom: 8),
@@ -440,9 +452,46 @@ class _RapidFireScreenState extends State<RapidFireScreen>
                       width: isSelected ? 2 : 1,
                     ),
                   ),
-                  child: Text(
-                    opt.optionText,
-                    style: TextStyle(color: context.textPrimary, fontSize: 14),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 26,
+                        height: 26,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? AppColors.primary.withValues(alpha: 0.25)
+                              : context.secondaryBg,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: isSelected
+                                ? AppColors.primaryLight
+                                : context.cardBorderColor,
+                          ),
+                        ),
+                        child: Text(
+                          letter,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            color: isSelected
+                                ? AppColors.primaryLight
+                                : context.textPrimary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          opt.optionText,
+                          style: TextStyle(
+                            color: context.textPrimary,
+                            fontSize: 14,
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

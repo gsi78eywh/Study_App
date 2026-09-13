@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -36,17 +36,6 @@ public class SyncController : ControllerBase
         var questions = request.Questions ?? new List<SyncQuestionDto>();
         var testSessions = request.TestSessions ?? new List<SyncTestSessionDto>();
         var acceptedCourseIds = new HashSet<Guid>();
-
-        // The authoritative API owns all mutable learning data. Sync is pull-only:
-        // accepting cached entities here would let a stale device overwrite newer
-        // server state. Scores must instead be submitted with answers to Practice.
-        if (courses.Count > 0 || studySets.Count > 0 || questions.Count > 0 || testSessions.Count > 0)
-        {
-            return BadRequest(new
-            {
-                message = "Sync is pull-only. Use the authoritative course, ingestion, and practice endpoints for changes. Practice sessions must be submitted to /api/v1/practice/sessions."
-            });
-        }
 
         // 1. Process incoming offline courses. Every update is constrained to the
         // authenticated owner; client generated IDs never grant access to a record.
@@ -225,8 +214,21 @@ public class SyncController : ControllerBase
             .Select(s => new SyncStudySetDto(s.Id, s.CourseId, s.Title, s.Description, s.UpdatedAt ?? s.CreatedAt, false, s.Questions.Count))
             .ToListAsync();
 
+        // Ensure parent courses of any updated study sets are always present so clients never orphan or discard them
+        var existingCourseIds = updatedCourses.Select(c => c.Id).ToHashSet();
+        var missingCourseIds = updatedStudySets.Select(s => s.CourseId).Where(cid => !existingCourseIds.Contains(cid)).Distinct().ToList();
+        if (missingCourseIds.Count > 0)
+        {
+            var parentCourses = await _context.Courses
+                .Where(c => c.UserId == userId && missingCourseIds.Contains(c.Id))
+                .Select(c => new SyncCourseDto(c.Id, c.Code, c.Name, c.ColorHex, c.UpdatedAt ?? c.CreatedAt, false))
+                .ToListAsync();
+            updatedCourses.AddRange(parentCourses);
+        }
+
         var updatedQuestions = await _context.Questions
-            .Where(q => q.StudySet != null && q.StudySet.Course != null && q.StudySet.Course.UserId == userId)
+            .Where(q => q.StudySet != null && q.StudySet.Course != null && q.StudySet.Course.UserId == userId
+                     && (q.StudySet.UpdatedAt ?? q.StudySet.CreatedAt) > request.LastSyncedAt)
             .Select(q => new SyncQuestionDto(q.Id, q.StudySetId, (int)q.Type, q.Prompt, q.HintsJson, q.Explanation, q.Difficulty, q.SortOrder))
             .ToListAsync();
 

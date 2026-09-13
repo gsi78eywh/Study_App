@@ -17,6 +17,9 @@ class QuizPlayerScreen extends StatefulWidget {
   final List<QuestionModel> questions;
   final ApiClient apiClient;
   final SessionService sessionService;
+  final int initialMode;
+  final bool instantFeedback;
+  final bool shuffleOptions;
 
   const QuizPlayerScreen({
     super.key,
@@ -24,6 +27,9 @@ class QuizPlayerScreen extends StatefulWidget {
     required this.questions,
     required this.apiClient,
     required this.sessionService,
+    this.initialMode = StudyModeValue.simulatedExam,
+    this.instantFeedback = true,
+    this.shuffleOptions = true,
   });
 
   @override
@@ -48,6 +54,11 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.shuffleOptions) {
+      for (final q in widget.questions) {
+        q.options.shuffle();
+      }
+    }
     _startTimer();
   }
 
@@ -75,6 +86,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
   }
 
   void _submitAnswer() {
+    if (_hasSubmittedCurrent) return;
     final q = widget.questions[_currentIndex];
     String? answer;
     switch (q.type) {
@@ -97,9 +109,14 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
     }
 
     setState(() {
+      _answers.removeWhere((a) => a.questionId == q.id);
       _answers.add(PracticeAnswerSubmission(questionId: q.id, answer: answer!));
       _hasSubmittedCurrent = true;
     });
+
+    if (!widget.instantFeedback) {
+      _nextQuestion();
+    }
   }
 
   void _nextQuestion() {
@@ -118,7 +135,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
     final submission = TestSessionSubmission(
       id: const Uuid().v4(),
       studySetId: widget.studySet.id,
-      mode: StudyModeValue.multipleChoice,
+      mode: widget.initialMode,
       score: 0,
       totalQuestions: widget.questions.length,
       timeSpentSeconds: _secondsElapsed,
@@ -619,8 +636,18 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
     switch (q.type) {
       case QuestionTypeEnum.multipleChoice:
       case QuestionTypeEnum.scenario:
+        // Deduplicate options by text to guarantee distinct choices
+        final seenOptionTexts = <String>{};
+        final distinctOptions = q.options.where((opt) {
+          final trimmed = opt.optionText.trim().toLowerCase();
+          return trimmed.isNotEmpty && seenOptionTexts.add(trimmed);
+        }).toList();
+
         return Column(
-          children: q.options.map((opt) {
+          children: distinctOptions.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final opt = entry.value;
+            final letter = String.fromCharCode(65 + idx); // A, B, C, D
             final isSelected = _selectedOptionId == opt.id;
             Color borderColor = context.cardBorderColor;
             Color bgColor = context.surfaceColor;
@@ -652,20 +679,33 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                   ),
                   child: Row(
                     children: [
-                      Icon(
-                        _hasSubmittedCurrent && isSelected
-                            ? Icons.cloud_done_outlined
-                            : isSelected
-                            ? Icons.radio_button_checked
-                            : Icons.radio_button_unchecked,
-                        color: _hasSubmittedCurrent && isSelected
-                            ? AppColors.primary
-                            : isSelected
-                            ? (isDark
-                                  ? AppColors.primaryLight
-                                  : AppColors.primaryDark)
-                            : context.textSecondary,
-                        size: 20,
+                      Container(
+                        width: 30,
+                        height: 30,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? (isDark
+                                  ? AppColors.primaryLight.withValues(alpha: 0.25)
+                                  : AppColors.primaryDark.withValues(alpha: 0.2))
+                              : context.secondaryBg,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isSelected
+                                ? (isDark ? AppColors.primaryLight : AppColors.primaryDark)
+                                : context.cardBorderColor,
+                          ),
+                        ),
+                        child: Text(
+                          letter,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: isSelected
+                                ? (isDark ? AppColors.primaryLight : AppColors.primaryDark)
+                                : context.textPrimary,
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -674,9 +714,20 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                           style: TextStyle(
                             color: context.textPrimary,
                             fontSize: 15,
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                           ),
                         ),
                       ),
+                      if (isSelected) ...[
+                        const SizedBox(width: 8),
+                        Icon(
+                          _hasSubmittedCurrent
+                              ? Icons.cloud_done_outlined
+                              : Icons.check_circle_rounded,
+                          color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                          size: 18,
+                        ),
+                      ],
                     ],
                   ),
                 ),

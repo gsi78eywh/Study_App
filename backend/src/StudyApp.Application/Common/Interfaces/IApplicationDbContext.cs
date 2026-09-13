@@ -1,4 +1,4 @@
-﻿using StudyApp.Domain.Entities;
+using StudyApp.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace StudyApp.Application.Common.Interfaces;
@@ -15,6 +15,7 @@ public interface IApplicationDbContext
     DbSet<NotebookPage> NotebookPages { get; }
     DbSet<TestSession> TestSessions { get; }
     DbSet<SessionAnswer> SessionAnswers { get; }
+    DbSet<UserSettings> UserSettings { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

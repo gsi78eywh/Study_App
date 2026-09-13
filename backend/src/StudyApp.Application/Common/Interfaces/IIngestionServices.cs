@@ -1,4 +1,4 @@
-﻿using StudyApp.Application.DTOs.Ingestion;
+using StudyApp.Application.DTOs.Ingestion;
 
 namespace StudyApp.Application.Common.Interfaces;
 
@@ -25,4 +25,5 @@ public interface IDocumentExtractor
     Task<string> ExtractPdfTextAsync(Stream pdfStream, CancellationToken cancellationToken = default);
     Task<string> ExtractDocxTextAsync(Stream docxStream, CancellationToken cancellationToken = default);
     Task<string> ExtractUrlContentAsync(string url, CancellationToken cancellationToken = default);
+    Task<string> ExtractImageTextAsync(Stream imageStream, string mimeType, CancellationToken cancellationToken = default);
 }
