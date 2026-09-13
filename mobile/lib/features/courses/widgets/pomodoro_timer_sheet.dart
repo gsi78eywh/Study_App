@@ -119,10 +119,16 @@ class _PomodoroTimerSheetState extends State<PomodoroTimerSheet> {
       ),
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Handle bar
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+            maxWidth: 560,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Handle bar
             Container(
               width: 48,
               height: 4,
@@ -317,6 +323,8 @@ class _PomodoroTimerSheetState extends State<PomodoroTimerSheet> {
           ],
         ),
       ),
-    );
+    ),
+  ),
+);
   }
 }
