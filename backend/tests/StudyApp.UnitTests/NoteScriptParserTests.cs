@@ -439,4 +439,20 @@ public class NoteScriptParserTests
             Assert.DoesNotContain(q.Options!, o => o.Text.Contains("Parameter", StringComparison.OrdinalIgnoreCase));
         }
     }
+
+    [Theory]
+    [InlineData("* A) A set of rigid rules hard-coded by programmers to solve specific tasks", true)]
+    [InlineData("- B) A subset of AI where systems learn from data", true)]
+    [InlineData("• C) A physical hardware component", true)]
+    [InlineData("D. A robotic method for assembling mechanical components", true)]
+    [InlineData("**Answer:** B", true)]
+    [InlineData("Ans: Machine Learning", true)]
+    [InlineData("Key: A", true)]
+    [InlineData("Key Stages of Mitosis:", false)]
+    [InlineData("Supervised Learning algorithms train on labeled datasets to optimize predictive models.", false)]
+    public void IsMcqOptionOrAnswerKeyLine_FiltersCorrectly(string line, bool expected)
+    {
+        var actual = NoteScriptSynthesizer.IsMcqOptionOrAnswerKeyLine(line);
+        Assert.Equal(expected, actual);
+    }
 }

@@ -710,6 +710,29 @@ public static class NoteScriptSynthesizer
         return result;
     }
 
+    public static bool IsMcqOptionOrAnswerKeyLine(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return false;
+        var trimmed = line.Trim();
+        var stripped = Regex.Replace(trimmed, @"^[\*\-\+•◦▪\>]+\s*", "").Trim('*', '_', ' ', '\t');
+
+        // Option letters with optional markdown bullets: e.g. "* A)", "- B.", "• C)", "A)", "D."
+        if (Regex.IsMatch(trimmed, @"^(?:[\*\-\+•◦▪\>]+\s*)?[\(\[]?[A-Fa-f][\)\]]?[\.:\s\-]") ||
+            Regex.IsMatch(stripped, @"^[\(\[]?[A-Fa-f][\)\]]?[\.:\s\-]"))
+            return true;
+
+        // Answer key markers like "Answer: B", "Ans: True", "Answer Key: C", "Key: A", "Solution: ..."
+        if (Regex.IsMatch(stripped, @"^(?:(?:Answer|Ans)(?:\s+Key)?|Key|Solution)\s*[:=]", RegexOptions.IgnoreCase))
+            return true;
+
+        // Inline answer/option indicators: e.g. "Answer: B", "Option A"
+        if (Regex.IsMatch(trimmed, @"\b(?:Answer|Ans)\s*[:=]\s*[A-Fa-f0-9]", RegexOptions.IgnoreCase) ||
+            Regex.IsMatch(trimmed, @"\b(?:Option|Choice)\s+[A-Fa-f]\b", RegexOptions.IgnoreCase))
+            return true;
+
+        return false;
+    }
+
     private static List<(string Term, string Definition, string FullSentence)> ExtractDefinitions(List<string> cleanLines)
     {
         var definitions = new List<(string Term, string Definition, string FullSentence)>();
@@ -724,7 +747,7 @@ public static class NoteScriptSynthesizer
                 line.StartsWith("Key", StringComparison.OrdinalIgnoreCase) ||
                 line.StartsWith("Solution", StringComparison.OrdinalIgnoreCase) ||
                 Regex.IsMatch(line, @"^(?:Q(?:uestion)?\s*\d*[:.]?|\d+[\.\)])", RegexOptions.IgnoreCase) ||
-                Regex.IsMatch(line, @"^\s*[\(\[]?[A-Fa-f][\)\]]?[\.:\s\-]"))
+                IsMcqOptionOrAnswerKeyLine(line))
             {
                 continue;
             }
@@ -785,7 +808,7 @@ public static class NoteScriptSynthesizer
 
             if (isHeaderCandidate &&
                 !Regex.IsMatch(line, @"^(?:Q(?:uestion)?\s*\d*[:.]?|(?:Answer|Ans|Solution)\s*[:.]?|Key\s*[:.]|(?:Option|Choice)\s+[A-Fa-f])", RegexOptions.IgnoreCase) &&
-                !Regex.IsMatch(line, @"^\s*[\(\[]?[A-Fa-f][\)\]]?[\.:\s\-]"))
+                !IsMcqOptionOrAnswerKeyLine(line))
             {
                 var header = NormalizeMarkdownLine(line).TrimEnd(':');
                 var items = new List<string>();
@@ -801,7 +824,7 @@ public static class NoteScriptSynthesizer
                         continue;
                     }
 
-                    if (Regex.IsMatch(candidate, @"^\s*[\(\[]?[A-Fa-f][\)\]]?[\.:\s\-]"))
+                    if (IsMcqOptionOrAnswerKeyLine(candidate))
                     {
                         break;
                     }
@@ -915,8 +938,8 @@ public static class NoteScriptSynthesizer
         {
             var factualSentences = cleanLines
                 .Where(l => l.Length >= 30 && l.Length <= 160 && !l.Contains("?") &&
-                            !Regex.IsMatch(l, @"^(?:Q(?:uestion)?\s*\d*|\d+[\.\)]|Answer|Ans|Key|Solution)\b", RegexOptions.IgnoreCase) &&
-                            !Regex.IsMatch(l, @"^\s*[\(\[]?[A-Fa-f][\)\]]?[\.:\s\-]"))
+                            !Regex.IsMatch(l, @"^(?:[\*\-\+•◦▪\>]+\s*)?(?:Q(?:uestion)?\s*\d*|\d+[\.\)]|Answer|Ans|Key|Solution)\b", RegexOptions.IgnoreCase) &&
+                            !IsMcqOptionOrAnswerKeyLine(l))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -1001,10 +1024,9 @@ public static class NoteScriptSynthesizer
         if (result.Count < countNeeded)
         {
             var factualSentences = cleanLines
-                .Where(l => l.Length >= 25 && l.Length <= 160 &&
-                            !l.Contains("?") &&
-                            !Regex.IsMatch(l, @"^(?:Q(?:uestion)?\s*\d*|\d+[\.\)]|Answer|Ans|Key|Solution)\b", RegexOptions.IgnoreCase) &&
-                            !Regex.IsMatch(l, @"^\s*[\(\[]?[A-Fa-f][\)\]]?[\.:\s\-]"))
+                .Where(l => l.Length >= 25 && l.Length <= 160 && !l.Contains("?") &&
+                            !Regex.IsMatch(l, @"^(?:[\*\-\+•◦▪\>]+\s*)?(?:Q(?:uestion)?\s*\d*|\d+[\.\)]|Answer|Ans|Key|Solution)\b", RegexOptions.IgnoreCase) &&
+                            !IsMcqOptionOrAnswerKeyLine(l))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -1400,10 +1422,9 @@ public static class NoteScriptSynthesizer
     {
         var result = new List<GeneratedQuestionDto>();
         var factualSentences = cleanLines
-            .Where(l => l.Length >= 25 && l.Length <= 160 &&
-                        !l.Contains("?") &&
-                        !Regex.IsMatch(l, @"^(?:Q(?:uestion)?\s*\d*|\d+[\.\)]|Answer|Ans|Key|Solution)\b", RegexOptions.IgnoreCase) &&
-                        !Regex.IsMatch(l, @"^\s*[\(\[]?[A-Fa-f][\)\]]?[\.:\s\-]"))
+            .Where(l => l.Length >= 25 && l.Length <= 160 && !l.Contains("?") &&
+                        !Regex.IsMatch(l, @"^(?:[\*\-\+•◦▪\>]+\s*)?(?:Q(?:uestion)?\s*\d*|\d+[\.\)]|Answer|Ans|Key|Solution)\b", RegexOptions.IgnoreCase) &&
+                        !IsMcqOptionOrAnswerKeyLine(l))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
