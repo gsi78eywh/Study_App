@@ -43,7 +43,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             _apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? string.Empty;
         }
 
-        _model = _configuration["AiSettings:ModelId"] ?? "gemini-flash-latest";
+        _model = _configuration["AiSettings:ModelId"] ?? "gemini-1.5-flash";
     }
 
     public Task<GeneratedStudySetResult> GenerateStudySetAsync(
@@ -51,6 +51,8 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         string title,
         List<string> requestedTypes,
         int targetCount,
+        int setIndex = 0,
+        string? variant = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(rawText))
@@ -60,7 +62,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
         var textHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawText)));
         var typesKey = string.Join("_", requestedTypes);
-        var cacheKey = $"study_set_{textHash}_{typesKey}_{targetCount}";
+        var cacheKey = $"study_set_{textHash}_{typesKey}_{targetCount}_{setIndex}_{variant ?? "default"}";
 
         if (_cache.TryGetValue(cacheKey, out var cached) && cached.Data is GeneratedStudySetResult cachedResult)
         {
@@ -68,7 +70,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             return Task.FromResult(cachedResult);
         }
 
-        var result = NoteScriptSynthesizer.SynthesizeFromNotes(title, rawText, requestedTypes, targetCount);
+        var result = NoteScriptSynthesizer.SynthesizeFromNotes(title, rawText, requestedTypes, targetCount, setIndex, variant);
         _cache[cacheKey] = (DateTime.UtcNow, result);
         return Task.FromResult(result);
     }
@@ -79,6 +81,8 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         string title,
         List<string> requestedTypes,
         int targetCount,
+        int setIndex = 0,
+        string? variant = null,
         CancellationToken cancellationToken = default)
     {
         if (imageBytes == null || imageBytes.Length == 0)
@@ -88,7 +92,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
         var imageHash = Convert.ToHexString(SHA256.HashData(imageBytes));
         var typesKey = string.Join("_", requestedTypes);
-        var cacheKey = $"img_study_set_{imageHash}_{typesKey}_{targetCount}";
+        var cacheKey = $"img_study_set_{imageHash}_{typesKey}_{targetCount}_{setIndex}_{variant ?? "default"}";
 
         if (_cache.TryGetValue(cacheKey, out var cached) && cached.Data is GeneratedStudySetResult cachedResult)
         {
@@ -150,7 +154,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             extractedOcrText = $"[Notes extracted from uploaded image: {title}]";
         }
 
-        var result = NoteScriptSynthesizer.SynthesizeFromNotes(title, extractedOcrText, requestedTypes, targetCount);
+        var result = NoteScriptSynthesizer.SynthesizeFromNotes(title, extractedOcrText, requestedTypes, targetCount, setIndex, variant);
         _cache[cacheKey] = (DateTime.UtcNow, result);
         return result;
     }
@@ -165,82 +169,106 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             return cachedResponse;
         }
 
-        var systemInstruction = """
-        You are 'Gemini Study Tutor', an encouraging, academically rigorous AI tutor and coding mentor for university students.
-        Guidelines:
-        - When a student asks for code (e.g. HTML, CSS, JavaScript, Python, C#, Java, SQL), provide complete, working, modern code formatted inside Markdown code blocks with language syntax highlighting and concise line-by-line explanations.
-        - Provide clear conceptual explanations followed by step-by-step logic.
-        - Break down formulas, equations, or legal/scientific terminology clearly.
-        - When a student asks for practice or help, provide clear explanations.
-        """;
+        var effectiveApiKey = !string.IsNullOrWhiteSpace(request.ApiKey)
+            ? request.ApiKey.Trim()
+            : (!string.IsNullOrWhiteSpace(_apiKey) ? _apiKey : null);
 
-        var promptBuilder = new StringBuilder();
-        promptBuilder.AppendLine(systemInstruction);
-        if (!string.IsNullOrWhiteSpace(request.ContextTopic))
+        if (string.IsNullOrWhiteSpace(effectiveApiKey))
         {
-            promptBuilder.AppendLine($"\nSUBJECT CONTEXT: {request.ContextTopic}");
+            effectiveApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ??
+                              Environment.GetEnvironmentVariable("GOOGLE_API_KEY");
         }
 
-        if (request.History != null && request.History.Count > 0)
+        // If an API key is available, attempt cloud Gemini API call
+        if (!string.IsNullOrWhiteSpace(effectiveApiKey))
         {
-            promptBuilder.AppendLine("\nRECENT CONVERSATION:");
-            foreach (var h in request.History.TakeLast(6))
+            var systemInstruction = """
+            You are 'Gemini Study Tutor', an encouraging, academically rigorous AI tutor and coding mentor for university students.
+            Guidelines:
+            - When a student asks for code (e.g. Flutter, Dart, HTML, CSS, JavaScript, Python, C#, Java, SQL), provide complete, working, modern code formatted inside Markdown code blocks with language syntax highlighting and concise line-by-line explanations.
+            - Provide clear conceptual explanations followed by step-by-step logic.
+            - Break down formulas, equations, or legal/scientific terminology clearly.
+            - When a student asks for practice or help, provide clear explanations.
+            """;
+
+            var promptBuilder = new StringBuilder();
+            promptBuilder.AppendLine(systemInstruction);
+            if (!string.IsNullOrWhiteSpace(request.ContextTopic))
             {
-                promptBuilder.AppendLine($"{(h.Role == "model" ? "Tutor" : "Student")}: {h.Content}");
+                promptBuilder.AppendLine($"\nSUBJECT CONTEXT: {request.ContextTopic}");
             }
-        }
 
-        promptBuilder.AppendLine($"\nSTUDENT QUESTION: {request.Message}");
-
-        var payload = new
-        {
-            contents = new[]
+            if (request.History != null && request.History.Count > 0)
             {
-                new
+                promptBuilder.AppendLine("\nRECENT CONVERSATION:");
+                foreach (var h in request.History.TakeLast(6))
                 {
-                    parts = new[]
-                    {
-                        new { text = promptBuilder.ToString() }
-                    }
+                    promptBuilder.AppendLine($"{(h.Role == "model" ? "Tutor" : "Student")}: {h.Content}");
                 }
-            },
-            generationConfig = new
-            {
-                temperature = 0.5
             }
-        };
 
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(TimeSpan.FromSeconds(35));
+            promptBuilder.AppendLine($"\nSTUDENT QUESTION: {request.Message}");
 
-        try
-        {
-            var (responseText, modelUsed) = await CallNativeGeminiWithFallbackAsync(payload, cts.Token);
-            if (!string.IsNullOrWhiteSpace(responseText))
+            var payload = new
             {
-                var response = new AskTutorResponse(responseText, modelUsed, DateTime.UtcNow);
-                _cache[cacheKey] = (DateTime.UtcNow, response);
-                return response;
+                contents = new[]
+                {
+                    new
+                    {
+                        parts = new[]
+                        {
+                            new { text = promptBuilder.ToString() }
+                        }
+                    }
+                },
+                generationConfig = new
+                {
+                    temperature = 0.5
+                }
+            };
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(35));
+
+            try
+            {
+                var (responseText, modelUsed) = await CallNativeGeminiWithFallbackAsync(payload, effectiveApiKey, cts.Token);
+                if (!string.IsNullOrWhiteSpace(responseText))
+                {
+                    var response = new AskTutorResponse(responseText, modelUsed, DateTime.UtcNow);
+                    _cache[cacheKey] = (DateTime.UtcNow, response);
+                    return response;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Gemini tutor cloud call error, falling back to built-in academic synthesizer");
             }
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Gemini tutor call error");
-        }
 
-        // When offline or cloud Gemini is unreachable, sleep to prevent inaccurate results
-        return new AskTutorResponse(
-            "😴 **Gemini Tutor is currently offline / asleep.**\n\nTo prevent inaccurate or incomplete academic results, the AI tutor requires an active internet connection to Google Gemini. Please check your network connection and try again.",
-            "offline-sleep",
+        // When offline, no key provided, or cloud Gemini is unreachable, synthesize high-yield academic response
+        var synthesizedReply = AcademicTutorSynthesizer.SynthesizeResponse(request.Message, request.ContextTopic, request.History);
+        var fallbackResponse = new AskTutorResponse(
+            synthesizedReply,
+            "Built-In Academic Engine",
             DateTime.UtcNow
         );
+        _cache[cacheKey] = (DateTime.UtcNow, fallbackResponse);
+        return fallbackResponse;
     }
 
-    private async Task<(string? Text, string ModelUsed)> CallNativeGeminiWithFallbackAsync(object payload, CancellationToken cancellationToken)
+    private async Task<(string? Text, string ModelUsed)> CallNativeGeminiWithFallbackAsync(
+        object payload,
+        string? apiKeyOverride,
+        CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_apiKey)) return (null, "offline-sleep");
+        var key = !string.IsNullOrWhiteSpace(apiKeyOverride) ? apiKeyOverride.Trim() : _apiKey;
+        if (string.IsNullOrWhiteSpace(key) || key.Contains("YOUR_GEMINI_API_KEY"))
+        {
+            return (null, "Built-In Academic Engine");
+        }
 
-        var modelsToTry = new[] { _model, "gemini-flash-lite-latest" }
+        var modelsToTry = new[] { _model, "gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-pro" }
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -248,7 +276,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         if (!acquired)
         {
             _logger.LogWarning("Concurrency limiter saturated, skipping cloud call");
-            return (null, "offline-sleep");
+            return (null, "Built-In Academic Engine");
         }
 
         try
@@ -263,7 +291,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 {
                     try
                     {
-                        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={_apiKey}";
+                        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={key}";
                         using var request = new HttpRequestMessage(HttpMethod.Post, url);
                         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
@@ -315,7 +343,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 }
             }
 
-            return (null, "offline-sleep");
+            return (null, "Built-In Academic Engine");
         }
         finally
         {
@@ -323,9 +351,20 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         }
     }
 
+    private Task<(string? Text, string ModelUsed)> CallNativeGeminiWithFallbackAsync(object payload, CancellationToken cancellationToken)
+    {
+        return CallNativeGeminiWithFallbackAsync(payload, null, cancellationToken);
+    }
+
+    private async Task<string?> CallNativeGeminiAsync(object payload, string? apiKeyOverride, CancellationToken cancellationToken)
+    {
+        var (text, _) = await CallNativeGeminiWithFallbackAsync(payload, apiKeyOverride, cancellationToken);
+        return text;
+    }
+
     private async Task<string?> CallNativeGeminiAsync(object payload, CancellationToken cancellationToken)
     {
-        var (text, _) = await CallNativeGeminiWithFallbackAsync(payload, cancellationToken);
+        var (text, _) = await CallNativeGeminiWithFallbackAsync(payload, null, cancellationToken);
         return text;
     }
 
@@ -416,7 +455,10 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
         try
         {
-            var reply = await CallNativeGeminiAsync(payload, cancellationToken);
+            var effectiveKey = !string.IsNullOrWhiteSpace(request.ApiKey)
+                ? request.ApiKey.Trim()
+                : (!string.IsNullOrWhiteSpace(_apiKey) ? _apiKey : null);
+            var reply = await CallNativeGeminiAsync(payload, effectiveKey, cancellationToken);
             if (!string.IsNullOrWhiteSpace(reply))
             {
                 var clean = ExtractJsonBlock(reply);

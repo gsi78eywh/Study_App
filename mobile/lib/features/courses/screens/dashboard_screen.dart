@@ -517,6 +517,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       courses: _courses,
                       initialStudySetId: set.id,
                       apiClient: widget.apiClient,
+                      onCardDeleted: () => _fetchCoursesAndSync(fullFetch: true),
                     ),
                   ),
                 );
@@ -2102,6 +2103,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                   courses: _courses,
                                                   initialStudySetId: set.id,
                                                   apiClient: widget.apiClient,
+                                                  onCardDeleted: () => _fetchCoursesAndSync(fullFetch: true),
                                                 ),
                                               ),
                                             );
@@ -2169,6 +2171,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             apiClient: widget.apiClient,
             onLoadStarterPack: _loadStarterDemoPack,
             onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
+            onCardDeleted: () => _fetchCoursesAndSync(fullFetch: true),
           ),
           // Tab 2: Notebook
           NotebookScreen(

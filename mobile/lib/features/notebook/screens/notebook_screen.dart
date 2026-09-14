@@ -1,6 +1,9 @@
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
+import "package:file_picker/file_picker.dart";
+import "package:dio/dio.dart";
+import "../../../core/constants/api_constants.dart";
 
 import "../../../core/network/api_client.dart";
 import "../../../core/theme/app_theme.dart";
@@ -173,12 +176,77 @@ class _NotebookScreenState extends State<NotebookScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text("Lecture Notes & Key Concepts", style: TextStyle(color: ctx.textSecondary, fontSize: 12, fontWeight: FontWeight.bold)),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        icon: const Icon(Icons.document_scanner_rounded, size: 14),
+                        label: const Text("Scan Photo / Image", style: TextStyle(fontSize: 12)),
+                        onPressed: () async {
+                          try {
+                            final files = await FilePicker.pickFiles(
+                              type: FileType.custom,
+                              allowedExtensions: ["png", "jpg", "jpeg", "webp", "bmp", "pdf", "docx", "txt"],
+                            );
+                            if (files.isNotEmpty) {
+                              final f = files.first;
+                              final bytes = await f.readAsBytes();
+                              final multipart = MultipartFile.fromBytes(bytes, filename: f.name);
+                              final geminiKey = widget.apiClient.sessionService.geminiApiKey;
+                              final map = <String, dynamic>{"file": multipart};
+                              if (geminiKey != null && geminiKey.isNotEmpty) map["apiKey"] = geminiKey;
+                              final resp = await widget.apiClient.dio.post(
+                                ApiConstants.scanContent,
+                                data: FormData.fromMap(map),
+                              );
+                              if (resp.statusCode == 200 && resp.data is Map) {
+                                final text = (resp.data["extractedText"] ?? "") as String;
+                                if (text.isNotEmpty) {
+                                  setModalState(() {
+                                    if (contentController.text.trim().isEmpty) {
+                                      contentController.text = text;
+                                    } else {
+                                      contentController.text = "${contentController.text}\n\n$text";
+                                    }
+                                    if (titleController.text.trim().isEmpty) {
+                                      titleController.text = f.name.split('.').first;
+                                    }
+                                  });
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text("✨ Scanned ${resp.data['charCount']} characters into note!"),
+                                        backgroundColor: AppColors.accent,
+                                      ),
+                                    );
+                                  }
+                                }
+                              }
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text("Scan error: $e"), backgroundColor: AppColors.danger),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
                   TextField(
                     controller: contentController,
                     maxLines: 6,
                     style: TextStyle(color: ctx.textPrimary),
                     decoration: const InputDecoration(
-                      labelText: "Lecture Notes & Key Concepts",
+                      labelText: "Note Content",
                       hintText: "Enter formulas, summaries, bullet points, derivations...",
                     ),
                   ),

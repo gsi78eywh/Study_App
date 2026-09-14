@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using StudyApp.Application.DTOs.Ingestion;
+using StudyApp.Infrastructure.DocumentParsers;
 
 namespace StudyApp.Infrastructure.AiServices;
 
@@ -41,7 +42,9 @@ public static class NoteScriptSynthesizer
         string title,
         string rawText,
         List<string>? requestedTypes = null,
-        int targetCount = 10)
+        int targetCount = 10,
+        int setIndex = 0,
+        string? variant = null)
     {
         var cleanTitle = string.IsNullOrWhiteSpace(title) ? "Study Notes" : title.Trim();
         var safeText = rawText ?? string.Empty;
@@ -108,44 +111,69 @@ public static class NoteScriptSynthesizer
             poolOfAnswersAndTerms.Add(def.Definition);
         }
 
+        // Apply concept rotation and shuffling based on setIndex and variant to eliminate continuous repetition
+        if (parsedDefinitions.Count > 0 && setIndex > 0)
+        {
+            int rotation = (setIndex * 3) % parsedDefinitions.Count;
+            parsedDefinitions = parsedDefinitions.Skip(rotation).Concat(parsedDefinitions.Take(rotation)).ToList();
+        }
+        if (variant == "shuffle" || variant == "random" || setIndex >= 900)
+        {
+            var rng = new Random(setIndex);
+            parsedDefinitions = parsedDefinitions.OrderBy(_ => rng.Next()).ToList();
+        }
+
         // 2. Stage 1: Parse pre-formatted multiple-choice questions already present in notes
         var mcqQuestions = ParseFormattedMultipleChoice(cleanLines, cleanTitle);
-        foreach (var q in mcqQuestions)
+        // 3. Stage 2: Parse Q&A pairs (e.g. Q: ... A: ...)
+        var qaQuestions = ParseQuestionAnswerPairs(cleanLines, cleanTitle, poolOfAnswersAndTerms);
+
+        // If user is generating subsequent sets (setIndex > 0) and the notes have rich definitions,
+        // prioritize synthesizing fresh active recall questions rather than regurgitating identical pre-formatted questions!
+        bool hasRichDefinitions = parsedDefinitions.Count >= Math.Min(4, targetCount / 2);
+        if (setIndex == 0 || !hasRichDefinitions)
         {
-            questions.Add(q);
-            if (!string.IsNullOrWhiteSpace(q.CorrectAnswer))
+            foreach (var q in mcqQuestions)
             {
-                poolOfAnswersAndTerms.Add(q.CorrectAnswer);
-            }
-            if (q.Options != null)
-            {
-                foreach (var opt in q.Options)
+                var processed = (setIndex > 0) ? VaryQuestionForSet(q, setIndex, cleanTitle, poolOfAnswersAndTerms) : q;
+                questions.Add(processed);
+                if (!string.IsNullOrWhiteSpace(processed.CorrectAnswer))
                 {
-                    if (!string.IsNullOrWhiteSpace(opt.Text))
+                    poolOfAnswersAndTerms.Add(processed.CorrectAnswer);
+                }
+                if (processed.Options != null)
+                {
+                    foreach (var opt in processed.Options)
                     {
-                        poolOfAnswersAndTerms.Add(opt.Text);
+                        if (!string.IsNullOrWhiteSpace(opt.Text))
+                        {
+                            poolOfAnswersAndTerms.Add(opt.Text);
+                        }
                     }
                 }
             }
-        }
 
-        // 3. Stage 2: Parse Q&A pairs (e.g. Q: ... A: ...)
-        var qaQuestions = ParseQuestionAnswerPairs(cleanLines, cleanTitle, poolOfAnswersAndTerms);
-        foreach (var q in qaQuestions)
-        {
-            // Avoid duplicate prompts
-            if (!questions.Any(existing => string.Equals(existing.Prompt, q.Prompt, StringComparison.OrdinalIgnoreCase)))
+            foreach (var q in qaQuestions)
             {
-                questions.Add(q);
-                if (!string.IsNullOrWhiteSpace(q.CorrectAnswer))
+                if (!questions.Any(existing => string.Equals(existing.Prompt, q.Prompt, StringComparison.OrdinalIgnoreCase)))
                 {
-                    poolOfAnswersAndTerms.Add(q.CorrectAnswer);
+                    var processed = (setIndex > 0) ? VaryQuestionForSet(q, setIndex, cleanTitle, poolOfAnswersAndTerms) : q;
+                    questions.Add(processed);
+                    if (!string.IsNullOrWhiteSpace(processed.CorrectAnswer))
+                    {
+                        poolOfAnswersAndTerms.Add(processed.CorrectAnswer);
+                    }
                 }
             }
         }
 
         // 4. Extract List Clusters (headings with 2-8 bulleted or numbered items)
         var listClusters = ExtractListClusters(rawLines);
+        if (listClusters.Count > 0 && setIndex > 0)
+        {
+            int clusterRot = setIndex % listClusters.Count;
+            listClusters = listClusters.Skip(clusterRot).Concat(listClusters.Take(clusterRot)).ToList();
+        }
         foreach (var cluster in listClusters)
         {
             poolOfAnswersAndTerms.Add(cluster.Title);
@@ -223,14 +251,14 @@ public static class NoteScriptSynthesizer
 
                 List<GeneratedQuestionDto> generatedForType = type switch
                 {
-                    "true_false" => GenerateTrueFalseQuestions(parsedDefinitions, cleanLines, cleanTitle, neededNow),
-                    "cloze" => GenerateClozeQuestions(parsedDefinitions, cleanLines, cleanTitle, neededNow),
+                    "true_false" => GenerateTrueFalseQuestions(parsedDefinitions, cleanLines, cleanTitle, neededNow, setIndex, variant),
+                    "cloze" => GenerateClozeQuestions(parsedDefinitions, cleanLines, cleanTitle, neededNow, setIndex, variant),
                     "enumeration" => GenerateEnumerationQuestions(listClusters, parsedDefinitions, cleanTitle, neededNow),
-                    "matching" => GenerateMatchingQuestions(parsedDefinitions, cleanTitle, neededNow),
-                    "identification" => GenerateIdentificationQuestions(parsedDefinitions, cleanTitle, neededNow),
-                    "scenario" => GenerateScenarioQuestions(parsedDefinitions, cleanTitle, poolOfAnswersAndTerms, neededNow),
-                    "short_answer" => GenerateShortAnswerQuestions(parsedDefinitions, cleanTitle, neededNow),
-                    "multiple_choice" => GenerateQuestionsFromDefinitions(parsedDefinitions, cleanTitle, poolOfAnswersAndTerms, countNeeded: neededNow),
+                    "matching" => GenerateMatchingQuestions(parsedDefinitions, cleanTitle, neededNow, setIndex),
+                    "identification" => GenerateIdentificationQuestions(parsedDefinitions, cleanTitle, neededNow, setIndex),
+                    "scenario" => GenerateScenarioQuestions(parsedDefinitions, cleanTitle, poolOfAnswersAndTerms, neededNow, setIndex, variant),
+                    "short_answer" => GenerateShortAnswerQuestions(parsedDefinitions, cleanTitle, neededNow, setIndex),
+                    "multiple_choice" => GenerateQuestionsFromDefinitions(parsedDefinitions, cleanTitle, poolOfAnswersAndTerms, countNeeded: neededNow, setIndex: setIndex, variant: variant),
                     _ => new List<GeneratedQuestionDto>()
                 };
 
@@ -249,7 +277,7 @@ public static class NoteScriptSynthesizer
         if (questions.Count < targetCount && parsedDefinitions.Count > 0)
         {
             int needed = targetCount - questions.Count;
-            var defQuestions = GenerateQuestionsFromDefinitions(parsedDefinitions, cleanTitle, poolOfAnswersAndTerms, countNeeded: needed);
+            var defQuestions = GenerateQuestionsFromDefinitions(parsedDefinitions, cleanTitle, poolOfAnswersAndTerms, countNeeded: needed, setIndex: setIndex, variant: variant);
             foreach (var q in defQuestions)
             {
                 if (questions.Count >= targetCount) break;
@@ -869,15 +897,75 @@ public static class NoteScriptSynthesizer
         return clusters;
     }
 
+    private static GeneratedQuestionDto VaryQuestionForSet(GeneratedQuestionDto original, int setIndex, string title, List<string> pool)
+    {
+        var rand = new Random(setIndex * 31 + original.Prompt.GetHashCode());
+        var prompt = original.Prompt;
+
+        // Dynamic prompt framing variation across sets
+        if (setIndex % 3 == 1)
+        {
+            prompt = $"Regarding {title}, which core concept directly corresponds to: \"{original.Prompt.TrimEnd('?')}\"?";
+        }
+        else if (setIndex % 3 == 2)
+        {
+            prompt = $"In an analytical problem regarding {title}, consider: \"{original.Prompt.TrimEnd('?')}\". Identify the correct answer:";
+        }
+
+        // Shuffle options and swap fresh distractors
+        List<GeneratedOptionDto>? variedOptions = null;
+        if (original.Options != null && original.Options.Count > 1)
+        {
+            var correct = original.Options.FirstOrDefault(o => o.IsCorrect) ?? original.Options[0];
+            var newDistractors = pool
+                .Where(p => !string.Equals(p, correct.Text, StringComparison.OrdinalIgnoreCase) && p.Length > 2 && p.Length < 120)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(_ => rand.Next())
+                .Take(3)
+                .ToList();
+
+            int dCount = 1;
+            while (newDistractors.Count < 3)
+            {
+                newDistractors.Add($"Alternative concept {dCount++} for Set {setIndex + 1}");
+            }
+
+            variedOptions = new List<GeneratedOptionDto>
+            {
+                new GeneratedOptionDto(correct.Text, true, null),
+                new GeneratedOptionDto(newDistractors[0], false, "Alternative concept from other sections."),
+                new GeneratedOptionDto(newDistractors[1], false, "Contrasting option."),
+                new GeneratedOptionDto(newDistractors[2], false, "Unrelated term.")
+            };
+            variedOptions = variedOptions.OrderBy(_ => rand.Next()).ToList();
+        }
+
+        return new GeneratedQuestionDto(
+            original.Type,
+            prompt,
+            original.Hints,
+            original.CorrectAnswer,
+            variedOptions ?? original.Options,
+            original.ValidSynonyms,
+            original.EnumerationItems,
+            original.IsOrdered,
+            original.Explanation,
+            original.ThinkingBreakdown,
+            original.SourceReference
+        );
+    }
+
     private static List<GeneratedQuestionDto> GenerateTrueFalseQuestions(
         List<(string Term, string Definition, string FullSentence)> definitions,
         List<string> cleanLines,
         string title,
-        int countNeeded)
+        int countNeeded,
+        int setIndex = 0,
+        string? variant = null)
     {
         var result = new List<GeneratedQuestionDto>();
         int defIndex = 0;
-        bool nextIsTrue = true;
+        bool nextIsTrue = (setIndex % 2 == 0);
 
         while (defIndex < definitions.Count && result.Count < countNeeded)
         {
@@ -885,7 +973,11 @@ public static class NoteScriptSynthesizer
 
             if (nextIsTrue || definitions.Count < 2)
             {
-                var prompt = $"True or False: According to the study notes, {current.Term} refers to: \"{current.Definition}\".";
+                int tfStyle = (defIndex + setIndex) % 2;
+                var prompt = tfStyle == 0
+                    ? $"True or False: According to the study notes, {current.Term} refers to: \"{current.Definition}\"."
+                    : $"True or False: In {title}, the principle of \"{current.Term}\" encompasses: \"{current.Definition}\".";
+
                 var options = new List<GeneratedOptionDto>
                 {
                     new GeneratedOptionDto("True", true, null),
@@ -976,18 +1068,29 @@ public static class NoteScriptSynthesizer
         List<(string Term, string Definition, string FullSentence)> definitions,
         List<string> cleanLines,
         string title,
-        int countNeeded)
+        int countNeeded,
+        int setIndex = 0,
+        string? variant = null)
     {
         var result = new List<GeneratedQuestionDto>();
 
-        foreach (var def in definitions)
+        for (int i = 0; i < definitions.Count && result.Count < countNeeded; i++)
         {
-            if (result.Count >= countNeeded) break;
+            var def = definitions[i];
+            int clozeStyle = (i + setIndex) % 3;
+            string prompt;
 
-            var prompt = $"Fill in the missing key term: \"________ is {def.Definition}\"";
-            if (def.FullSentence.Contains(def.Term, StringComparison.OrdinalIgnoreCase))
+            if (clozeStyle == 0 || !def.FullSentence.Contains(def.Term, StringComparison.OrdinalIgnoreCase))
             {
-                prompt = $"Fill in the missing key term: \"{Regex.Replace(def.FullSentence, Regex.Escape(def.Term), "________", RegexOptions.IgnoreCase)}\"";
+                prompt = $"Fill in the missing key term: \"________ is {def.Definition}\"";
+            }
+            else if (clozeStyle == 1)
+            {
+                prompt = $"Fill in the missing key concept from {title}: \"{Regex.Replace(def.FullSentence, Regex.Escape(def.Term), "________", RegexOptions.IgnoreCase)}\"";
+            }
+            else
+            {
+                prompt = $"Complete the definition: \"In your notes, ________ is defined as: {def.Definition}\"";
             }
 
             var hints = new List<string>
@@ -1129,12 +1232,13 @@ public static class NoteScriptSynthesizer
     private static List<GeneratedQuestionDto> GenerateMatchingQuestions(
         List<(string Term, string Definition, string FullSentence)> definitions,
         string title,
-        int countNeeded)
+        int countNeeded,
+        int setIndex = 0)
     {
         var result = new List<GeneratedQuestionDto>();
         if (definitions.Count < 2) return result;
 
-        int offset = 0;
+        int offset = (setIndex * 2) % Math.Max(1, definitions.Count);
         while (offset < definitions.Count && result.Count < countNeeded)
         {
             var slice = definitions.Skip(offset).Take(4).ToList();
@@ -1185,14 +1289,21 @@ public static class NoteScriptSynthesizer
     private static List<GeneratedQuestionDto> GenerateIdentificationQuestions(
         List<(string Term, string Definition, string FullSentence)> definitions,
         string title,
-        int countNeeded)
+        int countNeeded,
+        int setIndex = 0)
     {
         var result = new List<GeneratedQuestionDto>();
 
         for (int i = 0; i < definitions.Count && result.Count < countNeeded; i++)
         {
             var def = definitions[i];
-            var prompt = $"Identify the term or concept: \"{def.Definition}\"";
+            int idStyle = (i + setIndex) % 3;
+            string prompt = idStyle switch
+            {
+                1 => $"In {title}, what term or concept is defined as: \"{def.Definition}\"?",
+                2 => $"Name the core concept matching: \"{def.Definition}\"",
+                _ => $"Identify the term or concept: \"{def.Definition}\""
+            };
 
             result.Add(new GeneratedQuestionDto(
                 "identification",
@@ -1216,17 +1327,22 @@ public static class NoteScriptSynthesizer
         List<(string Term, string Definition, string FullSentence)> definitions,
         string title,
         List<string> pool,
-        int countNeeded)
+        int countNeeded,
+        int setIndex = 0,
+        string? variant = null)
     {
         var result = new List<GeneratedQuestionDto>();
 
         for (int i = 0; i < definitions.Count && result.Count < countNeeded; i++)
         {
             var def = definitions[i];
+            var rand = new Random(setIndex * 997 + (def.Term + i + "scenario").GetHashCode());
+
             var otherTerms = definitions
                 .Where(d => !string.Equals(d.Term, def.Term, StringComparison.OrdinalIgnoreCase))
                 .Select(d => d.Term)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(_ => rand.Next())
                 .Take(3)
                 .ToList();
 
@@ -1244,10 +1360,16 @@ public static class NoteScriptSynthesizer
                 new GeneratedOptionDto(otherTerms[2], false, "Contrasting concept from another section.")
             };
 
-            var rand = new Random((def.Term + i + "scenario").GetHashCode());
             options = options.OrderBy(_ => rand.Next()).ToList();
 
-            var prompt = $"In a practical problem scenario regarding {title}, which core concept directly addresses the following condition: \"{def.Definition}\"?";
+            int scenarioStyle = (i + setIndex) % 4;
+            string prompt = scenarioStyle switch
+            {
+                1 => $"During an analytical review of {title}, the following operational condition is observed: \"{def.Definition}\". What is this condition called?",
+                2 => $"Suppose you are evaluating a real-world case study on {title} and need to apply the principle of: \"{def.Definition}\". Which concept should you utilize?",
+                3 => $"In an applied problem regarding {title}, which core concept explains why {def.Definition.ToLowerInvariant().TrimEnd('.')}?",
+                _ => $"In a practical problem scenario regarding {title}, which core concept directly addresses the following condition: \"{def.Definition}\"?"
+            };
 
             result.Add(new GeneratedQuestionDto(
                 "scenario",
@@ -1268,14 +1390,21 @@ public static class NoteScriptSynthesizer
     private static List<GeneratedQuestionDto> GenerateShortAnswerQuestions(
         List<(string Term, string Definition, string FullSentence)> definitions,
         string title,
-        int countNeeded)
+        int countNeeded,
+        int setIndex = 0)
     {
         var result = new List<GeneratedQuestionDto>();
 
         for (int i = 0; i < definitions.Count && result.Count < countNeeded; i++)
         {
             var def = definitions[i];
-            var prompt = $"In your own words, explain the concept and significance of \"{def.Term}\" based on your study notes.";
+            int saStyle = (i + setIndex) % 3;
+            string prompt = saStyle switch
+            {
+                1 => $"Analyze the core function and key attributes of \"{def.Term}\" in {title}.",
+                2 => $"Summarize what defines \"{def.Term}\" according to your study material.",
+                _ => $"In your own words, explain the concept and significance of \"{def.Term}\" based on your study notes."
+            };
 
             var keywords = def.Definition
                 .Split(new[] { ' ', ',', '.', ';', ':', '(', ')' }, StringSplitOptions.RemoveEmptyEntries)
@@ -1311,7 +1440,9 @@ public static class NoteScriptSynthesizer
         List<string> pool,
         bool wantsOnlyMcq = false,
         bool wantsIdentification = false,
-        int countNeeded = int.MaxValue)
+        int countNeeded = int.MaxValue,
+        int setIndex = 0,
+        string? variant = null)
     {
         var questions = new List<GeneratedQuestionDto>();
 
@@ -1319,12 +1450,14 @@ public static class NoteScriptSynthesizer
         {
             if (questions.Count >= countNeeded) break;
             var def = definitions[i];
+            var rand = new Random(setIndex * 7919 + (def.Term + i).GetHashCode());
 
             // 1. Definition Multiple Choice Question
             var otherDefs = definitions
                 .Where(d => !string.Equals(d.Term, def.Term, StringComparison.OrdinalIgnoreCase))
                 .Select(d => d.Definition)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(_ => rand.Next())
                 .Take(3)
                 .ToList();
 
@@ -1342,12 +1475,20 @@ public static class NoteScriptSynthesizer
                 new GeneratedOptionDto(otherDefs[2], false, "Contrasting definition from other material.")
             };
 
-            var rand = new Random((def.Term + i).GetHashCode());
             options = options.OrderBy(_ => rand.Next()).ToList();
+
+            int promptStyle = (i + setIndex) % 4;
+            string mcqPrompt = promptStyle switch
+            {
+                1 => $"Which core concept from {title} is characterized by the following: \"{def.Definition}\"?",
+                2 => $"In the study of {title}, what is the primary role or definition associated with \"{def.Term}\"?",
+                3 => $"Identify the key principle corresponding directly to: \"{def.Definition}\"",
+                _ => $"According to the study material on {title}, which of the following best defines \"{def.Term}\"?"
+            };
 
             questions.Add(new GeneratedQuestionDto(
                 "multiple_choice",
-                $"According to the study material, which of the following best defines \"{def.Term}\"?",
+                mcqPrompt,
                 new List<string> { $"Review notes on \"{def.Term}\".", "Check key definitions." },
                 def.Definition,
                 options,
@@ -1422,9 +1563,10 @@ public static class NoteScriptSynthesizer
     {
         var result = new List<GeneratedQuestionDto>();
         var factualSentences = cleanLines
-            .Where(l => l.Length >= 25 && l.Length <= 160 && !l.Contains("?") &&
+            .Where(l => l.Length >= 25 && l.Length <= 240 && !l.Contains("?") &&
                         !Regex.IsMatch(l, @"^(?:[\*\-\+•◦▪\>]+\s*)?(?:Q(?:uestion)?\s*\d*|\d+[\.\)]|Answer|Ans|Key|Solution)\b", RegexOptions.IgnoreCase) &&
-                        !IsMcqOptionOrAnswerKeyLine(l))
+                        !IsMcqOptionOrAnswerKeyLine(l) &&
+                        !Regex.IsMatch(l.TrimEnd(), @"\b(on|to|for|with|in|at|by|from|of|into|onto|and|or|but|as|that|than|via|after|before|during|under|over|between|about)$", RegexOptions.IgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -1434,11 +1576,16 @@ public static class NoteScriptSynthesizer
             var words = sentence.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (words.Length < 5) continue;
 
-            // Pick a significant key word or noun phrase from the sentence
-            var candidateWord = words.FirstOrDefault(w => w.Length >= 5 && char.IsLetter(w[0]) && !Regex.IsMatch(w, @"^(which|their|about|these|those|where|there|would|could|should)$", RegexOptions.IgnoreCase))
-                ?? words[words.Length / 2];
+            // Pick a significant key word or noun phrase from the sentence, avoiding generic status/UI words
+            var candidateWord = words
+                .Select(w => w.Trim().TrimEnd('.', ',', ';', ':', '!', '?', '"', '\'').TrimStart('"', '\''))
+                .FirstOrDefault(w => w.Length >= 5 && char.IsLetter(w[0]) &&
+                                     !Regex.IsMatch(w, @"^(which|their|about|these|those|where|there|would|could|should|unable|access|visit|using|being|having|getting|stated|given|takes|makes|comes|looks|needs|please|check|click|refer|terms|follow|below|above|start|every|other|first|second|third|issue|repository)$", RegexOptions.IgnoreCase))
+                ?? words.Select(w => w.Trim().TrimEnd('.', ',', ';', ':', '!', '?')).FirstOrDefault(w => w.Length >= 5 && char.IsLetter(w[0]))
+                ?? words[words.Length / 2].TrimEnd('.', ',', ';', ':', '!', '?');
 
             candidateWord = candidateWord.TrimEnd('.', ',', ';', ':', '!', '?');
+            if (candidateWord.Length < 3) continue;
 
             var blankedSentence = Regex.Replace(sentence, Regex.Escape(candidateWord), "________", RegexOptions.IgnoreCase);
 
@@ -1448,7 +1595,28 @@ public static class NoteScriptSynthesizer
                 .Take(3)
                 .ToList();
 
-            var genericDistractors = new[] { "Condition", "Standard", "Variable", "Factor", "Principle", "Element" };
+            if (distractors.Count < 3)
+            {
+                // Pull additional vocabulary words from other clean lines in the document
+                var docWords = cleanLines
+                    .SelectMany(l => l.Split(new[] { ' ', ',', '.', ';', ':', '!', '?' }, StringSplitOptions.RemoveEmptyEntries))
+                    .Where(w => w.Length >= 5 && char.IsLetter(w[0]) &&
+                                !string.Equals(w, candidateWord, StringComparison.OrdinalIgnoreCase) &&
+                                !Regex.IsMatch(w, @"^(which|their|about|these|those|where|there|would|could|should|unable|access|visit|using|being|having|getting|stated)$", RegexOptions.IgnoreCase))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                foreach (var dw in docWords)
+                {
+                    if (distractors.Count >= 3) break;
+                    if (!distractors.Contains(dw, StringComparer.OrdinalIgnoreCase))
+                    {
+                        distractors.Add(dw);
+                    }
+                }
+            }
+
+            var genericDistractors = new[] { "Mechanism", "Structure", "Pathway", "Component", "Principle", "System", "Function" };
             int gIdx = 0;
             while (distractors.Count < 3 && gIdx < genericDistractors.Length)
             {

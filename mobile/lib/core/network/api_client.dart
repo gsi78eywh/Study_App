@@ -32,6 +32,11 @@ class ApiClient {
           if (token != null && token.isNotEmpty) {
             options.headers["Authorization"] = "Bearer $token";
           }
+
+          final geminiKey = sessionService.geminiApiKey;
+          if (geminiKey != null && geminiKey.isNotEmpty) {
+            options.headers["X-Gemini-ApiKey"] = geminiKey;
+          }
           return handler.next(options);
         },
         onError: (DioException e, handler) {

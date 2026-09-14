@@ -40,9 +40,11 @@ public class SemanticKernelQuestionGenerator : IAiQuestionGenerator
         string title,
         List<string> requestedTypes,
         int targetCount,
+        int setIndex = 0,
+        string? variant = null,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(AnalyzeAndSynthesizeLocally(title, $"[Visual content extracted from uploaded image for {title}]", targetCount));
+        return Task.FromResult(AnalyzeAndSynthesizeLocally(title, $"[Visual content extracted from uploaded image for {title}]", targetCount, setIndex, variant));
     }
 
     public async Task<GeneratedStudySetResult> GenerateStudySetAsync(
@@ -50,6 +52,8 @@ public class SemanticKernelQuestionGenerator : IAiQuestionGenerator
         string title,
         List<string> requestedTypes,
         int targetCount,
+        int setIndex = 0,
+        string? variant = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(rawText))
@@ -125,9 +129,9 @@ public class SemanticKernelQuestionGenerator : IAiQuestionGenerator
         return AnalyzeAndSynthesizeLocally(title, rawText, targetCount);
     }
 
-    private static GeneratedStudySetResult AnalyzeAndSynthesizeLocally(string title, string rawText, int targetCount)
+    private static GeneratedStudySetResult AnalyzeAndSynthesizeLocally(string title, string rawText, int targetCount, int setIndex = 0, string? variant = null)
     {
-        return NoteScriptSynthesizer.SynthesizeFromNotes(title, rawText, null, targetCount);
+        return NoteScriptSynthesizer.SynthesizeFromNotes(title, rawText, null, targetCount, setIndex, variant);
     }
 
     private static GeneratedStudySetResult GenerateEmptyFallback(string title)

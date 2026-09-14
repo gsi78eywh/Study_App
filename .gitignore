@@ -1,4 +1,4 @@
-﻿## .NET and Visual Studio
+## .NET and Visual Studio
 [Bb]in/
 [Oo]bj/
 [Ll]og/
@@ -64,5 +64,8 @@ desktop.ini
 **/.data-protection-keys/
 
 appsettings.Local.json
-appsettings.Local.json
 appsettings.*.local.json
+
+# Scratch workspace tools
+scratch/
+

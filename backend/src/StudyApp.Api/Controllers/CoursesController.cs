@@ -181,6 +181,40 @@ public sealed class CoursesController : ControllerBase
         });
     }
 
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetCourseById(Guid id, CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var course = await _context.Courses
+            .Where(course => course.Id == id && course.UserId == userId.Value)
+            .Select(course => new
+            {
+                course.Id,
+                course.UserId,
+                course.Code,
+                course.Name,
+                course.ColorHex,
+                course.CreatedAt,
+                course.UpdatedAt,
+                studySets = course.StudySets.Select(set => new
+                {
+                    set.Id,
+                    set.CourseId,
+                    set.Title,
+                    set.Description,
+                    set.CreatedAt,
+                    set.UpdatedAt,
+                    questionCount = set.Questions.Count
+                }).ToList()
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (course is null) return NotFound(new { message = "Course not found." });
+        return Ok(course);
+    }
+
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> UpdateCourse(Guid id, [FromBody] UpdateCourseRequest request, CancellationToken cancellationToken)
     {

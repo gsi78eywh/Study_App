@@ -9,6 +9,7 @@ class SessionService {
   static const String _keyBaseUrl = "api_base_url";
   static const String _keyLastSync = "last_sync_timestamp";
   static const String _keyThemeMode = "app_theme_mode";
+  static const String _keyGeminiApiKey = "gemini_api_key";
 
   final SharedPreferences _prefs;
 
@@ -25,6 +26,16 @@ class SessionService {
   String? get email => _prefs.getString(_keyEmail);
   String? get fullName => _prefs.getString(_keyFullName);
   String? get baseUrl => _prefs.getString(_keyBaseUrl);
+  String? get geminiApiKey => _prefs.getString(_keyGeminiApiKey);
+
+  Future<void> setGeminiApiKey(String? key) async {
+    if (key == null || key.trim().isEmpty) {
+      await _prefs.remove(_keyGeminiApiKey);
+    } else {
+      await _prefs.setString(_keyGeminiApiKey, key.trim());
+    }
+  }
+
   DateTime? get lastSyncAt {
     final str = _prefs.getString(_keyLastSync);
     return str != null ? DateTime.tryParse(str) : null;

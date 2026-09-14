@@ -1,6 +1,11 @@
+import "package:flutter/material.dart";
 import "package:flutter_test/flutter_test.dart";
 import "package:shared_preferences/shared_preferences.dart";
+import "package:study_app_mobile/core/network/api_client.dart";
+import "package:study_app_mobile/core/services/session_service.dart";
+import "package:study_app_mobile/core/theme/theme_controller.dart";
 import "package:study_app_mobile/features/settings/models/study_settings_model.dart";
+import "package:study_app_mobile/features/settings/screens/settings_screen.dart";
 import "package:study_app_mobile/features/settings/services/settings_service.dart";
 
 void main() {
@@ -108,6 +113,68 @@ void main() {
       final secondInstance = SettingsService(prefs);
       expect(secondInstance.settings.defaultQuestionCount, 25);
       expect(secondInstance.settings.dailyStudyGoalMinutes, 60);
+    });
+  });
+
+  group("SettingsScreen Developer Connection Widget Tests", () {
+    testWidgets("SettingsScreen renders Developer API Connection card and presets", (tester) async {
+      SharedPreferences.setMockInitialValues({
+        "jwt_token": "mock-token",
+        "user_id": "test-user-id",
+        "user_email": "student@studyapp.test",
+        "user_full_name": "Student Tester",
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final sessionService = SessionService(prefs);
+      ThemeController.init(sessionService);
+      final apiClient = ApiClient(sessionService);
+      final settingsService = SettingsService(prefs);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SettingsScreen(
+              apiClient: apiClient,
+              sessionService: sessionService,
+              settingsService: settingsService,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Scroll down to Developer Card
+      await tester.scrollUntilVisible(
+        find.text("🛠️ Developer & Cloud API Connection"),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+
+      // Verify developer card is rendered
+      expect(find.text("🛠️ Developer & Cloud API Connection"), findsOneWidget);
+      expect(find.text("Backend API Base URL"), findsOneWidget);
+      expect(find.byKey(const Key("server_url_input")), findsOneWidget);
+      expect(find.text("Localhost:5000"), findsOneWidget);
+      expect(find.text("Android (10.0.2.2)"), findsOneWidget);
+      expect(find.byKey(const Key("test_connection_btn")), findsOneWidget);
+
+      // Tap Android (10.0.2.2) preset chip
+      await tester.ensureVisible(find.text("Android (10.0.2.2)"));
+      await tester.tap(find.text("Android (10.0.2.2)"));
+      await tester.pumpAndSettle();
+
+      // Verify URL updated in text field
+      final textFieldAndroid = tester.widget<TextField>(find.byKey(const Key("server_url_input")));
+      expect(textFieldAndroid.controller?.text, "http://10.0.2.2:5000");
+
+      // Tap Localhost:5000 preset chip
+      await tester.tap(find.text("Localhost:5000"));
+      await tester.pumpAndSettle();
+
+      // Verify URL updated back to localhost
+      final textFieldLocal = tester.widget<TextField>(find.byKey(const Key("server_url_input")));
+      expect(textFieldLocal.controller?.text, "http://localhost:5000");
     });
   });
 }

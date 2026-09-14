@@ -114,10 +114,6 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
       _answers.add(PracticeAnswerSubmission(questionId: q.id, answer: answer!));
       _hasSubmittedCurrent = true;
     });
-
-    if (!widget.instantFeedback) {
-      _nextQuestion();
-    }
   }
 
   void _nextQuestion() {
@@ -525,81 +521,13 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                           ),
                         ),
                       ],
-                      // The server grades the submitted session so answer keys never
-                      // need to be sent to the client.
                       if (_hasSubmittedCurrent) ...[
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: AppColors.primary.withValues(alpha: 0.4),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.cloud_done_outlined,
-                                color: AppColors.primary,
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                'Answer recorded. Your server-graded result appears at the end.',
-                                style: TextStyle(
-                                  color: AppColors.primary,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        const SizedBox(height: 14),
+                        _buildRealtimeAnswerFeedbackBanner(q),
                         if (q.explanation != null &&
                             q.explanation!.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: context.surfaceColor,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: context.cardBorderColor,
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.psychology_outlined,
-                                      color: AppColors.accent,
-                                      size: 16,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'AI Explanation',
-                                      style: GoogleFonts.outfit(
-                                        fontWeight: FontWeight.bold,
-                                        color: context.textPrimary,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  q.explanation!,
-                                  style: TextStyle(
-                                    color: context.textSecondary,
-                                    fontSize: 13,
-                                    height: 1.45,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                          const SizedBox(height: 10),
+                          _buildAiExplanationCard(q),
                         ],
                       ],
                       const SizedBox(height: 18),
@@ -673,88 +601,205 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
             final opt = entry.value;
             final letter = String.fromCharCode(65 + idx); // A, B, C, D
             final isSelected = _selectedOptionId == opt.id;
+            final isCorrect = opt.isCorrect;
+
             Color borderColor = context.cardBorderColor;
             Color bgColor = context.surfaceColor;
-            if (_hasSubmittedCurrent && isSelected) {
-              borderColor = AppColors.primary;
-              bgColor = AppColors.primary.withValues(alpha: 0.12);
-            } else if (isSelected) {
-              borderColor = isDark
-                  ? AppColors.primaryLight
-                  : AppColors.primaryDark;
-              bgColor = AppColors.primary.withValues(alpha: 0.1);
-            }
-            return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              child: InkWell(
-                onTap: _hasSubmittedCurrent
-                    ? null
-                    : () => setState(() => _selectedOptionId = opt.id),
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
+            Color letterBg = isSelected
+                ? (isDark
+                    ? AppColors.primaryLight.withValues(alpha: 0.25)
+                    : AppColors.primaryDark.withValues(alpha: 0.2))
+                : context.secondaryBg;
+            Color letterColor = isSelected
+                ? (isDark ? AppColors.primaryLight : AppColors.primaryDark)
+                : context.textPrimary;
+            Widget? trailingBadge;
+
+            if (_hasSubmittedCurrent) {
+              if (isCorrect) {
+                // 100% Verified Correct Option
+                borderColor = const Color(0xFF10B981);
+                bgColor = const Color(0xFF10B981).withValues(alpha: 0.15);
+                letterBg = const Color(0xFF10B981);
+                letterColor = Colors.white;
+                trailingBadge = Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: bgColor,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: borderColor,
-                      width: isSelected ? 2 : 1,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 30,
-                        height: 30,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? (isDark
-                                  ? AppColors.primaryLight.withValues(alpha: 0.25)
-                                  : AppColors.primaryDark.withValues(alpha: 0.2))
-                              : context.secondaryBg,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: isSelected
-                                ? (isDark ? AppColors.primaryLight : AppColors.primaryDark)
-                                : context.cardBorderColor,
-                          ),
-                        ),
-                        child: Text(
-                          letter,
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                            color: isSelected
-                                ? (isDark ? AppColors.primaryLight : AppColors.primaryDark)
-                                : context.textPrimary,
-                          ),
-                        ),
+                    color: const Color(0xFF10B981),
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.3),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          opt.optionText,
-                          style: TextStyle(
-                            color: context.textPrimary,
-                            fontSize: 15,
-                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                          ),
-                        ),
-                      ),
-                      if (isSelected) ...[
-                        const SizedBox(width: 8),
-                        Icon(
-                          _hasSubmittedCurrent
-                              ? Icons.cloud_done_outlined
-                              : Icons.check_circle_rounded,
-                          color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
-                          size: 18,
-                        ),
-                      ],
                     ],
                   ),
-                ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.check_circle_rounded, color: Colors.white, size: 14),
+                      SizedBox(width: 4),
+                      Text(
+                        '100% Correct',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              } else if (isSelected) {
+                // User's Incorrect Selection
+                borderColor = const Color(0xFFEF4444);
+                bgColor = const Color(0xFFEF4444).withValues(alpha: 0.12);
+                letterBg = const Color(0xFFEF4444);
+                letterColor = Colors.white;
+                trailingBadge = Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFEF4444)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.cancel_rounded, color: Color(0xFFEF4444), size: 14),
+                      SizedBox(width: 4),
+                      Text(
+                        'Your Choice (Incorrect)',
+                        style: TextStyle(
+                          color: Color(0xFFEF4444),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              } else {
+                // Unselected Distractors
+                borderColor = context.cardBorderColor.withValues(alpha: 0.35);
+                bgColor = context.surfaceColor.withValues(alpha: 0.35);
+                letterBg = context.secondaryBg.withValues(alpha: 0.4);
+                letterColor = context.textSecondary.withValues(alpha: 0.5);
+              }
+            } else if (isSelected) {
+              borderColor = isDark ? AppColors.primaryLight : AppColors.primaryDark;
+              bgColor = AppColors.primary.withValues(alpha: 0.1);
+            }
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  InkWell(
+                    onTap: _hasSubmittedCurrent
+                        ? null
+                        : () => setState(() => _selectedOptionId = opt.id),
+                    borderRadius: BorderRadius.circular(12),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: bgColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: borderColor,
+                          width: (_hasSubmittedCurrent && (isCorrect || isSelected)) || isSelected ? 2 : 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: letterBg,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: (_hasSubmittedCurrent && (isCorrect || isSelected)) || isSelected
+                                    ? borderColor
+                                    : context.cardBorderColor,
+                              ),
+                            ),
+                            child: Text(
+                              letter,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: letterColor,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              opt.optionText,
+                              style: TextStyle(
+                                color: _hasSubmittedCurrent && !isCorrect && !isSelected
+                                    ? context.textSecondary
+                                    : context.textPrimary,
+                                fontSize: 15,
+                                fontWeight: (_hasSubmittedCurrent && isCorrect) || isSelected
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                          ),
+                          if (trailingBadge != null) ...[
+                            const SizedBox(width: 8),
+                            trailingBadge,
+                          ] else if (isSelected && !_hasSubmittedCurrent) ...[
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.check_circle_rounded,
+                              color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                              size: 18,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (_hasSubmittedCurrent &&
+                      isSelected &&
+                      !isCorrect &&
+                      opt.distractorRationale != null &&
+                      opt.distractorRationale!.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEF4444).withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.25)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.info_outline_rounded, color: Color(0xFFEF4444), size: 14),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              opt.distractorRationale!,
+                              style: const TextStyle(
+                                color: Color(0xFFEF4444),
+                                fontSize: 12,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
               ),
             );
           }).toList(),
@@ -774,68 +819,140 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
 
       case QuestionTypeEnum.enumeration:
       case QuestionTypeEnum.bulletPoints:
-        return TextField(
-          controller: _textController,
-          enabled: !_hasSubmittedCurrent,
-          style: TextStyle(color: context.textPrimary),
-          minLines: 4,
-          maxLines: 8,
-          keyboardType: TextInputType.multiline,
-          decoration: InputDecoration(
-            hintText: 'List each item on a new line or separated by commas...',
-            hintStyle: TextStyle(color: context.textSecondary),
-            alignLabelWithHint: true,
-          ),
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _textController,
+              enabled: !_hasSubmittedCurrent,
+              style: TextStyle(color: context.textPrimary),
+              minLines: 4,
+              maxLines: 8,
+              keyboardType: TextInputType.multiline,
+              decoration: InputDecoration(
+                hintText: 'List each item on a new line or separated by commas...',
+                hintStyle: TextStyle(color: context.textSecondary),
+                alignLabelWithHint: true,
+              ),
+            ),
+            if (_hasSubmittedCurrent) ...[
+              const SizedBox(height: 12),
+              _buildExactAnswerKeyCard(q),
+            ],
+          ],
         );
 
       case QuestionTypeEnum.shortAnswer:
-        return TextField(
-          controller: _textController,
-          enabled: !_hasSubmittedCurrent,
-          style: TextStyle(color: context.textPrimary),
-          minLines: 5,
-          maxLines: 10,
-          keyboardType: TextInputType.multiline,
-          decoration: InputDecoration(
-            hintText: 'Write your conceptual explanation in your own words...',
-            hintStyle: TextStyle(color: context.textSecondary),
-            alignLabelWithHint: true,
-          ),
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _textController,
+              enabled: !_hasSubmittedCurrent,
+              style: TextStyle(color: context.textPrimary),
+              minLines: 5,
+              maxLines: 10,
+              keyboardType: TextInputType.multiline,
+              decoration: InputDecoration(
+                hintText: 'Write your conceptual explanation in your own words...',
+                hintStyle: TextStyle(color: context.textSecondary),
+                alignLabelWithHint: true,
+              ),
+            ),
+            if (_hasSubmittedCurrent) ...[
+              const SizedBox(height: 12),
+              _buildExactAnswerKeyCard(q),
+            ],
+          ],
         );
 
       default:
-        return TextField(
-          controller: _textController,
-          enabled: !_hasSubmittedCurrent,
-          autofocus: true,
-          style: TextStyle(color: context.textPrimary),
-          decoration: InputDecoration(
-            hintText: q.type == QuestionTypeEnum.cloze
-                ? 'Type the missing word that fills the ____...'
-                : 'Type the key term or concept...',
-            hintStyle: TextStyle(color: context.textSecondary),
-          ),
-          onSubmitted: (_) {
-            if (_canSubmit && !_hasSubmittedCurrent) _submitAnswer();
-          },
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _textController,
+              enabled: !_hasSubmittedCurrent,
+              autofocus: true,
+              style: TextStyle(color: context.textPrimary),
+              decoration: InputDecoration(
+                hintText: q.type == QuestionTypeEnum.cloze
+                    ? 'Type the missing word that fills the ____...'
+                    : 'Type the key term or concept...',
+                hintStyle: TextStyle(color: context.textSecondary),
+              ),
+              onSubmitted: (_) {
+                if (_canSubmit && !_hasSubmittedCurrent) _submitAnswer();
+              },
+            ),
+            if (_hasSubmittedCurrent) ...[
+              const SizedBox(height: 12),
+              _buildExactAnswerKeyCard(q),
+            ],
+          ],
         );
     }
   }
 
   Widget _tfButton(String label, bool value, IconData icon) {
     final isSelected = _selectedTrueFalse == value;
+    final q = widget.questions[_currentIndex];
+    final isCorrectAnswer = q.isTrue == value;
+
     Color bg = context.surfaceColor;
     Color border = context.cardBorderColor;
     Color iconColor = context.textSecondary;
-    if (_hasSubmittedCurrent && isSelected) {
-      bg = AppColors.primary.withValues(alpha: 0.15);
-      border = AppColors.primary;
-      iconColor = AppColors.primary;
+    Widget? statusBadge;
+
+    if (_hasSubmittedCurrent) {
+      if (isCorrectAnswer) {
+        bg = const Color(0xFF10B981).withValues(alpha: 0.16);
+        border = const Color(0xFF10B981);
+        iconColor = const Color(0xFF10B981);
+        statusBadge = Container(
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: const Color(0xFF10B981),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: const Text(
+            '100% Correct',
+            style: TextStyle(
+                color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+          ),
+        );
+      } else if (isSelected) {
+        bg = const Color(0xFFEF4444).withValues(alpha: 0.14);
+        border = const Color(0xFFEF4444);
+        iconColor = const Color(0xFFEF4444);
+        statusBadge = Container(
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEF4444).withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: const Color(0xFFEF4444)),
+          ),
+          child: const Text(
+            'Incorrect',
+            style: TextStyle(
+                color: Color(0xFFEF4444),
+                fontSize: 11,
+                fontWeight: FontWeight.bold),
+          ),
+        );
+      } else {
+        bg = context.surfaceColor.withValues(alpha: 0.4);
+        border = context.cardBorderColor.withValues(alpha: 0.3);
+        iconColor = context.textSecondary.withValues(alpha: 0.4);
+      }
     } else if (isSelected) {
       bg = AppColors.primary.withValues(alpha: 0.15);
       border = AppColors.primaryLight;
       iconColor = AppColors.primaryLight;
     }
+
     return Expanded(
       child: GestureDetector(
         onTap: _hasSubmittedCurrent
@@ -847,7 +964,14 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
           decoration: BoxDecoration(
             color: bg,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: border, width: isSelected ? 2 : 1),
+            border: Border.all(
+              color: border,
+              width: (_hasSubmittedCurrent &&
+                          (isCorrectAnswer || isSelected)) ||
+                      isSelected
+                  ? 2
+                  : 1,
+            ),
           ),
           child: Column(
             children: [
@@ -861,6 +985,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                   color: context.textPrimary,
                 ),
               ),
+              if (statusBadge != null) statusBadge,
             ],
           ),
         ),
@@ -870,19 +995,27 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
 
   Widget _buildMatchingWidget(QuestionModel q) {
     if (q.matchingTerms.isEmpty || q.matchingDefinitions.isEmpty) {
-      return TextField(
-        controller: _textController,
-        enabled: !_hasSubmittedCurrent,
-        style: TextStyle(color: context.textPrimary),
-        decoration: InputDecoration(
-          hintText: 'Type the matching answer...',
-          hintStyle: TextStyle(color: context.textSecondary),
-        ),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _textController,
+            enabled: !_hasSubmittedCurrent,
+            style: TextStyle(color: context.textPrimary),
+            decoration: InputDecoration(
+              hintText: 'Type the matching answer...',
+              hintStyle: TextStyle(color: context.textSecondary),
+            ),
+          ),
+          if (_hasSubmittedCurrent) ...[
+            const SizedBox(height: 12),
+            _buildExactAnswerKeyCard(q),
+          ],
+        ],
       );
     }
     if (_matchingDefinitions.isEmpty) {
-      _matchingDefinitions = List<String>.from(q.matchingDefinitions)
-        ..shuffle();
+      _matchingDefinitions = List<String>.from(q.matchingDefinitions)..shuffle();
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -894,68 +1027,408 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
         const SizedBox(height: 10),
         ...q.matchingTerms.map((term) {
           final selectedDef = _matchingSelections[term];
+          final expectedDef = q.matchingPairs?.firstWhere(
+            (p) => p["term"]?.trim().toLowerCase() == term.trim().toLowerCase(),
+            orElse: () => const {},
+          )["definition"];
+
+          final isMatched = _hasSubmittedCurrent &&
+              expectedDef != null &&
+              selectedDef != null &&
+              selectedDef.trim().toLowerCase() == expectedDef.trim().toLowerCase();
+
+          Color borderColor = context.cardBorderColor;
+          Color bgColor = context.surfaceColor;
+
+          if (_hasSubmittedCurrent) {
+            if (isMatched) {
+              borderColor = const Color(0xFF10B981);
+              bgColor = const Color(0xFF10B981).withValues(alpha: 0.1);
+            } else {
+              borderColor = const Color(0xFFEF4444);
+              bgColor = const Color(0xFFEF4444).withValues(alpha: 0.08);
+            }
+          }
+
           return Container(
             margin: const EdgeInsets.only(bottom: 10),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: context.surfaceColor,
+              color: bgColor,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _hasSubmittedCurrent
-                    ? AppColors.primary
-                    : context.cardBorderColor,
-                width: _hasSubmittedCurrent ? 2 : 1,
+                color: borderColor,
+                width: _hasSubmittedCurrent ? 1.5 : 1,
               ),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    term,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: context.textPrimary,
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        term,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: context.textPrimary,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const Icon(Icons.arrow_forward, size: 16),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 3,
-                  child: _hasSubmittedCurrent
-                      ? Text(
-                          selectedDef ?? '(none)',
-                          style: const TextStyle(
-                            color: AppColors.primary,
-                            fontSize: 13,
-                          ),
-                        )
-                      : DropdownButton<String>(
-                          value: selectedDef,
-                          hint: const Text('Select...'),
-                          isExpanded: true,
-                          underline: const SizedBox(),
-                          items: _matchingDefinitions
-                              .map(
-                                (def) => DropdownMenuItem(
-                                  value: def,
+                    const Icon(Icons.arrow_forward, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 3,
+                      child: _hasSubmittedCurrent
+                          ? Row(
+                              children: [
+                                Expanded(
                                   child: Text(
-                                    def,
-                                    style: const TextStyle(fontSize: 13),
+                                    selectedDef ?? '(none)',
+                                    style: TextStyle(
+                                      color: isMatched
+                                          ? const Color(0xFF10B981)
+                                          : const Color(0xFFEF4444),
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
                                   ),
                                 ),
-                              )
-                              .toList(),
-                          onChanged: (val) =>
-                              setState(() => _matchingSelections[term] = val),
-                        ),
+                                Icon(
+                                  isMatched
+                                      ? Icons.check_circle_rounded
+                                      : Icons.cancel_rounded,
+                                  color: isMatched
+                                      ? const Color(0xFF10B981)
+                                      : const Color(0xFFEF4444),
+                                  size: 16,
+                                ),
+                              ],
+                            )
+                          : DropdownButton<String>(
+                              value: selectedDef,
+                              hint: const Text('Select...'),
+                              isExpanded: true,
+                              underline: const SizedBox(),
+                              items: _matchingDefinitions
+                                  .map(
+                                    (def) => DropdownMenuItem(
+                                      value: def,
+                                      child: Text(
+                                        def,
+                                        style: const TextStyle(fontSize: 13),
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (val) =>
+                                  setState(() => _matchingSelections[term] = val),
+                            ),
+                    ),
+                  ],
                 ),
+                if (_hasSubmittedCurrent &&
+                    !isMatched &&
+                    expectedDef != null &&
+                    expectedDef.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      '100% Match: $expectedDef',
+                      style: const TextStyle(
+                        color: Color(0xFF10B981),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           );
         }),
       ],
+    );
+  }
+
+  bool get _isCurrentCorrect {
+    final q = widget.questions[_currentIndex];
+    switch (q.type) {
+      case QuestionTypeEnum.multipleChoice:
+      case QuestionTypeEnum.scenario:
+        if (_selectedOptionId == null) return false;
+        final selected =
+            q.options.where((o) => o.id == _selectedOptionId).firstOrNull;
+        return selected?.isCorrect == true;
+      case QuestionTypeEnum.trueFalse:
+        if (_selectedTrueFalse == null || q.isTrue == null) return false;
+        return _selectedTrueFalse == q.isTrue;
+      case QuestionTypeEnum.matching:
+        if (_matchingSelections.isEmpty ||
+            (q.matchingPairs == null || q.matchingPairs!.isEmpty)) return false;
+        for (final pair in q.matchingPairs!) {
+          final term = pair["term"] ?? "";
+          final def = pair["definition"] ?? "";
+          if (_matchingSelections[term]?.trim().toLowerCase() !=
+              def.trim().toLowerCase()) {
+            return false;
+          }
+        }
+        return true;
+      case QuestionTypeEnum.identification:
+      case QuestionTypeEnum.cloze:
+        final entered = _textController.text.trim().toLowerCase();
+        if (entered.isEmpty) return false;
+        final candidates = <String>[];
+        if (q.correctAnswer != null && q.correctAnswer!.isNotEmpty) {
+          candidates.add(q.correctAnswer!.trim().toLowerCase());
+        }
+        for (final opt in q.options.where((o) => o.isCorrect)) {
+          candidates.add(opt.optionText.trim().toLowerCase());
+        }
+        return candidates.any((c) => _isFuzzyMatch(entered, c));
+      case QuestionTypeEnum.enumeration:
+      case QuestionTypeEnum.bulletPoints:
+        final entered = _textController.text.trim().toLowerCase();
+        if (entered.isEmpty) return false;
+        final accepted = q.options
+            .where((o) => o.isCorrect)
+            .map((o) => o.optionText.trim().toLowerCase())
+            .toList();
+        if (accepted.isEmpty && q.correctAnswer != null) {
+          accepted.addAll(q.correctAnswer!
+              .toLowerCase()
+              .split(RegExp(r'[,;\n]'))
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty));
+        }
+        return accepted.any((item) => entered.contains(item));
+      default:
+        final entered = _textController.text.trim().toLowerCase();
+        return entered.isNotEmpty;
+    }
+  }
+
+  static bool _isFuzzyMatch(String a, String b) {
+    if (a == b) return true;
+    final cleanA = a.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final cleanB = b.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    if (cleanA == cleanB && cleanA.isNotEmpty) return true;
+    if (cleanB.contains(cleanA) && cleanA.length >= 3) return true;
+    return false;
+  }
+
+  Widget _buildRealtimeAnswerFeedbackBanner(QuestionModel q) {
+    final isCorrect = _isCurrentCorrect;
+    final primaryColor =
+        isCorrect ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+    final iconData =
+        isCorrect ? Icons.check_circle_rounded : Icons.highlight_off_rounded;
+    final title =
+        isCorrect ? '100% Correct Recall!' : 'Answer Revealed: Review Key';
+    final subtitle = isCorrect
+        ? 'Spot on! You selected the verified 100% accurate solution.'
+        : 'The exact 100% correct answer is highlighted in green below.';
+    final badgeLabel = isCorrect ? '100% Accurate' : 'Exact Answer Revealed';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: primaryColor.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: primaryColor, width: 1.5),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: primaryColor.withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(iconData, color: primaryColor, size: 24),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.outfit(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: primaryColor,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: primaryColor,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        badgeLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: context.textSecondary,
+                    fontSize: 13,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAiExplanationCard(QuestionModel q) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.surfaceColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: context.cardBorderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.psychology_rounded,
+                color: AppColors.accent,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'AI Pedagogical Explanation & Rationale',
+                  style: GoogleFonts.outfit(
+                    fontWeight: FontWeight.bold,
+                    color: context.textPrimary,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            q.explanation!,
+            style: TextStyle(
+              color: context.textSecondary,
+              fontSize: 13.5,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExactAnswerKeyCard(QuestionModel q) {
+    final answerText = q.exactAnswerText.isNotEmpty
+        ? q.exactAnswerText
+        : (q.options
+                .where((o) => o.isCorrect)
+                .map((o) => o.optionText)
+                .join(', ')
+                .isNotEmpty
+            ? q.options
+                .where((o) => o.isCorrect)
+                .map((o) => o.optionText)
+                .join(', ')
+            : (q.correctAnswer ?? ''));
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF10B981).withValues(alpha: 0.14),
+            const Color(0xFF059669).withValues(alpha: 0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF10B981), width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.verified_rounded,
+                  color: Color(0xFF10B981), size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Exact 100% Answer Key',
+                  style: GoogleFonts.outfit(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: const Color(0xFF10B981),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  '100% Accuracy',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          if (answerText.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              answerText,
+              style: GoogleFonts.outfit(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: context.textPrimary,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

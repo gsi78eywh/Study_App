@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
@@ -29,17 +30,22 @@ public class DocumentExtractor : IDocumentExtractor
         _logger = logger;
     }
 
-    public async Task<string> ExtractImageTextAsync(Stream imageStream, string mimeType, CancellationToken cancellationToken = default)
+    public async Task<string> ExtractImageTextAsync(Stream imageStream, string mimeType, string? apiKeyOverride = null, CancellationToken cancellationToken = default)
     {
         using var ms = new MemoryStream();
         await imageStream.CopyToAsync(ms, cancellationToken);
         var bytes = ms.ToArray();
         if (bytes.Length == 0) return string.Empty;
 
-        var apiKey = _configuration?["AiSettings:ApiKey"] ?? string.Empty;
+        var apiKey = !string.IsNullOrWhiteSpace(apiKeyOverride)
+            ? apiKeyOverride.Trim()
+            : (_configuration?["AiSettings:ApiKey"] ?? string.Empty);
+
         if (string.IsNullOrWhiteSpace(apiKey) || apiKey.Contains("YOUR_GEMINI_API_KEY"))
         {
-            apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? string.Empty;
+            apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
+                ?? Environment.GetEnvironmentVariable("GOOGLE_API_KEY")
+                ?? string.Empty;
         }
 
         if (!string.IsNullOrWhiteSpace(apiKey) && _httpClient != null)
@@ -73,45 +79,84 @@ public class DocumentExtractor : IDocumentExtractor
                 };
 
                 var json = JsonSerializer.Serialize(payload);
-                var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={apiKey}";
-                using var request = new HttpRequestMessage(HttpMethod.Post, url);
-                request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+                var candidateModels = new[] { "gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro" };
 
-                using var response = await _httpClient.SendAsync(request, cancellationToken);
-                if (response.IsSuccessStatusCode)
+                foreach (var model in candidateModels)
                 {
-                    var responseStr = await response.Content.ReadAsStringAsync(cancellationToken);
-                    using var doc = JsonDocument.Parse(responseStr);
-                    if (doc.RootElement.TryGetProperty("candidates", out var candidates) && candidates.GetArrayLength() > 0)
+                    if (cancellationToken.IsCancellationRequested) break;
+
+                    try
                     {
-                        var firstCandidate = candidates[0];
-                        if (firstCandidate.TryGetProperty("content", out var content) &&
-                            content.TryGetProperty("parts", out var parts) &&
-                            parts.GetArrayLength() > 0)
+                        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
+                        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+                        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                        using var response = await _httpClient.SendAsync(request, cancellationToken);
+                        if (response.IsSuccessStatusCode)
                         {
-                            var text = parts[0].GetProperty("text").GetString();
-                            if (!string.IsNullOrWhiteSpace(text))
+                            var responseStr = await response.Content.ReadAsStringAsync(cancellationToken);
+                            using var doc = JsonDocument.Parse(responseStr);
+                            if (doc.RootElement.TryGetProperty("candidates", out var candidates) && candidates.GetArrayLength() > 0)
                             {
-                                return LimitText(text.Trim());
+                                var firstCandidate = candidates[0];
+                                if (firstCandidate.TryGetProperty("content", out var content) &&
+                                    content.TryGetProperty("parts", out var parts) &&
+                                    parts.GetArrayLength() > 0)
+                                {
+                                    var text = parts[0].GetProperty("text").GetString();
+                                    if (!string.IsNullOrWhiteSpace(text))
+                                    {
+                                        var cleaned = OcrTextCleaner.CleanAndReconstructText(text.Trim());
+                                        return LimitText(!string.IsNullOrWhiteSpace(cleaned) ? cleaned : text.Trim());
+                                    }
+                                }
                             }
                         }
+                        else
+                        {
+                            _logger?.LogWarning("Gemini Vision OCR with model {Model} returned status {StatusCode}", model, response.StatusCode);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogWarning(ex, "Gemini Vision OCR attempt for model {Model} failed", model);
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger?.LogWarning(ex, "Gemini Vision OCR extraction failed, using fallback");
+                _logger?.LogWarning(ex, "Gemini Vision OCR extraction failed, falling back to local OCR");
             }
         }
 
-        // Local extraction fallback: scan image byte stream for readable text chunks
+        // 2. Native Offline Local OCR (Windows.Media.Ocr.OcrEngine via PowerShell)
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                var localOcrText = await ExtractWithWindowsOcrAsync(bytes, mimeType, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(localOcrText))
+                {
+                    _logger?.LogInformation("Extracted {CharCount} characters using native offline Windows OCR", localOcrText.Length);
+                    var cleaned = OcrTextCleaner.CleanAndReconstructText(localOcrText);
+                    return LimitText(!string.IsNullOrWhiteSpace(cleaned) ? cleaned : localOcrText);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Native Windows OCR extraction failed, falling back to raw byte inspection");
+            }
+        }
+
+        // 3. Local extraction fallback: scan image byte stream for readable text chunks (e.g. metadata, embedded notes)
         var extractedMetadata = ExtractTextFromRawImageBytes(bytes);
         if (!string.IsNullOrWhiteSpace(extractedMetadata))
         {
-            return LimitText(extractedMetadata);
+            var cleaned = OcrTextCleaner.CleanAndReconstructText(extractedMetadata);
+            return LimitText(!string.IsNullOrWhiteSpace(cleaned) ? cleaned : extractedMetadata);
         }
 
-        return "[Image Content: Uploaded Note Material]";
+        return string.Empty;
     }
 
     private static string ExtractTextFromRawImageBytes(byte[] bytes)
@@ -155,6 +200,113 @@ public class DocumentExtractor : IDocumentExtractor
         }
 
         return sb.ToString().Trim();
+    }
+
+    private async Task<string> ExtractWithWindowsOcrAsync(byte[] bytes, string mimeType, CancellationToken cancellationToken)
+    {
+        var scriptPath = FindOcrScriptPath();
+        if (string.IsNullOrEmpty(scriptPath) || !File.Exists(scriptPath))
+        {
+            _logger?.LogWarning("Windows OCR script not found at candidate paths");
+            return string.Empty;
+        }
+
+        var ext = mimeType.ToLowerInvariant() switch
+        {
+            "image/jpeg" or "image/jpg" => ".jpg",
+            "image/webp" => ".webp",
+            "image/bmp" => ".bmp",
+            _ => ".png"
+        };
+
+        var tempImagePath = Path.Combine(Path.GetTempPath(), $"ocr_{Guid.NewGuid():N}{ext}");
+        try
+        {
+            await File.WriteAllBytesAsync(tempImagePath, bytes, cancellationToken);
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\" -ImagePath \"{tempImagePath}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8
+            };
+
+            using var process = new Process { StartInfo = startInfo };
+            process.Start();
+
+            var readOutputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var readErrorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(15));
+
+            await process.WaitForExitAsync(cts.Token);
+            var output = await readOutputTask;
+            var error = await readErrorTask;
+
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                _logger?.LogDebug("Windows OCR stderr: {Error}", error);
+            }
+
+            return output?.Trim() ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Error invoking native Windows OCR process");
+            return string.Empty;
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempImagePath))
+                {
+                    File.Delete(tempImagePath);
+                }
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+    }
+
+    private static string? FindOcrScriptPath()
+    {
+        var baseDir = AppContext.BaseDirectory;
+        var candidates = new[]
+        {
+            Path.Combine(baseDir, "DocumentParsers", "windows_ocr.ps1"),
+            Path.Combine(baseDir, "windows_ocr.ps1"),
+            Path.Combine(Directory.GetCurrentDirectory(), "backend", "src", "StudyApp.Infrastructure", "DocumentParsers", "windows_ocr.ps1"),
+            Path.Combine(Directory.GetCurrentDirectory(), "src", "StudyApp.Infrastructure", "DocumentParsers", "windows_ocr.ps1"),
+            Path.Combine(Directory.GetCurrentDirectory(), "DocumentParsers", "windows_ocr.ps1")
+        };
+
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate)) return candidate;
+        }
+
+        // Try climbing parent directories
+        var dir = new DirectoryInfo(baseDir);
+        while (dir != null && dir.Exists)
+        {
+            var testPath = Path.Combine(dir.FullName, "backend", "src", "StudyApp.Infrastructure", "DocumentParsers", "windows_ocr.ps1");
+            if (File.Exists(testPath)) return testPath;
+            testPath = Path.Combine(dir.FullName, "src", "StudyApp.Infrastructure", "DocumentParsers", "windows_ocr.ps1");
+            if (File.Exists(testPath)) return testPath;
+            testPath = Path.Combine(dir.FullName, "DocumentParsers", "windows_ocr.ps1");
+            if (File.Exists(testPath)) return testPath;
+            dir = dir.Parent;
+        }
+
+        return null;
     }
 
     public async Task<string> ExtractPdfTextAsync(Stream pdfStream, CancellationToken cancellationToken = default)

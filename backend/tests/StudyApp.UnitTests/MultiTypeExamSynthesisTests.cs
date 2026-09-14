@@ -178,4 +178,50 @@ public class MultiTypeExamSynthesisTests
         Assert.Equal(4, mitosisCluster.Items.Count);
         Assert.Contains(mitosisCluster.Items, item => item.Contains("Prophase", StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public void SynthesizeFromNotes_WithDifferentSetIndices_GeneratesDifferentSetsOfQuestionsWithoutRepetition()
+    {
+        // Set A (Foundational)
+        var setA = NoteScriptSynthesizer.SynthesizeFromNotes(
+            "Cell Biology",
+            SampleLectureNotes,
+            new List<string> { "multiple_choice", "true_false", "cloze" },
+            targetCount: 6,
+            setIndex: 0
+        );
+
+        // Set B (Reverse / Offset Variant)
+        var setB = NoteScriptSynthesizer.SynthesizeFromNotes(
+            "Cell Biology",
+            SampleLectureNotes,
+            new List<string> { "multiple_choice", "true_false", "cloze" },
+            targetCount: 6,
+            setIndex: 1
+        );
+
+        // Set C (Scenario / Applied Variant)
+        var setC = NoteScriptSynthesizer.SynthesizeFromNotes(
+            "Cell Biology",
+            SampleLectureNotes,
+            new List<string> { "multiple_choice", "true_false", "cloze" },
+            targetCount: 6,
+            setIndex: 2
+        );
+
+        Assert.NotNull(setA);
+        Assert.NotNull(setB);
+        Assert.NotNull(setC);
+
+        var promptsA = setA.Questions.Select(q => q.Prompt).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var promptsB = setB.Questions.Select(q => q.Prompt).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var promptsC = setC.Questions.Select(q => q.Prompt).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Verify Set A, Set B, and Set C are not identical to each other
+        bool isDifferentFromB = !promptsA.SetEquals(promptsB);
+        bool isDifferentFromC = !promptsB.SetEquals(promptsC);
+
+        Assert.True(isDifferentFromB, "Set B must have different question prompts from Set A");
+        Assert.True(isDifferentFromC, "Set C must have different question prompts from Set B");
+    }
 }

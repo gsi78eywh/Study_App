@@ -81,9 +81,6 @@ public sealed class PracticeController : ControllerBase
             .Take(count)
             .ToList();
 
-        // Server sessions deliberately omit answer keys. This permits online modes
-        // to be graded authoritatively while cached offline decks can retain their
-        // existing /studysets/{id}/questions representation.
         return Ok(candidates.Select(item => new
         {
             item.Question.Id,
@@ -91,9 +88,24 @@ public sealed class PracticeController : ControllerBase
             Type = item.Question.Type.ToString(),
             item.Question.Prompt,
             Hints = ReadHints(item.Question.HintsJson),
+            Explanation = item.Question.Explanation,
+            CorrectAnswer = GetCorrectAnswer(item.Question),
+            IsTrue = item.Question.Type == QuestionType.TrueFalse
+                ? (item.Question.Options.FirstOrDefault(o => o.IsCorrect)?.OptionText.Trim().Equals("True", StringComparison.OrdinalIgnoreCase) ??
+                   item.Question.Options.FirstOrDefault(o => o.IsCorrect)?.OptionText.Trim().Equals("1", StringComparison.OrdinalIgnoreCase))
+                : (bool?)null,
             item.Question.Difficulty,
             item.Question.SortOrder,
-            Options = item.Question.Options.Select(option => new { option.Id, option.OptionText }).OrderBy(_ => Guid.NewGuid()),
+            Options = item.Question.Options.Select(option => new
+            {
+                option.Id,
+                option.OptionText,
+                option.IsCorrect,
+                option.DistractorRationale
+            }),
+            MatchingPairs = item.Question.Type == QuestionType.Matching
+                ? item.Question.Rubrics.Select(r => TryReadPair(r.ItemText)).Where(p => p.HasValue).Select(p => new { term = p!.Value.Term, definition = p.Value.Definition })
+                : null,
             MatchingTerms = item.Question.Type == QuestionType.Matching ? ReadMatchingTerms(item.Question.Rubrics) : null,
             MatchingDefinitions = item.Question.Type == QuestionType.Matching ? ReadMatchingDefinitions(item.Question.Rubrics) : null,
             SourceReference = ReadSourceReference(item.Question.ThinkingBreakdownJson)
@@ -327,8 +339,8 @@ public sealed class PracticeController : ControllerBase
     {
         var expected = question.Rubrics
             .Select(r => TryReadPair(r.ItemText))
-            .Where(pair => pair is not null)
-            .Cast<(string Term, string Definition)>()
+            .Where(pair => pair.HasValue)
+            .Select(pair => pair!.Value)
             .ToList();
         var actual = ReadPairs(answer);
 
@@ -383,7 +395,16 @@ public sealed class PracticeController : ControllerBase
         return TimeSpan.FromDays(Math.Min(180, Math.Round(baseDays * multiplier)));
     }
 
-    private static string GetCorrectAnswer(Question question) => string.Join("; ", question.Options.Where(o => o.IsCorrect).Select(o => o.OptionText));
+    private static string GetCorrectAnswer(Question question)
+    {
+        var correctOptions = string.Join("; ", question.Options.Where(o => o.IsCorrect).Select(o => o.OptionText));
+        if (!string.IsNullOrWhiteSpace(correctOptions)) return correctOptions;
+        if (question.Rubrics.Any())
+        {
+            return string.Join(", ", question.Rubrics.OrderBy(r => r.SortOrder).Select(r => r.ItemText));
+        }
+        return string.Empty;
+    }
 
     private static List<string> SplitItems(string input) => Regex.Split(input ?? string.Empty, @"(?:\r?\n|,|;|\||\s+\d+[.)]\s*)")
         .Select(x => Regex.Replace(x, @"^\s*(?:[-*â€¢]|\d+[.)])\s*", string.Empty).Trim())

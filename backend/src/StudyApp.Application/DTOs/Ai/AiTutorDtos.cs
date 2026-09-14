@@ -1,4 +1,4 @@
-﻿namespace StudyApp.Application.DTOs.Ai;
+namespace StudyApp.Application.DTOs.Ai;
 
 public record ChatMessageDto(
     string Role, // "user" or "assistant"
@@ -8,7 +8,8 @@ public record ChatMessageDto(
 public record AskTutorRequest(
     string Message,
     string? ContextTopic = null,
-    List<ChatMessageDto>? History = null
+    List<ChatMessageDto>? History = null,
+    string? ApiKey = null
 );
 
 public record AskTutorResponse(
@@ -21,7 +22,8 @@ public record ExplainQuestionRequest(
     string Prompt,
     string CorrectAnswer,
     string? StudentAnswer = null,
-    string? SubjectContext = null
+    string? SubjectContext = null,
+    string? ApiKey = null
 );
 
 public record QuestionExplanationResult(

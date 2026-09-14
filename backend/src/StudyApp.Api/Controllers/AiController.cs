@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using StudyApp.Application.Common.Interfaces;
 using StudyApp.Application.DTOs.Ai;
@@ -27,7 +27,13 @@ public class AiController : ControllerBase
             return BadRequest(new { message = "Question or message cannot be empty." });
         }
 
-        var response = await _aiTutorService.AskTutorAsync(request, cancellationToken);
+        var headerKey = Request.Headers["X-Gemini-ApiKey"].FirstOrDefault()?.Trim();
+        var effectiveApiKey = !string.IsNullOrWhiteSpace(request.ApiKey)
+            ? request.ApiKey.Trim()
+            : (!string.IsNullOrWhiteSpace(headerKey) ? headerKey : null);
+
+        var effectiveRequest = request with { ApiKey = effectiveApiKey };
+        var response = await _aiTutorService.AskTutorAsync(effectiveRequest, cancellationToken);
         return Ok(response);
     }
 
@@ -39,7 +45,13 @@ public class AiController : ControllerBase
             return BadRequest(new { message = "Question prompt and correct answer are required." });
         }
 
-        var explanation = await _aiTutorService.ExplainQuestionAsync(request, cancellationToken);
+        var headerKey = Request.Headers["X-Gemini-ApiKey"].FirstOrDefault()?.Trim();
+        var effectiveApiKey = !string.IsNullOrWhiteSpace(request.ApiKey)
+            ? request.ApiKey.Trim()
+            : (!string.IsNullOrWhiteSpace(headerKey) ? headerKey : null);
+
+        var effectiveRequest = request with { ApiKey = effectiveApiKey };
+        var explanation = await _aiTutorService.ExplainQuestionAsync(effectiveRequest, cancellationToken);
         return Ok(explanation);
     }
 
@@ -47,7 +59,7 @@ public class AiController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> GetStatus(CancellationToken cancellationToken)
     {
-        var model = _configuration["AiSettings:ModelId"] ?? "gemini-flash-latest";
+        var model = _configuration["AiSettings:ModelId"] ?? "gemini-1.5-flash";
         var isHealthy = await _aiTutorService.IsHealthyAsync(cancellationToken);
 
         return Ok(new

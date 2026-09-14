@@ -70,6 +70,7 @@ class QuestionModel {
   final int sortOrder;
   final bool? isTrue; // for true_false questions
   final List<Map<String, String>>? matchingPairs; // for matching questions
+  final String? correctAnswer;
 
   QuestionModel({
     required this.id,
@@ -85,7 +86,29 @@ class QuestionModel {
     this.sortOrder = 1,
     this.isTrue,
     this.matchingPairs,
+    this.correctAnswer,
   });
+
+  QuestionOptionModel? get correctOption {
+    try {
+      return options.firstWhere((o) => o.isCorrect);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String get exactAnswerText {
+    if (correctOption != null && correctOption!.optionText.isNotEmpty) {
+      return correctOption!.optionText;
+    }
+    if (type == QuestionTypeEnum.trueFalse) {
+      return isTrue == true ? "TRUE" : "FALSE";
+    }
+    if (correctAnswer != null && correctAnswer!.isNotEmpty) {
+      return correctAnswer!;
+    }
+    return "";
+  }
 
   factory QuestionModel.fromJson(Map<String, dynamic> json) {
     List<String> parsedHints = [];
@@ -213,12 +236,19 @@ class QuestionModel {
         ? rawMatchingDefinitions
         : (matchingPairs?.map((p) => p["definition"] ?? "").where((s) => s.isNotEmpty).toList() ?? const <String>[]);
 
+    final String? correctAnswer = json["correctAnswer"]?.toString();
+
     bool? isTrue = json["isTrue"] as bool?;
     if (isTrue == null && qType == QuestionTypeEnum.trueFalse) {
       for (final opt in parsedOptions) {
         final text = opt.optionText.trim().toLowerCase();
         if (text == "true" && opt.isCorrect) isTrue = true;
         if (text == "false" && opt.isCorrect) isTrue = false;
+      }
+      if (isTrue == null && correctAnswer != null) {
+        final lower = correctAnswer.trim().toLowerCase();
+        if (lower == "true" || lower == "t" || lower == "1") isTrue = true;
+        if (lower == "false" || lower == "f" || lower == "0") isTrue = false;
       }
     }
 
@@ -236,6 +266,7 @@ class QuestionModel {
       matchingTerms: matchingTerms,
       matchingDefinitions: matchingDefinitions,
       matchingPairs: matchingPairs,
+      correctAnswer: correctAnswer,
     );
   }
 }

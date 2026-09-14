@@ -30,8 +30,13 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionDirectory))
     .SetApplicationName("StudyApp");
 
-// A stable development default that remains overrideable through ASPNETCORE_URLS.
-if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
+// A stable development default that remains overrideable through ASPNETCORE_URLS or PORT (Railway/Render).
+var port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrWhiteSpace(port))
+{
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+}
+else if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
 {
     builder.WebHost.UseUrls(builder.Configuration["Server:Urls"] ?? "http://localhost:5000");
 }
@@ -127,27 +132,25 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-// 5. Configure CORS for Flutter Mobile App
+// 5. Configure CORS for Flutter Mobile & Web Client
 var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
-if (!builder.Environment.IsDevelopment() && corsOrigins.Length == 0)
-{
-    throw new InvalidOperationException("Cors:AllowedOrigins must contain at least one origin outside Development.");
-}
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowMobileClient", policy =>
     {
-        if (builder.Environment.IsDevelopment() && corsOrigins.Length == 0)
+        if (corsOrigins.Length == 0 || corsOrigins.Contains("*"))
         {
-            policy.AllowAnyOrigin();
+            policy.AllowAnyOrigin()
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
         }
         else
         {
-            policy.WithOrigins(corsOrigins);
+            policy.WithOrigins(corsOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
         }
-
-        policy.AllowAnyHeader().AllowAnyMethod();
     });
 });
 
@@ -169,7 +172,7 @@ builder.Services.AddRateLimiter(options =>
         httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 10,
+            PermitLimit = builder.Environment.IsDevelopment() ? 500 : 10,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0,
             AutoReplenishment = true
@@ -179,7 +182,7 @@ builder.Services.AddRateLimiter(options =>
         httpContext.User?.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 30,
+            PermitLimit = builder.Environment.IsDevelopment() ? 500 : 30,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 5,
             AutoReplenishment = true
@@ -467,3 +470,5 @@ app.MapGet("/", () => Results.Content("""
 app.MapControllers();
 
 app.Run();
+
+public partial class Program { }

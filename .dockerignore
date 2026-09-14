@@ -1,0 +1,9 @@
+mobile/
+.git/
+.vscode/
+.idea/
+bin/
+obj/
+*.db
+*.db-shm
+*.db-wal

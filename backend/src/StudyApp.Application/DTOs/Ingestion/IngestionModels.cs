@@ -5,7 +5,9 @@ public record GenerateFromTextRequest(
     string Title,
     string Content,
     List<string>? QuestionTypes, // "mcq", "identification", "enumeration", "bullet_points", "logical_thinking"
-    int TargetCount = 15
+    int TargetCount = 15,
+    int SetIndex = 0,
+    string? Variant = null
 );
 
 public record GenerateFromUrlRequest(
@@ -13,7 +15,9 @@ public record GenerateFromUrlRequest(
     string Title,
     string Url,
     List<string>? QuestionTypes,
-    int TargetCount = 15
+    int TargetCount = 15,
+    int SetIndex = 0,
+    string? Variant = null
 );
 
 public record GeneratedQuestionDto(

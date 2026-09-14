@@ -12,7 +12,7 @@ class FlashcardTextSanitizer {
 
     // Strip cloze wrapper prefixes
     final clozePrefix = RegExp(
-      r'^(?:Fill in the (?:missing (?:word|key term)|blank)(?: from your (?:study )?notes)?:\s*["“]?|True or False:\s*(?:According to (?:your )?(?:study )?(?:material|notes):\s*["“]?)?)',
+      r'^(?:Fill in the (?:missing (?:word|key term)|blank)(?: from your (?:study )?notes)?:\s*["“]?|True or False:\s*(?:According to (?:your )?(?:study )?(?:material|notes):\s*["“]?))',
       caseSensitive: false,
     );
     if (clozePrefix.hasMatch(text)) {

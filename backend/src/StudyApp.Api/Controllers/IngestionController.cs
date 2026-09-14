@@ -49,7 +49,9 @@ public class IngestionController : ControllerBase
             sourceText,
             CleanTitle(request.Title),
             request.QuestionTypes ?? new List<string>(),
-            ClampTargetCount(request.TargetCount));
+            ClampTargetCount(request.TargetCount),
+            request.SetIndex,
+            request.Variant);
 
         var studySet = await SaveGeneratedSetAsync(request.CourseId, result, "Manual note input", "text/markdown", sourceText);
         return Ok(new
@@ -71,7 +73,10 @@ public class IngestionController : ControllerBase
         [FromForm] Guid courseId,
         [FromForm] string? title,
         [FromForm] string? questionTypes,
-        [FromForm] int? targetCount)
+        [FromForm] int? targetCount,
+        [FromForm] int? setIndex,
+        [FromForm] string? variant,
+        [FromForm] string? apiKey)
     {
         if (file == null || file.Length == 0)
         {
@@ -88,6 +93,11 @@ public class IngestionController : ControllerBase
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         var setHeader = CleanTitle(!string.IsNullOrWhiteSpace(title) ? title : Path.GetFileNameWithoutExtension(file.FileName));
         var targetNum = ClampTargetCount(targetCount ?? 10);
+        var chosenSetIndex = setIndex ?? 0;
+
+        var geminiKey = !string.IsNullOrWhiteSpace(apiKey)
+            ? apiKey.Trim()
+            : Request.Headers["X-Gemini-ApiKey"].ToString().Trim();
 
         var typesList = !string.IsNullOrWhiteSpace(questionTypes)
             ? questionTypes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
@@ -106,37 +116,53 @@ public class IngestionController : ControllerBase
         }
         stream.Position = 0;
 
-        if (ext is ".png" or ".jpg" or ".jpeg" or ".webp")
+        if (ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp")
         {
-            // Direct OCR / Image Text Extraction without AI hallucinations
+            // Direct OCR / Image Text Extraction with Gemini Vision & Local Fallback
             var mimeType = ext switch
             {
                 ".png" => "image/png",
                 ".webp" => "image/webp",
+                ".bmp" => "image/bmp",
                 _ => "image/jpeg"
             };
-            extractedSourceText = await _documentExtractor.ExtractImageTextAsync(stream, mimeType);
-            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum);
+            extractedSourceText = await _documentExtractor.ExtractImageTextAsync(stream, mimeType, geminiKey);
+
+            if (string.IsNullOrWhiteSpace(extractedSourceText))
+            {
+                return BadRequest(new
+                {
+                    message = "No readable text could be recognized from this screenshot. To enable AI Vision OCR for photos and screenshots, please enter your free Google Gemini API Key in the settings, or paste the text directly into the 'Paste Text' tab."
+                });
+            }
+
+            var cleanedOcr = StudyApp.Infrastructure.DocumentParsers.OcrTextCleaner.CleanAndReconstructText(extractedSourceText);
+            if (!string.IsNullOrWhiteSpace(cleanedOcr))
+            {
+                extractedSourceText = cleanedOcr;
+            }
+
+            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant);
         }
         else if (ext == ".pdf")
         {
             extractedSourceText = await _documentExtractor.ExtractPdfTextAsync(stream);
-            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum);
+            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant);
         }
         else if (ext == ".docx")
         {
             extractedSourceText = await _documentExtractor.ExtractDocxTextAsync(stream);
-            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum);
+            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant);
         }
         else if (ext is ".txt" or ".md")
         {
             using var reader = new StreamReader(stream, leaveOpen: true);
             extractedSourceText = LimitSourceText(await reader.ReadToEndAsync());
-            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum);
+            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant);
         }
         else
         {
-            return BadRequest(new { message = "Unsupported file type. Please upload a PDF, DOCX, TXT, or Image file (.png, .jpg, .jpeg, .webp)." });
+            return BadRequest(new { message = "Unsupported file type. Please upload a PDF, DOCX, TXT, or Image file (.png, .jpg, .jpeg, .webp, .bmp)." });
         }
 
         var studySet = await SaveGeneratedSetAsync(courseId, result, file.FileName, ext, extractedSourceText);
@@ -148,7 +174,118 @@ public class IngestionController : ControllerBase
             studySet.Description,
             result.Summary,
             result.HighYieldBulletPoints,
-            QuestionCount = studySet.Questions.Count
+            QuestionCount = studySet.Questions.Count,
+            ExtractedText = extractedSourceText
+        });
+    }
+
+    [HttpPost("scan")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> ScanDocumentContent(
+        [FromForm] IFormFile file,
+        [FromForm] string? apiKey)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest(new { message = "Please select a valid image or document file to scan." });
+        }
+
+        if (file.Length > 30 * 1024 * 1024)
+        {
+            return BadRequest(new { message = "File exceeds 30MB limit." });
+        }
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        var geminiKey = !string.IsNullOrWhiteSpace(apiKey)
+            ? apiKey.Trim()
+            : Request.Headers["X-Gemini-ApiKey"].ToString().Trim();
+
+        using var stream = new MemoryStream();
+        await file.CopyToAsync(stream);
+        stream.Position = 0;
+
+        if (!ValidateFileSignature(stream, ext))
+        {
+            return BadRequest(new { message = "Uploaded file content does not match the file extension signature." });
+        }
+        stream.Position = 0;
+
+        string? extractedText = null;
+        string engineUsed = "Native Document Parser";
+
+        if (ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp")
+        {
+            var mimeType = ext switch
+            {
+                ".png" => "image/png",
+                ".webp" => "image/webp",
+                ".bmp" => "image/bmp",
+                _ => "image/jpeg"
+            };
+
+            extractedText = await _documentExtractor.ExtractImageTextAsync(stream, mimeType, geminiKey);
+            engineUsed = !string.IsNullOrWhiteSpace(geminiKey) ? "Gemini Vision (Cloud Multimodal)" : "Native Windows OCR (Offline)";
+        }
+        else if (ext == ".pdf")
+        {
+            extractedText = await _documentExtractor.ExtractPdfTextAsync(stream);
+            engineUsed = "PdfPig Document Parser";
+        }
+        else if (ext == ".docx")
+        {
+            extractedText = await _documentExtractor.ExtractDocxTextAsync(stream);
+            engineUsed = "OpenXml Document Parser";
+        }
+        else if (ext is ".txt" or ".md")
+        {
+            using var reader = new StreamReader(stream, leaveOpen: true);
+            extractedText = LimitSourceText(await reader.ReadToEndAsync());
+            engineUsed = "Text Stream Reader";
+        }
+        else
+        {
+            return BadRequest(new { message = "Unsupported file type. Please upload a PNG, JPG, JPEG, WEBP, BMP, PDF, DOCX, TXT, or MD file." });
+        }
+
+        if (string.IsNullOrWhiteSpace(extractedText))
+        {
+            return Ok(new
+            {
+                fileName = file.FileName,
+                fileType = ext,
+                charCount = 0,
+                wordCount = 0,
+                lineCount = 0,
+                extractedText = string.Empty,
+                rawText = string.Empty,
+                ocrEngine = engineUsed,
+                hasContent = false,
+                message = "No readable text could be recognized. Please verify the image is clear, focused, and well-lit."
+            });
+        }
+
+        var rawScanned = extractedText.Trim();
+        var cleanedText = StudyApp.Infrastructure.DocumentParsers.OcrTextCleaner.CleanAndReconstructText(extractedText);
+        if (!string.IsNullOrWhiteSpace(cleanedText))
+        {
+            extractedText = cleanedText;
+        }
+
+        var lines = extractedText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+        var words = extractedText.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+        return Ok(new
+        {
+            fileName = file.FileName,
+            fileType = ext,
+            charCount = extractedText.Length,
+            wordCount = words.Length,
+            lineCount = lines.Length,
+            extractedText = extractedText.Trim(),
+            rawText = rawScanned,
+            ocrEngine = engineUsed,
+            hasContent = true,
+            message = "Content scanned and cleaned successfully."
         });
     }
 
@@ -183,7 +320,13 @@ public class IngestionController : ControllerBase
         {
             return BadRequest(new { message = "No readable study text was found at that URL." });
         }
-        var result = await _aiGenerator.GenerateStudySetAsync(extractedText, CleanTitle(request.Title), request.QuestionTypes ?? new List<string>(), ClampTargetCount(request.TargetCount));
+        var result = await _aiGenerator.GenerateStudySetAsync(
+            extractedText,
+            CleanTitle(request.Title),
+            request.QuestionTypes ?? new List<string>(),
+            ClampTargetCount(request.TargetCount),
+            request.SetIndex,
+            request.Variant);
 
         var studySet = await SaveGeneratedSetAsync(request.CourseId, result, uri.ToString(), "text/html", extractedText);
         return Ok(new
@@ -264,6 +407,56 @@ public class IngestionController : ControllerBase
         return Ok(new { message = "Study set deleted successfully.", id = id.ToString() });
     }
 
+    [HttpDelete("/api/v1/questions/{id:guid}")]
+    [HttpDelete("/api/v1/studysets/{studySetId:guid}/questions/{id:guid}")]
+    public async Task<IActionResult> DeleteQuestion(Guid id, Guid? studySetId = null)
+    {
+        var question = await _context.Questions
+            .Where(q => q.Id == id && q.StudySet != null && q.StudySet.Course != null && q.StudySet.Course.UserId == CurrentUserId())
+            .Include(q => q.StudySet)
+                .ThenInclude(s => s!.Course)
+            .Include(q => q.Options)
+            .Include(q => q.Rubrics)
+            .FirstOrDefaultAsync();
+
+        if (question == null) return NotFound(new { message = "Question not found." });
+
+        if (studySetId.HasValue && studySetId.Value != Guid.Empty && question.StudySetId != studySetId.Value)
+        {
+            return BadRequest(new { message = "Question does not belong to the specified study set." });
+        }
+
+        // Clean up any session answers referencing this question first to maintain referential integrity
+        var sessionAnswers = await _context.SessionAnswers
+            .Where(a => a.QuestionId == id)
+            .ToListAsync();
+        if (sessionAnswers.Any())
+        {
+            _context.SessionAnswers.RemoveRange(sessionAnswers);
+        }
+
+        if (question.StudySet?.Course != null)
+        {
+            question.StudySet.Course.UpdatedAt = DateTime.UtcNow;
+        }
+
+        if (question.Options != null && question.Options.Any())
+        {
+            _context.QuestionOptions.RemoveRange(question.Options);
+        }
+
+        if (question.Rubrics != null && question.Rubrics.Any())
+        {
+            _context.QuestionRubrics.RemoveRange(question.Rubrics);
+        }
+
+        _context.Questions.Remove(question);
+        await _context.SaveChangesAsync();
+
+        return Ok(new { message = "Question deleted successfully.", id = id.ToString() });
+    }
+
+
     [HttpGet("/api/v1/studysets/{id:guid}/sources")]
     public async Task<IActionResult> GetStudySetSources(Guid id)
     {
@@ -323,7 +516,8 @@ public class IngestionController : ControllerBase
                 sb.AppendLine($"### Source: {doc.FileName} ({doc.FileType})");
                 if (!string.IsNullOrWhiteSpace(doc.ExtractedText))
                 {
-                    sb.AppendLine(doc.ExtractedText);
+                    var cleanText = StudyApp.Infrastructure.DocumentParsers.OcrTextCleaner.CleanAndReconstructText(doc.ExtractedText);
+                    sb.AppendLine(!string.IsNullOrWhiteSpace(cleanText) ? cleanText : doc.ExtractedText);
                 }
                 sb.AppendLine();
             }
@@ -414,6 +608,7 @@ public class IngestionController : ControllerBase
                 "matching" or "matching_type" or "matchingtype" => QuestionType.Matching,
                 "short_answer" or "shortanswer" or "short" => QuestionType.ShortAnswer,
                 "scenario" or "scenario_drills" or "casestudy" => QuestionType.Scenario,
+                "flashcards" or "flashcard" => QuestionType.Identification,
                 _ => QuestionType.MultipleChoice
             };
 
@@ -669,6 +864,7 @@ public class IngestionController : ControllerBase
             ".jpg" or ".jpeg" => buffer[0] == 0xFF && buffer[1] == 0xD8 && buffer[2] == 0xFF, // JPEG
             ".webp" => bytesRead >= 12 && buffer[0] == 0x52 && buffer[1] == 0x49 && buffer[2] == 0x46 && buffer[3] == 0x46
                                        && buffer[8] == 0x57 && buffer[9] == 0x45 && buffer[10] == 0x42 && buffer[11] == 0x50,
+            ".bmp" => buffer[0] == 0x42 && buffer[1] == 0x4D, // BM
             ".txt" or ".md" => !buffer.Take(bytesRead).Contains((byte)0), // Plain text should not contain NUL bytes
             _ => false
         };

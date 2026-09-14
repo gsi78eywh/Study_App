@@ -1,5 +1,7 @@
+import "package:dio/dio.dart";
 import "package:flutter/material.dart";
 import "package:google_fonts/google_fonts.dart";
+import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
@@ -28,13 +30,30 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late StudySettingsModel _current;
+  late final TextEditingController _geminiApiKeyController;
+  late final TextEditingController _serverUrlController;
+  bool _obscureApiKey = true;
   bool _isSaving = false;
+  bool _isTestingConnection = false;
+  String? _connectionTestResult;
+  bool? _connectionSuccess;
 
   @override
   void initState() {
     super.initState();
     _current = widget.settingsService.settings;
+    _geminiApiKeyController = TextEditingController(text: widget.sessionService.geminiApiKey ?? "");
+    _serverUrlController = TextEditingController(
+      text: widget.sessionService.baseUrl ?? ApiConstants.defaultBaseUrl,
+    );
     _loadRemote();
+  }
+
+  @override
+  void dispose() {
+    _geminiApiKeyController.dispose();
+    _serverUrlController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadRemote() async {
@@ -46,6 +65,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _saveSettings() async {
     setState(() => _isSaving = true);
+    await widget.sessionService.setGeminiApiKey(_geminiApiKeyController.text.trim());
+
+    final newUrl = _serverUrlController.text.trim();
+    if (newUrl.isNotEmpty) {
+      await widget.sessionService.setBaseUrl(newUrl);
+    }
+
     final saved = await widget.settingsService.saveSettings(_current);
     if (!mounted) return;
     setState(() {
@@ -55,11 +81,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("✨ Study configurations saved successfully!"),
+        content: Text("✨ Study configurations and API keys saved successfully!"),
         backgroundColor: AppColors.accent,
         duration: Duration(seconds: 2),
       ),
     );
+  }
+
+  Future<void> _testServerConnection() async {
+    final targetUrl = _serverUrlController.text.trim();
+    if (targetUrl.isEmpty) return;
+
+    setState(() {
+      _isTestingConnection = true;
+      _connectionTestResult = null;
+      _connectionSuccess = null;
+    });
+
+    try {
+      final dio = Dio(BaseOptions(
+        baseUrl: targetUrl,
+        connectTimeout: const Duration(seconds: 4),
+        receiveTimeout: const Duration(seconds: 4),
+      ));
+
+      final response = await dio.get("/api/v1/dev/diagnostics");
+      if (response.statusCode == 200 && response.data is Map) {
+        final data = response.data as Map;
+        final db = data["database"]?["provider"] ?? "Database";
+        final questions = data["database"]?["questionCount"] ?? 0;
+        final env = data["environment"] ?? "Active";
+        if (mounted) {
+          setState(() {
+            _connectionSuccess = true;
+            _connectionTestResult = "Connected! Server online ($env, $db with $questions questions).";
+          });
+        }
+      } else {
+        final healthResp = await dio.get("/health");
+        if (mounted) {
+          setState(() {
+            _connectionSuccess = healthResp.statusCode == 200;
+            _connectionTestResult = healthResp.statusCode == 200
+                ? "Connected! Server health check passed."
+                : "Server responded with status ${response.statusCode}.";
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _connectionSuccess = false;
+          _connectionTestResult = "Connection failed: Ensure backend is reachable at $targetUrl";
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isTestingConnection = false);
+      }
+    }
   }
 
   Future<void> _resetDefaults() async {
@@ -297,6 +377,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 20),
 
+          // Section: Google Gemini AI & Vision OCR
+          _buildSectionHeader("🤖 Google Gemini AI & Vision OCR"),
+          _buildCard([
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.auto_awesome, color: AppColors.accent, size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Google Gemini API Key",
+                              style: GoogleFonts.outfit(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: context.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              "Enables OCR text extraction from screenshots & photos (Free at aistudio.google.com)",
+                              style: TextStyle(color: context.textSecondary, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _geminiApiKeyController,
+                    obscureText: _obscureApiKey,
+                    style: TextStyle(color: context.textPrimary, fontFamily: "monospace"),
+                    decoration: InputDecoration(
+                      labelText: "Gemini API Key",
+                      hintText: "AIzaSy...",
+                      prefixIcon: const Icon(Icons.key_rounded, size: 18),
+                      suffixIcon: IconButton(
+                        icon: Icon(_obscureApiKey ? Icons.visibility_off : Icons.visibility, size: 18),
+                        onPressed: () => setState(() => _obscureApiKey = !_obscureApiKey),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ]),
+
+          const SizedBox(height: 20),
+
           // Section 4: Appearance & Feedback
           _buildSectionHeader("🎨 Appearance & Feedback"),
           _buildCard([
@@ -345,6 +487,164 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: _current.hapticFeedbackEnabled,
               icon: Icons.vibration_rounded,
               onChanged: (val) => setState(() => _current = _current.copyWith(hapticFeedbackEnabled: val)),
+            ),
+          ]),
+
+          const SizedBox(height: 20),
+
+          // Developer & Server Connection Section
+          _buildSectionHeader("🛠️ Developer & Cloud API Connection"),
+          _buildCard([
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.dns_rounded, color: Color(0xFF6366F1), size: 18),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            "Backend API Base URL",
+                            style: GoogleFonts.outfit(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: context.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_connectionSuccess != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: (_connectionSuccess! ? const Color(0xFF10B981) : AppColors.danger).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            _connectionSuccess! ? "ONLINE" : "OFFLINE",
+                            style: TextStyle(
+                              color: _connectionSuccess! ? const Color(0xFF10B981) : AppColors.danger,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    "Switch active API endpoint between local development and Railway cloud deployment without rebuilding:",
+                    style: TextStyle(color: context.textSecondary, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const Key("server_url_input"),
+                    controller: _serverUrlController,
+                    style: TextStyle(color: context.textPrimary, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: "http://localhost:5000",
+                      prefixIcon: const Icon(Icons.link_rounded, size: 18),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        tooltip: "Reset to Default",
+                        onPressed: () {
+                          _serverUrlController.text = ApiConstants.defaultBaseUrl;
+                        },
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      ActionChip(
+                        avatar: const Icon(Icons.computer_rounded, size: 14),
+                        label: const Text("Localhost:5000", style: TextStyle(fontSize: 11)),
+                        onPressed: () {
+                          setState(() => _serverUrlController.text = "http://localhost:5000");
+                        },
+                      ),
+                      ActionChip(
+                        avatar: const Icon(Icons.phone_android_rounded, size: 14),
+                        label: const Text("Android (10.0.2.2)", style: TextStyle(fontSize: 11)),
+                        onPressed: () {
+                          setState(() => _serverUrlController.text = "http://10.0.2.2:5000");
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      key: const Key("test_connection_btn"),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF6366F1),
+                        side: const BorderSide(color: Color(0xFF6366F1)),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      icon: _isTestingConnection
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1)),
+                            )
+                          : const Icon(Icons.network_check_rounded, size: 16),
+                      label: Text(
+                        _isTestingConnection ? "Testing Connection..." : "Test Server Connection & Diagnostics",
+                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                      ),
+                      onPressed: _isTestingConnection ? null : _testServerConnection,
+                    ),
+                  ),
+                  if (_connectionTestResult != null) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: (_connectionSuccess == true ? const Color(0xFF10B981) : AppColors.danger).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: (_connectionSuccess == true ? const Color(0xFF10B981) : AppColors.danger).withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _connectionSuccess == true ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+                            color: _connectionSuccess == true ? const Color(0xFF10B981) : AppColors.danger,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _connectionTestResult!,
+                              style: TextStyle(
+                                color: _connectionSuccess == true ? const Color(0xFF10B981) : AppColors.danger,
+                                fontSize: 11.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ]),
 
@@ -433,7 +733,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: context.cardBorderColor),
       ),
-      child: Column(children: children),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: Column(children: children),
+      ),
     );
   }
 

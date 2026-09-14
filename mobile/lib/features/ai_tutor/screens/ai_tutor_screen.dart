@@ -61,7 +61,9 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
         widget.initialCourseContext ??
         (widget.courses.isNotEmpty ? widget.courses.first.name : null);
 
-    // Initial greeting from Gemini
+    // Initial greeting from Tutor
+    final hasGeminiKey =
+        widget.apiClient.sessionService.geminiApiKey?.isNotEmpty ?? false;
     _messages.add(
       ChatMessage(
         role: "assistant",
@@ -69,7 +71,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
             "👋 Hi! I'm your **Gemini Study Tutor**, powered by Google Gemini AI.\n\n"
             "I can help you master complex coursework, explain tricky equations, break down practice problems, and give you conceptual clarity.\n\n"
             "What topic or question are we tackling today?",
-        modelUsed: "gemini-flash-latest",
+        modelUsed: hasGeminiKey ? "gemini-1.5-flash" : "Built-In Academic Engine",
         timestamp: DateTime.now(),
       ),
     );
@@ -125,13 +127,14 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
           )
           .toList();
 
-      if (history.isNotEmpty) history.removeLast();
+      final geminiKey = widget.apiClient.sessionService.geminiApiKey;
 
       final response = await widget.apiClient.dio.post(
         ApiConstants.aiTutor,
         data: {
           "message": query,
           "contextTopic": _selectedCourseContext,
+          "apiKey": geminiKey,
           "history": history.length > 6
               ? history.sublist(history.length - 6)
               : history,
@@ -229,6 +232,132 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     }
   }
 
+  void _showGeminiKeyDialog() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final controller = TextEditingController(
+      text: widget.apiClient.sessionService.geminiApiKey ?? "",
+    );
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(
+              color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+            ),
+          ),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.vpn_key_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                "Google Gemini API Key",
+                style: GoogleFonts.outfit(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 17,
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Configure your free Google Gemini API key to enable live cloud AI reasoning with Google Gemini models.\n\n"
+                  "Even without an API key, your tutor runs fully functional with the built-in offline educational engine.",
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  obscureText: true,
+                  style: GoogleFonts.inter(fontSize: 14),
+                  decoration: InputDecoration(
+                    labelText: "Gemini API Key",
+                    hintText: "AIzaSy...",
+                    prefixIcon: const Icon(Icons.key, size: 18),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.clear, size: 16),
+                      onPressed: () => controller.clear(),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  "Keys are stored securely on your device and sent directly to Google Gemini.",
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6366F1),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () async {
+                final key = controller.text.trim();
+                await widget.apiClient.sessionService.setGeminiApiKey(key);
+                if (mounted) {
+                  setState(() {});
+                  Navigator.pop(dialogCtx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        key.isNotEmpty
+                            ? "✨ Gemini API Key saved! Live Cloud AI active."
+                            : "Gemini API Key cleared. Using built-in academic engine.",
+                      ),
+                      backgroundColor:
+                          key.isNotEmpty ? AppColors.accent : AppColors.primary,
+                    ),
+                  );
+                }
+              },
+              child: const Text("Save Key"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = context.isDarkMode;
@@ -282,6 +411,55 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
           ],
         ),
         actions: [
+          // Gemini Key Status / Configuration Action
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: _showGeminiKeyDialog,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: (widget.apiClient.sessionService.geminiApiKey?.isNotEmpty ?? false)
+                      ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                      : const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: (widget.apiClient.sessionService.geminiApiKey?.isNotEmpty ?? false)
+                        ? const Color(0xFF10B981).withValues(alpha: 0.5)
+                        : const Color(0xFFF59E0B).withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      (widget.apiClient.sessionService.geminiApiKey?.isNotEmpty ?? false)
+                          ? Icons.auto_awesome
+                          : Icons.vpn_key_rounded,
+                      size: 13,
+                      color: (widget.apiClient.sessionService.geminiApiKey?.isNotEmpty ?? false)
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFFF59E0B),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      (widget.apiClient.sessionService.geminiApiKey?.isNotEmpty ?? false)
+                          ? "Cloud AI"
+                          : "API Key",
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: (widget.apiClient.sessionService.geminiApiKey?.isNotEmpty ?? false)
+                            ? const Color(0xFF10B981)
+                            : const Color(0xFFF59E0B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
           if (widget.courses.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(right: 12),

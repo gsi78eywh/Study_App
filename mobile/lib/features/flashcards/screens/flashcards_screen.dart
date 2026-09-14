@@ -10,6 +10,7 @@ import "../utils/flashcard_text_sanitizer.dart";
 
 class FlashcardItem {
   final String id;
+  final String? questionId;
   final String courseCode;
   final String studySetId;
   final String studySetTitle;
@@ -22,6 +23,7 @@ class FlashcardItem {
 
   FlashcardItem({
     required this.id,
+    this.questionId,
     required this.courseCode,
     required this.studySetId,
     required this.studySetTitle,
@@ -40,6 +42,7 @@ class FlashcardsScreen extends StatefulWidget {
   final ApiClient? apiClient;
   final VoidCallback? onLoadStarterPack;
   final VoidCallback? onNavigateToStudio;
+  final VoidCallback? onCardDeleted;
 
   const FlashcardsScreen({
     super.key,
@@ -48,7 +51,9 @@ class FlashcardsScreen extends StatefulWidget {
     this.apiClient,
     this.onLoadStarterPack,
     this.onNavigateToStudio,
+    this.onCardDeleted,
   });
+
 
   @override
   State<FlashcardsScreen> createState() => _FlashcardsScreenState();
@@ -229,6 +234,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
 
               _allCards.add(FlashcardItem(
                 id: "card-${q.id}",
+                questionId: q.id,
                 courseCode: course.code,
                 studySetId: set.id,
                 studySetTitle: set.title,
@@ -416,6 +422,147 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
       ),
     );
   }
+
+  Future<void> _confirmDeleteCard(FlashcardItem card) async {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.delete_forever_rounded, color: Color(0xFFEF4444), size: 22),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              "Delete Flashcard?",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Are you sure you want to delete this flashcard from '${card.studySetTitle}'?",
+              style: TextStyle(
+                color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
+                fontSize: 14,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: (isDark ? Colors.black : Colors.grey.shade100).withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade300),
+              ),
+              child: Text(
+                card.front,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontStyle: FontStyle.italic,
+                  fontSize: 12,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              "This removes the question to prevent confusion and errors in future study sessions.",
+              style: TextStyle(color: Color(0xFFEF4444), fontSize: 12, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            key: const Key("cancel_delete_card_button"),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(
+              "Cancel",
+              style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+            ),
+          ),
+          ElevatedButton.icon(
+            key: const Key("confirm_delete_card_button"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
+            icon: const Icon(Icons.delete_outline_rounded, size: 18),
+            label: const Text("Delete", style: TextStyle(fontWeight: FontWeight.bold)),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete == true) {
+      await _deleteCard(card);
+    }
+  }
+
+  Future<void> _deleteCard(FlashcardItem card) async {
+    final deletedQuestionId = card.questionId;
+    final deletedCardId = card.id;
+
+    if (deletedQuestionId != null && widget.apiClient != null) {
+      try {
+        await widget.apiClient!.dio.delete("/api/v1/questions/$deletedQuestionId");
+      } catch (e) {
+        debugPrint("Error deleting question from server: $e");
+      }
+    }
+
+    setState(() {
+      _allCards.removeWhere((c) => c.id == deletedCardId);
+      _filteredCards.removeWhere((c) => c.id == deletedCardId);
+      _masteredIds.remove(deletedCardId);
+      _learningIds.remove(deletedCardId);
+      _highRiskIds.remove(deletedCardId);
+
+      if (_currentIndex >= _filteredCards.length) {
+        _currentIndex = _filteredCards.isNotEmpty ? _filteredCards.length - 1 : 0;
+      }
+      _resetCardFlip();
+    });
+
+    widget.onCardDeleted?.call();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle_outline_rounded, color: Colors.white, size: 18),
+              SizedBox(width: 8),
+              Text("Flashcard deleted successfully.", style: TextStyle(fontWeight: FontWeight.w600)),
+            ],
+          ),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
 
   void _showSessionCompletedDialog() {
     final totalInFilter = _filteredCards.length;
@@ -1006,10 +1153,10 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                           Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              if (!isUnder && card.hint != null && card.hint!.isNotEmpty)
+                                              if (!isUnder && card.hint != null && card.hint!.isNotEmpty) ...[
                                                 IconButton(
                                                   padding: EdgeInsets.zero,
-                                                  constraints: const BoxConstraints(),
+                                                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                                                   icon: Icon(
                                                     _showHint ? Icons.lightbulb_rounded : Icons.lightbulb_outline_rounded,
                                                     size: 18,
@@ -1018,7 +1165,8 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                                   tooltip: "Toggle Hint",
                                                   onPressed: () => setState(() => _showHint = !_showHint),
                                                 ),
-                                              const SizedBox(width: 6),
+                                                const SizedBox(width: 6),
+                                              ],
                                               Container(
                                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                                 decoration: BoxDecoration(
@@ -1033,6 +1181,19 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                                     fontWeight: FontWeight.bold,
                                                   ),
                                                 ),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              IconButton(
+                                                key: const Key("delete_flashcard_icon"),
+                                                padding: EdgeInsets.zero,
+                                                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                                icon: Icon(
+                                                  Icons.delete_outline_rounded,
+                                                  size: 18,
+                                                  color: const Color(0xFFEF4444).withValues(alpha: 0.8),
+                                                ),
+                                                tooltip: "Delete Flashcard",
+                                                onPressed: () => _confirmDeleteCard(card),
                                               ),
                                             ],
                                           ),
