@@ -194,7 +194,8 @@ public static class NoteScriptSynthesizer
             "true_false",
             "matching",
             "short_answer",
-            "scenario"
+            "scenario",
+            "flashcard"
         };
 
         var filteredRequested = rawTypes
@@ -259,6 +260,7 @@ public static class NoteScriptSynthesizer
                     "scenario" => GenerateScenarioQuestions(parsedDefinitions, cleanTitle, poolOfAnswersAndTerms, neededNow, setIndex, variant),
                     "short_answer" => GenerateShortAnswerQuestions(parsedDefinitions, cleanTitle, neededNow, setIndex),
                     "multiple_choice" => GenerateQuestionsFromDefinitions(parsedDefinitions, cleanTitle, poolOfAnswersAndTerms, countNeeded: neededNow, setIndex: setIndex, variant: variant),
+                    "flashcard" => GenerateFlashcardQuestions(parsedDefinitions, cleanTitle, neededNow, setIndex),
                     _ => new List<GeneratedQuestionDto>()
                 };
 
@@ -1317,6 +1319,37 @@ public static class NoteScriptSynthesizer
                 $"Defined in notes: \"{def.FullSentence}\"",
                 null,
                 $"Source passage: {def.FullSentence}"
+            ));
+        }
+
+        return result;
+    }
+
+    private static List<GeneratedQuestionDto> GenerateFlashcardQuestions(
+        List<(string Term, string Definition, string FullSentence)> definitions,
+        string title,
+        int countNeeded,
+        int setIndex = 0)
+    {
+        var result = new List<GeneratedQuestionDto>();
+
+        for (int i = 0; i < definitions.Count && result.Count < countNeeded; i++)
+        {
+            var def = definitions[i];
+            var prompt = $"What is {def.Term}?";
+
+            result.Add(new GeneratedQuestionDto(
+                "flashcard",
+                prompt,
+                new List<string> { $"Category: {title}", $"Term: {def.Term}" },
+                def.Definition,
+                new List<GeneratedOptionDto> { new GeneratedOptionDto(def.Definition, true, null) },
+                new List<string> { def.Definition },
+                null,
+                false,
+                $"Flashcard definition from {title}: \"{def.FullSentence}\"",
+                null,
+                $"Source: {def.FullSentence}"
             ));
         }
 

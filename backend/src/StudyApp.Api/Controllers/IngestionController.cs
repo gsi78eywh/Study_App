@@ -62,7 +62,22 @@ public class IngestionController : ControllerBase
             studySet.Description,
             result.Summary,
             result.HighYieldBulletPoints,
-            QuestionCount = studySet.Questions.Count
+            QuestionCount = studySet.Questions.Count,
+            Questions = studySet.Questions.Select(q => new
+            {
+                q.Id,
+                q.StudySetId,
+                q.Prompt,
+                QuestionType = q.Type.ToString(),
+                q.Explanation,
+                Options = q.Options.Select(o => new
+                {
+                    o.Id,
+                    o.QuestionId,
+                    o.OptionText,
+                    o.IsCorrect
+                }).ToList()
+            }).ToList()
         });
     }
 
@@ -175,7 +190,22 @@ public class IngestionController : ControllerBase
             result.Summary,
             result.HighYieldBulletPoints,
             QuestionCount = studySet.Questions.Count,
-            ExtractedText = extractedSourceText
+            ExtractedText = extractedSourceText,
+            Questions = studySet.Questions.Select(q => new
+            {
+                q.Id,
+                q.StudySetId,
+                q.Prompt,
+                QuestionType = q.Type.ToString(),
+                q.Explanation,
+                Options = q.Options.Select(o => new
+                {
+                    o.Id,
+                    o.QuestionId,
+                    o.OptionText,
+                    o.IsCorrect
+                }).ToList()
+            }).ToList()
         });
     }
 
@@ -274,10 +304,15 @@ public class IngestionController : ControllerBase
         var lines = extractedText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
         var words = extractedText.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
+        var candidateTitle = lines.Length > 0 && lines[0].Length >= 3 && lines[0].Length <= 60 && !lines[0].Contains(":")
+            ? lines[0].Trim('#', '*', ' ', '_')
+            : Path.GetFileNameWithoutExtension(file.FileName);
+
         return Ok(new
         {
             fileName = file.FileName,
             fileType = ext,
+            suggestedTitle = CleanTitle(candidateTitle),
             charCount = extractedText.Length,
             wordCount = words.Length,
             lineCount = lines.Length,

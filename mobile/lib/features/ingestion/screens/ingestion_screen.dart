@@ -10,6 +10,8 @@ import "../../../core/network/api_client.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../courses/models/course_models.dart";
 import "../../quiz/models/quiz_models.dart";
+import "../widgets/camera_scanner_modal.dart";
+import "../widgets/progressive_exam_studio.dart";
 
 class IngestionScreen extends StatefulWidget {
   final List<CourseModel> courses;
@@ -319,6 +321,47 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         setState(() => _isExtractingTextToEditor = false);
       }
     }
+  }
+
+  void _openCameraScanner() {
+    CameraScannerModal.show(
+      context,
+      courses: widget.courses,
+      initialCourseId: _selectedCourseId,
+      apiClient: widget.apiClient,
+      onExportAndCreateExam: (courseId, title, scannedText) {
+        final course = widget.courses.firstWhere(
+          (c) => c.id == courseId,
+          orElse: () => widget.courses.first,
+        );
+        ProgressiveExamStudio.show(
+          context,
+          courseId: course.id,
+          courseName: course.name,
+          initialTitle: title,
+          sourceText: scannedText,
+          apiClient: widget.apiClient,
+          onExamSaved: (newSet) {
+            if (widget.onStudySetCreated != null) {
+              widget.onStudySetCreated!(newSet);
+            }
+          },
+        );
+      },
+      onExportToEditor: (title, scannedText) {
+        setState(() {
+          _titleController.text = title;
+          _textController.text = scannedText;
+          _tabController.animateTo(0);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("✨ Transcribed notes exported to Note Editor!"),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _showExtractFromModulesDialog() async {
@@ -1372,6 +1415,11 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         title: Text("Study Notes Extractor & Studio", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: context.textPrimary)),
         actions: [
           IconButton(
+            icon: const Icon(Icons.document_scanner_rounded),
+            tooltip: "Open Camera Text Scanner",
+            onPressed: _openCameraScanner,
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: "Reset Form & Clear Selection",
             onPressed: _resetForm,
@@ -1400,6 +1448,85 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // In-App Camera Scanner & Multi-Kind Exam Generation Card
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: isDark
+                            ? [const Color(0xFF0369A1).withValues(alpha: 0.25), const Color(0xFF4338CA).withValues(alpha: 0.25)]
+                            : [const Color(0xFFE0F2FE), const Color(0xFFEEF2FF)],
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFF06B6D4).withValues(alpha: 0.5),
+                        width: 1.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF06B6D4).withValues(alpha: 0.1),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF06B6D4), Color(0xFF6366F1)],
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.document_scanner_rounded,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "📷 In-App Camera Text Scanner",
+                                style: GoogleFonts.outfit(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                  color: context.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                "Snap physical notes or textbook pages to auto-transcribe text & slowly sculpt multi-kind exams.",
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  color: context.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF06B6D4),
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          icon: const Icon(Icons.camera_alt_rounded, size: 16),
+                          label: const Text("Scan", style: TextStyle(fontWeight: FontWeight.bold)),
+                          onPressed: _openCameraScanner,
+                        ),
+                      ],
+                    ),
+                  ),
+
                   // Direct extraction banner
                   Container(
                     margin: const EdgeInsets.only(bottom: 16),

@@ -21,6 +21,8 @@ import "../../settings/services/settings_service.dart";
 import "../../settings/screens/settings_screen.dart";
 import "../../../core/constants/api_constants.dart";
 import "../widgets/pomodoro_timer_sheet.dart";
+import "../../ingestion/widgets/camera_scanner_modal.dart";
+import "../../ingestion/widgets/progressive_exam_studio.dart";
 
 class DashboardScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -95,6 +97,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
       cleaned = "${cleaned.substring(0, 132)}...";
     }
     return cleaned;
+  }
+
+  void _openCameraScanner([String? targetCourseId]) {
+    CameraScannerModal.show(
+      context,
+      courses: _courses,
+      initialCourseId: targetCourseId,
+      apiClient: widget.apiClient,
+      onExportAndCreateExam: (courseId, title, scannedText) {
+        final course = _courses.firstWhere(
+          (c) => c.id == courseId,
+          orElse: () => _courses.first,
+        );
+        ProgressiveExamStudio.show(
+          context,
+          courseId: course.id,
+          courseName: course.name,
+          initialTitle: title,
+          sourceText: scannedText,
+          apiClient: widget.apiClient,
+          onExamSaved: (newSet) {
+            setState(() {
+              if (!course.studySets.any((s) => s.id == newSet.id)) {
+                course.studySets.insert(0, newSet);
+              }
+            });
+          },
+        );
+      },
+      onExportToEditor: (title, scannedText) {
+        setState(() => _currentTabIndex = 3);
+      },
+    );
   }
 
   Widget _buildQuickActionCard(
@@ -1467,6 +1502,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     Row(
                       children: [
                         _buildQuickActionCard(
+                          "Scan Notes",
+                          "In-app camera OCR",
+                          Icons.document_scanner_rounded,
+                          const Color(0xFF06B6D4),
+                          () => _openCameraScanner(),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildQuickActionCard(
                           "Upload Notes",
                           "PDF, docs & images",
                           Icons.add_photo_alternate_outlined,
@@ -1792,6 +1835,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 8),
+                                InkWell(
+                                  onTap: () => _openCameraScanner(course.id),
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF06B6D4).withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.document_scanner_rounded,
+                                          size: 13,
+                                          color: Color(0xFF06B6D4),
+                                        ),
+                                        SizedBox(width: 3),
+                                        Text(
+                                          "Scan",
+                                          style: TextStyle(
+                                            color: Color(0xFF06B6D4),
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
                                 InkWell(
                                   onTap: () => setState(() => _currentTabIndex = 3),
                                   borderRadius: BorderRadius.circular(6),
