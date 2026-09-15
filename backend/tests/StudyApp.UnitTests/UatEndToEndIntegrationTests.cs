@@ -16,23 +16,20 @@ namespace StudyApp.UnitTests;
 
 public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 {
-    private readonly string _dbName = Guid.NewGuid().ToString();
+    private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"studyapp_test_{Guid.NewGuid():N}.db");
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.ConfigureServices(services =>
-        {
-            var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<ApplicationDbContext>));
-            if (descriptor != null)
-            {
-                services.Remove(descriptor);
-            }
+        builder.UseSetting("ConnectionStrings:DefaultConnection", $"Data Source={_dbPath}");
+    }
 
-            services.AddDbContext<ApplicationDbContext>(options =>
-            {
-                options.UseInMemoryDatabase(_dbName);
-            });
-        });
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing && File.Exists(_dbPath))
+        {
+            try { File.Delete(_dbPath); } catch { }
+        }
     }
 }
 

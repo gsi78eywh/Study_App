@@ -1,5 +1,4 @@
 import "dart:async";
-import "dart:typed_data";
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:dio/dio.dart";
@@ -463,7 +462,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                     child: ListView.separated(
                       controller: scrollController,
                       itemCount: availableModules.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      separatorBuilder: (context, index) => const SizedBox(height: 8),
                       itemBuilder: (ctx, idx) {
                         final item = availableModules[idx];
                         final CourseModel course = item["course"];
@@ -669,7 +668,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               if (setVariant == 1) {
                 // Set B: Reverse Recall & Cloze drills
                 if (answer.isNotEmpty) {
-                  buffer.writeln("• Key Concept (${answer}): ${q.explanation ?? q.prompt}");
+                  buffer.writeln("• Key Concept ($answer): ${q.explanation ?? q.prompt}");
                 } else {
                   buffer.writeln("• Concept Prompt: ${q.prompt}");
                 }

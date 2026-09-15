@@ -985,7 +985,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                   color: context.textPrimary,
                 ),
               ),
-              if (statusBadge != null) statusBadge,
+              ?statusBadge,
             ],
           ),
         ),
@@ -1172,7 +1172,9 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
         return _selectedTrueFalse == q.isTrue;
       case QuestionTypeEnum.matching:
         if (_matchingSelections.isEmpty ||
-            (q.matchingPairs == null || q.matchingPairs!.isEmpty)) return false;
+            (q.matchingPairs == null || q.matchingPairs!.isEmpty)) {
+          return false;
+        }
         for (final pair in q.matchingPairs!) {
           final term = pair["term"] ?? "";
           final def = pair["definition"] ?? "";

@@ -336,7 +336,9 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                 await widget.apiClient.sessionService.setGeminiApiKey(key);
                 if (mounted) {
                   setState(() {});
-                  Navigator.pop(dialogCtx);
+                  if (dialogCtx.mounted) {
+                    Navigator.pop(dialogCtx);
+                  }
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(

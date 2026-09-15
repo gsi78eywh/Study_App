@@ -1082,7 +1082,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: ListView.separated(
                   controller: scrollController,
                   itemCount: questions.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  separatorBuilder: (context, index) => const SizedBox(height: 12),
                   itemBuilder: (context, idx) {
                     final q = questions[idx];
                     final correctOpt = q.options.cast<QuestionOptionModel?>().firstWhere(

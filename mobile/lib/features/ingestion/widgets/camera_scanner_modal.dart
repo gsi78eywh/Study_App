@@ -1,5 +1,4 @@
 import "dart:async";
-import "dart:convert";
 import "dart:typed_data";
 import "package:flutter/material.dart";
 import "package:dio/dio.dart";
@@ -650,7 +649,7 @@ Key Concepts:
                 child: Image.memory(
                   _capturedImageBytes!,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const Center(
+                  errorBuilder: (context, error, stackTrace) => const Center(
                     child: Icon(Icons.image, color: Colors.white24, size: 48),
                   ),
                 ),
@@ -677,6 +676,27 @@ Key Concepts:
               right: 14,
               child: _ReticleCorner(alignment: Alignment.bottomRight),
             ),
+
+            // Captured filename tag
+            if (_capturedImageName != null)
+              Positioned(
+                top: 18,
+                left: 28,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.65),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.white24, width: 0.5),
+                  ),
+                  child: Text(
+                    _capturedImageName!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.outfit(color: Colors.white70, fontSize: 11),
+                  ),
+                ),
+              ),
 
             // Animated Laser Scanline Beam
             if (_isScanning || _capturedImageBytes != null)

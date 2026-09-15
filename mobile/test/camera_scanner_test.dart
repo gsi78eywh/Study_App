@@ -57,7 +57,7 @@ void main() {
   testWidgets("CameraScannerModal renders viewfinder HUD, reticle, and mode chips", (tester) async {
     await tester.pumpWidget(
       buildTestWidget(
-        onExportAndCreateExam: (_, __, ___) {},
+        onExportAndCreateExam: (text, courseId, autoGen) {},
       ),
     );
     await tester.pump(const Duration(milliseconds: 100));
@@ -112,7 +112,7 @@ void main() {
   testWidgets("CameraScannerModal mode chip selection switches scanner mode", (tester) async {
     await tester.pumpWidget(
       buildTestWidget(
-        onExportAndCreateExam: (_, __, ___) {},
+        onExportAndCreateExam: (text, courseId, autoGen) {},
       ),
     );
     await tester.pump(const Duration(milliseconds: 100));
