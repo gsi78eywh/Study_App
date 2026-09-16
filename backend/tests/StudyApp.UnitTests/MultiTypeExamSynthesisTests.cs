@@ -224,4 +224,47 @@ public class MultiTypeExamSynthesisTests
         Assert.True(isDifferentFromB, "Set B must have different question prompts from Set A");
         Assert.True(isDifferentFromC, "Set C must have different question prompts from Set B");
     }
+
+    [Fact]
+    public void SynthesizeFromNotes_ParagraphHeavyNotes_GeneratesMultiAngleFlashcardsWithoutLooping()
+    {
+        const string NarrativeUnstructuredNotes = """
+            Cardiovascular physiology revolves around the double circulation system of mammals.
+            Because the left ventricle must pump oxygenated blood through the entire systemic circulation, its muscular wall is approximately three times thicker than the right ventricle.
+            When systemic blood pressure drops precipitously, the kidneys release renin, which triggers angiotensin production and leads to significant vasoconstriction.
+            Unlike arteries which withstand high hydrostatic pulsatile pressure, veins operate under low pressure and rely on one-way bicuspid valves and skeletal muscle contraction to prevent backflow.
+            The sinoatrial node functions as the primary natural pacemaker because it exhibits the fastest rate of spontaneous phase 4 diastolic depolarization.
+            Arteriosclerosis leads to decreased vascular compliance, thereby causing isolated systolic hypertension in elderly populations.
+            """;
+
+        var result = NoteScriptSynthesizer.SynthesizeFromNotes(
+            "Cardiovascular Physiology",
+            NarrativeUnstructuredNotes,
+            new List<string> { "flashcards" },
+            targetCount: 6
+        );
+
+        Assert.NotNull(result);
+        Assert.Equal(6, result.Questions.Count);
+
+        // Every card must be flashcard type
+        Assert.All(result.Questions, q => Assert.Equal("flashcard", q.Type));
+
+        // Ensure questions are distinct and not looping back-to-back
+        var distinctPrompts = result.Questions.Select(q => q.Prompt).Distinct().ToList();
+        Assert.True(distinctPrompts.Count >= 5, $"Expected at least 5 unique prompts, got {distinctPrompts.Count}");
+
+        // Ensure dimension tags are attached to ThinkingBreakdown
+        var hasDimensions = result.Questions.Any(q =>
+            q.ThinkingBreakdown != null && q.ThinkingBreakdown.Any(step => step.StartsWith("DIMENSION:")));
+        Assert.True(hasDimensions, "Flashcards should contain multi-angle cognitive dimension tags");
+
+        // Verify that diverse cognitive dimensions are present (e.g. CAUSE & EFFECT, KEY DISTINCTION, CORE CONCEPT)
+        var dimensionTags = result.Questions
+            .SelectMany(q => q.ThinkingBreakdown ?? new List<string>())
+            .Where(s => s.StartsWith("DIMENSION:"))
+            .ToList();
+        Assert.NotEmpty(dimensionTags);
+    }
 }
+

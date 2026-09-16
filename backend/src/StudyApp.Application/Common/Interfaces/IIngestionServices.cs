@@ -11,6 +11,7 @@ public interface IAiQuestionGenerator
         int targetCount,
         int setIndex = 0,
         string? variant = null,
+        string? apiKeyOverride = null,
         CancellationToken cancellationToken = default);
 
     Task<GeneratedStudySetResult> GenerateStudySetFromImageAsync(
@@ -21,6 +22,7 @@ public interface IAiQuestionGenerator
         int targetCount,
         int setIndex = 0,
         string? variant = null,
+        string? apiKeyOverride = null,
         CancellationToken cancellationToken = default);
 }
 

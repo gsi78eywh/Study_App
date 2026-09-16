@@ -42,6 +42,7 @@ public class SemanticKernelQuestionGenerator : IAiQuestionGenerator
         int targetCount,
         int setIndex = 0,
         string? variant = null,
+        string? apiKeyOverride = null,
         CancellationToken cancellationToken = default)
     {
         return Task.FromResult(AnalyzeAndSynthesizeLocally(title, $"[Visual content extracted from uploaded image for {title}]", targetCount, setIndex, variant));
@@ -54,6 +55,7 @@ public class SemanticKernelQuestionGenerator : IAiQuestionGenerator
         int targetCount,
         int setIndex = 0,
         string? variant = null,
+        string? apiKeyOverride = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(rawText))

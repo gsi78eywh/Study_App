@@ -7,7 +7,8 @@ public record GenerateFromTextRequest(
     List<string>? QuestionTypes, // "mcq", "identification", "enumeration", "bullet_points", "logical_thinking"
     int TargetCount = 15,
     int SetIndex = 0,
-    string? Variant = null
+    string? Variant = null,
+    string? ApiKey = null
 );
 
 public record GenerateFromUrlRequest(

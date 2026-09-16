@@ -46,33 +46,216 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         _model = _configuration["AiSettings:ModelId"] ?? "gemini-1.5-flash";
     }
 
-    public Task<GeneratedStudySetResult> GenerateStudySetAsync(
+    public async Task<GeneratedStudySetResult> GenerateStudySetAsync(
         string rawText,
         string title,
         List<string> requestedTypes,
         int targetCount,
         int setIndex = 0,
         string? variant = null,
+        string? apiKeyOverride = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(rawText))
         {
-            return Task.FromResult(GenerateEmptyFallback(title));
+            return GenerateEmptyFallback(title);
         }
+
+        var effectiveApiKey = !string.IsNullOrWhiteSpace(apiKeyOverride)
+            ? apiKeyOverride.Trim()
+            : (!string.IsNullOrWhiteSpace(_apiKey) ? _apiKey : null);
 
         var textHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawText)));
         var typesKey = string.Join("_", requestedTypes);
-        var cacheKey = $"study_set_{textHash}_{typesKey}_{targetCount}_{setIndex}_{variant ?? "default"}";
+        var cacheKey = $"study_set_{textHash}_{typesKey}_{targetCount}_{setIndex}_{variant ?? "default"}_{(effectiveApiKey != null ? "ai" : "local")}";
 
         if (_cache.TryGetValue(cacheKey, out var cached) && cached.Data is GeneratedStudySetResult cachedResult)
         {
             _logger.LogInformation("Returning cached study set for {Title} (0ms response)", title);
-            return Task.FromResult(cachedResult);
+            return cachedResult;
+        }
+
+        if (!string.IsNullOrWhiteSpace(effectiveApiKey) && !effectiveApiKey.Contains("YOUR_GEMINI_API_KEY"))
+        {
+            try
+            {
+                var typesListStr = (requestedTypes != null && requestedTypes.Count > 0)
+                    ? string.Join(", ", requestedTypes)
+                    : "multiple_choice, identification, true_false, cloze, enumeration, matching, flashcard";
+
+                var aiPrompt = $$"""
+                You are an advanced academic AI exam and active-recall engine.
+                Thoroughly analyze and digest the ENTIRE provided lecture notes/study material below from beginning to end.
+                Do NOT just repeat the first few sentences or define words back-and-forth in a loop.
+                Explore the entire text for:
+                - Core concepts, mechanisms, and definitions
+                - Cause and effect relationships
+                - Key distinctions and comparisons
+                - Processes, steps, and rules
+                - Quantitative values and facts
+                - Practical applications and analytical scenarios
+
+                STUDY MATERIAL TITLE: {{title}}
+                REQUESTED QUESTION/CARD TYPES: {{typesListStr}}
+                TARGET ITEM COUNT: {{targetCount}}
+                SET INDEX / VARIANT: {{setIndex}} / {{variant ?? "default"}}
+
+                STUDY MATERIAL CONTENT:
+                {{rawText}}
+
+                INSTRUCTIONS FOR FLASHCARDS:
+                If flashcards are requested or needed, create active-recall flashcards across distinct cognitive dimensions:
+                1. Core Concept & Role (Front: What is the primary role/function of X? Back: ...)
+                2. Reverse Active Recall (Front: What concept/principle operates as follows: "..."? Back: ...)
+                3. Cause & Effect (Front: What is the direct consequence/outcome when X occurs? Back: ...)
+                4. Key Distinction (Front: How does X differ from related concepts? Back: ...)
+                5. Application Drill (Front: In a practical problem, how is X applied? Back: ...)
+
+                Return pure valid JSON adhering to this schema:
+                {
+                  "summary": "2-3 sentence overview covering the full breadth of the material",
+                  "highYieldBulletPoints": ["bullet 1", "bullet 2", "bullet 3", "bullet 4", "bullet 5"],
+                  "questions": [
+                    {
+                      "type": "flashcard" | "multiple_choice" | "identification" | "true_false" | "cloze" | "enumeration" | "matching" | "scenario",
+                      "prompt": "Clear, precise question or flashcard front prompt",
+                      "hints": ["Helpful hint 1"],
+                      "correctAnswer": "Exact correct answer or flashcard back",
+                      "options": [
+                        { "text": "Correct answer", "isCorrect": true, "distractorRationale": null },
+                        { "text": "Authentic distractor 1 from notes", "isCorrect": false, "distractorRationale": "Why incorrect" },
+                        { "text": "Authentic distractor 2 from notes", "isCorrect": false, "distractorRationale": "Why incorrect" },
+                        { "text": "Authentic distractor 3 from notes", "isCorrect": false, "distractorRationale": "Why incorrect" }
+                      ],
+                      "explanation": "Clear explanation grounded directly in the notes",
+                      "thinkingBreakdown": ["DIMENSION: CORE CONCEPT", "ANALYSIS: Reasoning step"],
+                      "sourceReference": "Specific excerpt or topic from notes"
+                    }
+                  ]
+                }
+                """;
+
+                var payload = new
+                {
+                    contents = new[]
+                    {
+                        new { parts = new[] { new { text = aiPrompt } } }
+                    },
+                    generationConfig = new
+                    {
+                        responseMimeType = "application/json",
+                        temperature = 0.3
+                    }
+                };
+
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cts.CancelAfter(TimeSpan.FromSeconds(35));
+
+                var (responseText, _) = await CallNativeGeminiWithFallbackAsync(payload, effectiveApiKey, cts.Token);
+                if (!string.IsNullOrWhiteSpace(responseText))
+                {
+                    var cleanJson = ExtractJsonBlock(responseText);
+                    using var doc = JsonDocument.Parse(cleanJson);
+                    var root = doc.RootElement;
+
+                    var summary = root.TryGetProperty("summary", out var sumProp) ? sumProp.GetString() ?? $"Study set for {title}" : $"Study set for {title}";
+                    var bulletPoints = new List<string>();
+                    if (root.TryGetProperty("highYieldBulletPoints", out var bpProp) && bpProp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in bpProp.EnumerateArray())
+                        {
+                            var s = item.GetString();
+                            if (!string.IsNullOrWhiteSpace(s)) bulletPoints.Add(s);
+                        }
+                    }
+
+                    var parsedQuestions = new List<GeneratedQuestionDto>();
+                    if (root.TryGetProperty("questions", out var qProp) && qProp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var qEl in qProp.EnumerateArray())
+                        {
+                            var type = qEl.TryGetProperty("type", out var tEl) ? tEl.GetString() ?? "multiple_choice" : "multiple_choice";
+                            var prompt = qEl.TryGetProperty("prompt", out var pEl) ? pEl.GetString() ?? "" : "";
+                            var correctAnswer = qEl.TryGetProperty("correctAnswer", out var caEl) ? caEl.GetString() ?? "" : "";
+                            var explanation = qEl.TryGetProperty("explanation", out var exEl) ? exEl.GetString() ?? "" : "";
+                            var sourceRef = qEl.TryGetProperty("sourceReference", out var srEl) ? srEl.GetString() : null;
+
+                            var hints = new List<string>();
+                            if (qEl.TryGetProperty("hints", out var hEl) && hEl.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var h in hEl.EnumerateArray())
+                                {
+                                    var hs = h.GetString();
+                                    if (!string.IsNullOrWhiteSpace(hs)) hints.Add(hs);
+                                }
+                            }
+
+                            var thinking = new List<string>();
+                            if (qEl.TryGetProperty("thinkingBreakdown", out var tbEl) && tbEl.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var tb in tbEl.EnumerateArray())
+                                {
+                                    var tbs = tb.GetString();
+                                    if (!string.IsNullOrWhiteSpace(tbs)) thinking.Add(tbs);
+                                }
+                            }
+
+                            var options = new List<GeneratedOptionDto>();
+                            if (qEl.TryGetProperty("options", out var optEl) && optEl.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var opt in optEl.EnumerateArray())
+                                {
+                                    var optText = opt.TryGetProperty("text", out var otEl) ? otEl.GetString() ?? "" : "";
+                                    var isCorrect = opt.TryGetProperty("isCorrect", out var icEl) && icEl.GetBoolean();
+                                    var distractor = opt.TryGetProperty("distractorRationale", out var drEl) ? drEl.GetString() : null;
+                                    if (!string.IsNullOrWhiteSpace(optText))
+                                    {
+                                        options.Add(new GeneratedOptionDto(optText, isCorrect, distractor));
+                                    }
+                                }
+                            }
+
+                            if (!string.IsNullOrWhiteSpace(prompt))
+                            {
+                                parsedQuestions.Add(new GeneratedQuestionDto(
+                                    type,
+                                    prompt,
+                                    hints,
+                                    correctAnswer,
+                                    options.Count > 0 ? options : null,
+                                    null, null, false,
+                                    explanation,
+                                    thinking.Count > 0 ? thinking : null,
+                                    sourceRef
+                                ));
+                            }
+                        }
+                    }
+
+                    if (parsedQuestions.Count >= Math.Min(3, targetCount))
+                    {
+                        var geminiResult = new GeneratedStudySetResult(
+                            Guid.NewGuid(),
+                            title,
+                            summary,
+                            bulletPoints.Count > 0 ? bulletPoints : new List<string> { $"Core principles from {title}." },
+                            parsedQuestions,
+                            rawText
+                        );
+                        _cache[cacheKey] = (DateTime.UtcNow, geminiResult);
+                        return geminiResult;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Gemini cloud generation for '{Title}' failed, falling back to enhanced offline synthesizer", title);
+            }
         }
 
         var result = NoteScriptSynthesizer.SynthesizeFromNotes(title, rawText, requestedTypes, targetCount, setIndex, variant);
         _cache[cacheKey] = (DateTime.UtcNow, result);
-        return Task.FromResult(result);
+        return result;
     }
 
     public async Task<GeneratedStudySetResult> GenerateStudySetFromImageAsync(
@@ -83,12 +266,17 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         int targetCount,
         int setIndex = 0,
         string? variant = null,
+        string? apiKeyOverride = null,
         CancellationToken cancellationToken = default)
     {
         if (imageBytes == null || imageBytes.Length == 0)
         {
             return GenerateEmptyFallback(title);
         }
+
+        var effectiveApiKey = !string.IsNullOrWhiteSpace(apiKeyOverride)
+            ? apiKeyOverride.Trim()
+            : (!string.IsNullOrWhiteSpace(_apiKey) ? _apiKey : null);
 
         var imageHash = Convert.ToHexString(SHA256.HashData(imageBytes));
         var typesKey = string.Join("_", requestedTypes);
@@ -102,7 +290,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
         string? extractedOcrText = null;
 
-        if (!string.IsNullOrWhiteSpace(_apiKey))
+        if (!string.IsNullOrWhiteSpace(effectiveApiKey))
         {
             var ocrPrompt = "You are a precise, verbatim OCR transcription engine. Extract and transcribe all text, notes, equations, questions, options, and answers visible in this image verbatim. Do not generate new questions, do not summarize, and do not add external commentary. Return ONLY the verbatim transcribed text from the image.";
 

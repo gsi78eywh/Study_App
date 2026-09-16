@@ -8,6 +8,15 @@ import "../../courses/models/course_models.dart";
 import "../../quiz/models/quiz_models.dart";
 import "../utils/flashcard_text_sanitizer.dart";
 
+enum FlashcardStudyMode {
+  remix("🔀 Academic Remix"),
+  standard("📖 Standard"),
+  reverseRecall("🎯 Reverse Recall");
+
+  final String label;
+  const FlashcardStudyMode(this.label);
+}
+
 class FlashcardItem {
   final String id;
   final String? questionId;
@@ -18,6 +27,7 @@ class FlashcardItem {
   final String back;
   final String? category;
   final String? hint;
+  final String? dimensionTag;
   String interval; // "1d", "3d", "7d", "14d"
   bool isMastered;
 
@@ -31,6 +41,7 @@ class FlashcardItem {
     required this.back,
     this.category,
     this.hint,
+    this.dimensionTag,
     this.interval = "1d",
     this.isMastered = false,
   });
@@ -67,6 +78,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
   final String _selectedCourseFilter = "ALL";
   String _selectedSetFilter = "ALL";
   String _cardFilter = "ALL"; // "ALL", "HIGH_RISK", "MASTERED"
+  FlashcardStudyMode _studyMode = FlashcardStudyMode.remix;
   int _currentIndex = 0;
   bool _showBack = false;
   bool _isRefreshing = false;
@@ -78,6 +90,82 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
   final Set<String> _masteredIds = {};
   final Set<String> _learningIds = {};
   final Set<String> _highRiskIds = {};
+
+  String _resolveDimensionTag(FlashcardItem card) {
+    if (card.dimensionTag != null && card.dimensionTag!.trim().isNotEmpty) {
+      return card.dimensionTag!.trim();
+    }
+    final frontLower = card.front.toLowerCase();
+    if (frontLower.contains("role") || frontLower.contains("definition") || frontLower.startsWith("what is")) {
+      return "CORE CONCEPT";
+    }
+    if (frontLower.contains("which core concept") || frontLower.contains("characterized by") || frontLower.contains("corresponds to")) {
+      return "REVERSE RECALL";
+    }
+    if (frontLower.contains("consequence") || frontLower.contains("outcome") || frontLower.contains("effect") || frontLower.contains("govern")) {
+      return "CAUSE & EFFECT";
+    }
+    if (frontLower.contains("distinguish") || frontLower.contains("differ") || frontLower.contains("uniquely")) {
+      return "KEY DISTINCTION";
+    }
+    if (frontLower.contains("applied") || frontLower.contains("practical") || frontLower.contains("utilize")) {
+      return "APPLICATION DRILL";
+    }
+    if (frontLower.contains("________") || frontLower.contains("complete the") || frontLower.contains("[ ______ ]")) {
+      return "CONTEXTUAL CLOZE";
+    }
+    return "ACTIVE RECALL";
+  }
+
+  Color _dimensionColor(String tag) {
+    switch (tag.toUpperCase()) {
+      case "CORE CONCEPT":
+        return const Color(0xFF3B82F6); // Blue
+      case "REVERSE RECALL":
+        return const Color(0xFFEC4899); // Pink
+      case "CAUSE & EFFECT":
+        return const Color(0xFFF59E0B); // Amber/Orange
+      case "KEY DISTINCTION":
+        return const Color(0xFF06B6D4); // Cyan
+      case "APPLICATION DRILL":
+        return const Color(0xFF10B981); // Emerald
+      case "CONTEXTUAL CLOZE":
+        return const Color(0xFF8B5CF6); // Purple
+      default:
+        return const Color(0xFF6366F1); // Indigo
+    }
+  }
+
+  void _remixDeck() {
+    if (_allCards.isEmpty) return;
+    setState(() {
+      _allCards.shuffle();
+      _applyFilter();
+      _currentIndex = 0;
+      _resetCardFlip();
+    });
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.shuffle_rounded, color: Colors.white, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                "Deck remixed! Active recall cards randomized across all 6 cognitive dimensions.",
+                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: AppColors.primary,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -242,6 +330,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                 back: backText.toString().trim(),
                 category: set.title,
                 hint: q.hints.isNotEmpty ? q.hints.first : null,
+                dimensionTag: q.dimensionTag,
               ));
             }
             hasNewCards = true;
@@ -976,6 +1065,81 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                           ],
                         ),
                       ),
+                      const SizedBox(height: 14),
+
+                      // Study Mode Switcher & Remix Deck Button
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: context.surfaceColor,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: context.cardBorderColor),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: FlashcardStudyMode.values.map((mode) {
+                                    final isSelected = (_studyMode == mode);
+                                    return Padding(
+                                      padding: const EdgeInsets.only(right: 6),
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(8),
+                                        onTap: () {
+                                          setState(() {
+                                            _studyMode = mode;
+                                            _resetCardFlip();
+                                          });
+                                          if (mode == FlashcardStudyMode.remix) {
+                                            _remixDeck();
+                                          }
+                                        },
+                                        child: AnimatedContainer(
+                                          duration: const Duration(milliseconds: 180),
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: isSelected ? AppColors.primary.withValues(alpha: 0.15) : Colors.transparent,
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(
+                                              color: isSelected ? AppColors.primary : Colors.transparent,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            mode.label,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                              color: isSelected ? (isDark ? AppColors.primaryLight : AppColors.primaryDark) : context.textSecondary,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Tooltip(
+                              message: "Remix deck order across all active-recall angles",
+                              child: ElevatedButton.icon(
+                                onPressed: totalDeckCards > 1 ? _remixDeck : null,
+                                icon: const Icon(Icons.shuffle_rounded, size: 14),
+                                label: const Text("Remix Deck", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                                  foregroundColor: isDark ? Colors.black : Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  elevation: 0,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                       const SizedBox(height: 16),
                     ],
 
@@ -1127,122 +1291,183 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                     crossAxisAlignment: CrossAxisAlignment.stretch,
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Flexible(
-                                            child: Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                              decoration: BoxDecoration(
-                                                color: AppColors.primary.withValues(alpha: 0.15),
-                                                borderRadius: BorderRadius.circular(8),
-                                              ),
-                                              child: Text(
-                                                card.studySetTitle,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 12,
-                                                ),
+                                      () {
+                                        final dimTag = _resolveDimensionTag(card);
+                                        final dimColor = _dimensionColor(dimTag);
+                                        final isReverseRecall = (_studyMode == FlashcardStudyMode.reverseRecall);
+
+                                        return Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Flexible(
+                                              child: Wrap(
+                                                spacing: 6,
+                                                runSpacing: 4,
+                                                crossAxisAlignment: WrapCrossAlignment.center,
+                                                children: [
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                    decoration: BoxDecoration(
+                                                      color: AppColors.primary.withValues(alpha: 0.15),
+                                                      borderRadius: BorderRadius.circular(8),
+                                                    ),
+                                                    child: Text(
+                                                      card.studySetTitle,
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                      style: TextStyle(
+                                                        color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                                                        fontWeight: FontWeight.bold,
+                                                        fontSize: 12,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                    decoration: BoxDecoration(
+                                                      color: dimColor.withValues(alpha: 0.14),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                      border: Border.all(color: dimColor.withValues(alpha: 0.35)),
+                                                    ),
+                                                    child: Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Icon(Icons.psychology_outlined, size: 12, color: dimColor),
+                                                        const SizedBox(width: 4),
+                                                        Text(
+                                                          dimTag,
+                                                          style: TextStyle(
+                                                            color: dimColor,
+                                                            fontSize: 10,
+                                                            fontWeight: FontWeight.bold,
+                                                            letterSpacing: 0.4,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
                                             ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              if (!isUnder && card.hint != null && card.hint!.isNotEmpty) ...[
+                                            const SizedBox(width: 8),
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (!isUnder && card.hint != null && card.hint!.isNotEmpty) ...[
+                                                  IconButton(
+                                                    padding: EdgeInsets.zero,
+                                                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                                    icon: Icon(
+                                                      _showHint ? Icons.lightbulb_rounded : Icons.lightbulb_outline_rounded,
+                                                      size: 18,
+                                                      color: _showHint ? Colors.amber : context.textSecondary,
+                                                    ),
+                                                    tooltip: "Toggle Hint",
+                                                    onPressed: () => setState(() => _showHint = !_showHint),
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                ],
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                  decoration: BoxDecoration(
+                                                    color: isUnder ? AppColors.accent.withValues(alpha: 0.15) : context.secondaryBg,
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    isUnder
+                                                        ? (isReverseRecall ? "TARGET CONCEPT" : "VERIFIED ANSWER")
+                                                        : (isReverseRecall ? "REVERSE RECALL CUE" : "ACTIVE RECALL PROMPT"),
+                                                    style: TextStyle(
+                                                      color: isUnder ? AppColors.accent : context.textSecondary,
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
                                                 IconButton(
+                                                  key: const Key("delete_flashcard_icon"),
                                                   padding: EdgeInsets.zero,
                                                   constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                                                   icon: Icon(
-                                                    _showHint ? Icons.lightbulb_rounded : Icons.lightbulb_outline_rounded,
+                                                    Icons.delete_outline_rounded,
                                                     size: 18,
-                                                    color: _showHint ? Colors.amber : context.textSecondary,
+                                                    color: const Color(0xFFEF4444).withValues(alpha: 0.8),
                                                   ),
-                                                  tooltip: "Toggle Hint",
-                                                  onPressed: () => setState(() => _showHint = !_showHint),
+                                                  tooltip: "Delete Flashcard",
+                                                  onPressed: () => _confirmDeleteCard(card),
                                                 ),
-                                                const SizedBox(width: 6),
                                               ],
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                                decoration: BoxDecoration(
-                                                  color: isUnder ? AppColors.accent.withValues(alpha: 0.15) : context.secondaryBg,
-                                                  borderRadius: BorderRadius.circular(6),
-                                                ),
-                                                child: Text(
-                                                  isUnder ? "VERIFIED ANSWER" : "QUESTION / PROMPT",
-                                                  style: TextStyle(
-                                                    color: isUnder ? AppColors.accent : context.textSecondary,
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ),
-                                              const SizedBox(width: 6),
-                                              IconButton(
-                                                key: const Key("delete_flashcard_icon"),
-                                                padding: EdgeInsets.zero,
-                                                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                                                icon: Icon(
-                                                  Icons.delete_outline_rounded,
-                                                  size: 18,
-                                                  color: const Color(0xFFEF4444).withValues(alpha: 0.8),
-                                                ),
-                                                tooltip: "Delete Flashcard",
-                                                onPressed: () => _confirmDeleteCard(card),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
+                                            ),
+                                          ],
+                                        );
+                                      }(),
                                       const SizedBox(height: 20),
 
                                       // Main Prompt / Answer Center Content
-                                      Center(
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(
-                                              isUnder ? card.back : card.front,
-                                              textAlign: TextAlign.center,
-                                              style: GoogleFonts.outfit(
-                                                fontSize: isUnder ? 17 : 20,
-                                                fontWeight: isUnder ? FontWeight.w500 : FontWeight.w600,
-                                                color: context.textPrimary,
-                                                height: 1.5,
-                                              ),
-                                            ),
-                                            if (!isUnder && _showHint && card.hint != null) ...[
-                                              const SizedBox(height: 16),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.amber.withValues(alpha: 0.12),
-                                                  borderRadius: BorderRadius.circular(10),
-                                                  border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                                      () {
+                                        final isReverseRecall = (_studyMode == FlashcardStudyMode.reverseRecall);
+                                        final displayedText = isUnder
+                                            ? (isReverseRecall ? card.front : card.back)
+                                            : (isReverseRecall ? card.back : card.front);
+
+                                        return Center(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              if (isReverseRecall && !isUnder) ...[
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                  margin: const EdgeInsets.only(bottom: 12),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFFEC4899).withValues(alpha: 0.12),
+                                                    borderRadius: BorderRadius.circular(8),
+                                                  ),
+                                                  child: const Text(
+                                                    "🎯 Reverse Active Recall: Name this concept",
+                                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFEC4899)),
+                                                  ),
                                                 ),
-                                                child: Row(
-                                                  mainAxisSize: MainAxisSize.min,
-                                                  children: [
-                                                    const Icon(Icons.lightbulb_rounded, size: 16, color: Colors.amber),
-                                                    const SizedBox(width: 6),
-                                                    Flexible(
-                                                      child: Text(
-                                                        "Hint: ${card.hint!}",
-                                                        style: const TextStyle(fontSize: 12, color: Colors.amber, fontWeight: FontWeight.w600),
+                                              ],
+                                              Text(
+                                                displayedText,
+                                                textAlign: TextAlign.center,
+                                                style: GoogleFonts.outfit(
+                                                  fontSize: isUnder ? 17 : 20,
+                                                  fontWeight: isUnder ? FontWeight.w500 : FontWeight.w600,
+                                                  color: context.textPrimary,
+                                                  height: 1.5,
+                                                ),
+                                              ),
+                                              if (!isUnder && _showHint && card.hint != null) ...[
+                                                const SizedBox(height: 16),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.amber.withValues(alpha: 0.12),
+                                                    borderRadius: BorderRadius.circular(10),
+                                                    border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      const Icon(Icons.lightbulb_rounded, size: 16, color: Colors.amber),
+                                                      const SizedBox(width: 6),
+                                                      Flexible(
+                                                        child: Text(
+                                                          "Hint: ${card.hint!}",
+                                                          style: const TextStyle(fontSize: 12, color: Colors.amber, fontWeight: FontWeight.w600),
+                                                        ),
                                                       ),
-                                                    ),
-                                                  ],
+                                                    ],
+                                                  ),
                                                 ),
-                                              ),
+                                              ],
                                             ],
-                                          ],
-                                        ),
-                                      ),
+                                          ),
+                                        );
+                                      }(),
                                       const SizedBox(height: 20),
 
                                       Center(
@@ -1252,7 +1477,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                             Icon(Icons.touch_app_outlined, size: 15, color: context.textSecondary.withValues(alpha: 0.7)),
                                             const SizedBox(width: 6),
                                             Text(
-                                              isUnder ? "Tap to flip back to question" : "Tap card or press Space to reveal answer",
+                                              isUnder ? "Tap to flip back to prompt" : "Tap card or press Space to reveal answer",
                                               style: TextStyle(color: context.textSecondary.withValues(alpha: 0.7), fontSize: 12),
                                             ),
                                           ],

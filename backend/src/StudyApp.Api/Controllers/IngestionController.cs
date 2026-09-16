@@ -45,13 +45,18 @@ public class IngestionController : ControllerBase
         if (!await OwnsCourseAsync(request.CourseId)) return NotFound(new { message = "Course not found." });
 
         var sourceText = LimitSourceText(request.Content);
+        var geminiKey = !string.IsNullOrWhiteSpace(request.ApiKey)
+            ? request.ApiKey.Trim()
+            : Request.Headers["X-Gemini-ApiKey"].ToString().Trim();
+
         var result = await _aiGenerator.GenerateStudySetAsync(
             sourceText,
             CleanTitle(request.Title),
             request.QuestionTypes ?? new List<string>(),
             ClampTargetCount(request.TargetCount),
             request.SetIndex,
-            request.Variant);
+            request.Variant,
+            geminiKey);
 
         var studySet = await SaveGeneratedSetAsync(request.CourseId, result, "Manual note input", "text/markdown", sourceText);
         return Ok(new
@@ -157,23 +162,23 @@ public class IngestionController : ControllerBase
                 extractedSourceText = cleanedOcr;
             }
 
-            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant);
+            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant, geminiKey);
         }
         else if (ext == ".pdf")
         {
             extractedSourceText = await _documentExtractor.ExtractPdfTextAsync(stream);
-            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant);
+            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant, geminiKey);
         }
         else if (ext == ".docx")
         {
             extractedSourceText = await _documentExtractor.ExtractDocxTextAsync(stream);
-            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant);
+            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant, geminiKey);
         }
         else if (ext is ".txt" or ".md")
         {
             using var reader = new StreamReader(stream, leaveOpen: true);
             extractedSourceText = LimitSourceText(await reader.ReadToEndAsync());
-            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant);
+            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant, geminiKey);
         }
         else
         {
@@ -355,13 +360,17 @@ public class IngestionController : ControllerBase
         {
             return BadRequest(new { message = "No readable study text was found at that URL." });
         }
+        var geminiKey = Request.Headers.TryGetValue("X-Gemini-ApiKey", out var headerKey) && !string.IsNullOrWhiteSpace(headerKey)
+            ? headerKey.ToString().Trim()
+            : null;
         var result = await _aiGenerator.GenerateStudySetAsync(
             extractedText,
             CleanTitle(request.Title),
             request.QuestionTypes ?? new List<string>(),
             ClampTargetCount(request.TargetCount),
             request.SetIndex,
-            request.Variant);
+            request.Variant,
+            geminiKey);
 
         var studySet = await SaveGeneratedSetAsync(request.CourseId, result, uri.ToString(), "text/html", extractedText);
         return Ok(new
@@ -379,14 +388,18 @@ public class IngestionController : ControllerBase
     [HttpGet("/api/v1/studysets/{id:guid}/questions")]
     public async Task<IActionResult> GetStudySetQuestions(Guid id, [FromQuery] bool includeAnswerKey = true)
     {
-        var setExists = await _context.StudySets.AnyAsync(s => s.Id == id && s.Course != null && s.Course.UserId == CurrentUserId());
-        if (!setExists) return NotFound(new { message = "Study set not found." });
+        var studySet = await _context.StudySets
+            .Where(s => s.Id == id && s.Course != null && s.Course.UserId == CurrentUserId())
+            .Include(s => s.Course)
+            .FirstOrDefaultAsync();
+
+        if (studySet == null) return NotFound(new { message = "Study set not found." });
 
         var questions = await _context.Questions
             .Where(q => q.StudySetId == id)
+            .OrderBy(q => q.SortOrder)
             .Include(q => q.Options)
             .Include(q => q.Rubrics)
-            .OrderBy(q => q.SortOrder)
             .ToListAsync();
 
         var dtos = questions.Select(q => new
@@ -398,6 +411,7 @@ public class IngestionController : ControllerBase
             Hints = !string.IsNullOrEmpty(q.HintsJson) ? JsonSerializer.Deserialize<List<string>>(q.HintsJson, JsonOptions) : new List<string>(),
             Explanation = includeAnswerKey ? q.Explanation : null,
             SourceReference = ReadSourceReference(q.ThinkingBreakdownJson),
+            ThinkingBreakdown = ReadThinkingSteps(q.ThinkingBreakdownJson),
             MatchingPairs = q.Type == QuestionType.Matching ? ReadMatchingPairs(q.Rubrics) : null,
             MatchingTerms = q.Type == QuestionType.Matching ? ReadMatchingPairs(q.Rubrics).Select(p => p.Term).ToList() : null,
             MatchingDefinitions = q.Type == QuestionType.Matching ? ReadMatchingPairs(q.Rubrics).Select(p => p.Definition).ToList() : null,
@@ -851,6 +865,30 @@ public class IngestionController : ControllerBase
                    document.RootElement.TryGetProperty("sourceReference", out var reference)
                 ? reference.GetString()
                 : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static List<string>? ReadThinkingSteps(string? metadata)
+    {
+        if (string.IsNullOrWhiteSpace(metadata)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(metadata);
+            if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("steps", out var steps) &&
+                steps.ValueKind == JsonValueKind.Array)
+            {
+                return steps.EnumerateArray()
+                    .Select(e => e.GetString())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Select(s => s!)
+                    .ToList();
+            }
+            return null;
         }
         catch (JsonException)
         {

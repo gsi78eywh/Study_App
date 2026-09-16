@@ -16,6 +16,25 @@ public static class NoteScriptSynthesizer
 
     public sealed record ListCluster(string Title, List<string> Items, bool IsOrdered);
 
+    public enum PropositionKind
+    {
+        Definition,
+        MechanismOrProcess,
+        CauseAndEffect,
+        QuantitativeFact,
+        ComparisonOrDistinction,
+        CoreConcept
+    }
+
+    public sealed record SubstantiveProposition(
+        string Subject,
+        string CorePredicate,
+        string FullPassage,
+        PropositionKind Kind,
+        string? ConsequenceOrRole = null,
+        string? DistinguishingFeature = null
+    );
+
     public static string NormalizeMarkdownLine(string rawLine)
     {
         if (string.IsNullOrWhiteSpace(rawLine)) return string.Empty;
@@ -101,26 +120,39 @@ public static class NoteScriptSynthesizer
             : $"Comprehensive study notes and active recall practice synthesized from source material for {cleanTitle}.";
 
         var questions = new List<GeneratedQuestionDto>();
-        var parsedDefinitions = ExtractDefinitions(cleanLines);
+        var propositions = ExtractSubstantivePropositions(cleanLines, cleanTitle);
+        var parsedDefinitions = propositions
+            .Select(p => (Term: p.Subject, Definition: p.CorePredicate, FullSentence: p.FullPassage))
+            .ToList();
         var poolOfAnswersAndTerms = new List<string>();
 
-        // Collect terms from definitions
-        foreach (var def in parsedDefinitions)
+        // Collect terms from propositions
+        foreach (var prop in propositions)
         {
-            poolOfAnswersAndTerms.Add(def.Term);
-            poolOfAnswersAndTerms.Add(def.Definition);
+            poolOfAnswersAndTerms.Add(prop.Subject);
+            poolOfAnswersAndTerms.Add(prop.CorePredicate);
+            if (!string.IsNullOrWhiteSpace(prop.ConsequenceOrRole))
+            {
+                poolOfAnswersAndTerms.Add(prop.ConsequenceOrRole);
+            }
         }
 
         // Apply concept rotation and shuffling based on setIndex and variant to eliminate continuous repetition
-        if (parsedDefinitions.Count > 0 && setIndex > 0)
+        if (propositions.Count > 0 && setIndex > 0)
         {
-            int rotation = (setIndex * 3) % parsedDefinitions.Count;
-            parsedDefinitions = parsedDefinitions.Skip(rotation).Concat(parsedDefinitions.Take(rotation)).ToList();
+            int rotation = (setIndex * 3) % propositions.Count;
+            propositions = propositions.Skip(rotation).Concat(propositions.Take(rotation)).ToList();
+            parsedDefinitions = propositions
+                .Select(p => (Term: p.Subject, Definition: p.CorePredicate, FullSentence: p.FullPassage))
+                .ToList();
         }
         if (variant == "shuffle" || variant == "random" || setIndex >= 900)
         {
             var rng = new Random(setIndex);
-            parsedDefinitions = parsedDefinitions.OrderBy(_ => rng.Next()).ToList();
+            propositions = propositions.OrderBy(_ => rng.Next()).ToList();
+            parsedDefinitions = propositions
+                .Select(p => (Term: p.Subject, Definition: p.CorePredicate, FullSentence: p.FullPassage))
+                .ToList();
         }
 
         // 2. Stage 1: Parse pre-formatted multiple-choice questions already present in notes
@@ -195,11 +227,13 @@ public static class NoteScriptSynthesizer
             "matching",
             "short_answer",
             "scenario",
-            "flashcard"
+            "flashcard",
+            "flashcards"
         };
 
         var filteredRequested = rawTypes
             .Select(t => t.ToLowerInvariant().Trim())
+            .Select(t => t == "flashcards" ? "flashcard" : t)
             .Where(t => !string.IsNullOrWhiteSpace(t))
             .ToList();
 
@@ -260,7 +294,7 @@ public static class NoteScriptSynthesizer
                     "scenario" => GenerateScenarioQuestions(parsedDefinitions, cleanTitle, poolOfAnswersAndTerms, neededNow, setIndex, variant),
                     "short_answer" => GenerateShortAnswerQuestions(parsedDefinitions, cleanTitle, neededNow, setIndex),
                     "multiple_choice" => GenerateQuestionsFromDefinitions(parsedDefinitions, cleanTitle, poolOfAnswersAndTerms, countNeeded: neededNow, setIndex: setIndex, variant: variant),
-                    "flashcard" => GenerateFlashcardQuestions(parsedDefinitions, cleanTitle, neededNow, setIndex),
+                    "flashcard" or "flashcards" => GenerateFlashcardQuestions(propositions, cleanTitle, neededNow, setIndex, variant),
                     _ => new List<GeneratedQuestionDto>()
                 };
 
@@ -761,6 +795,213 @@ public static class NoteScriptSynthesizer
             return true;
 
         return false;
+    }
+
+    public static List<SubstantiveProposition> ExtractSubstantivePropositions(List<string> cleanLines, string title)
+    {
+        var propositions = new List<SubstantiveProposition>();
+        var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var colonPattern = new Regex(@"^(?:[-*•]\s*)?([A-Z][a-zA-Z0-9\s-]{1,50}):\s*(.+)$");
+        var isPattern = new Regex(@"^(?:The\s+)?([A-Z][a-zA-Z0-9\s-]{1,50})\s+(?:is defined as|is a|is an|is|are|refers to|represents|means|signifies)\s+(.+)$", RegexOptions.IgnoreCase);
+        var dashPattern = new Regex(@"^(?:[-*•]\s*)?([A-Z][a-zA-Z0-9\s-]{1,50})\s+[-–—]\s+(.+)$");
+        var causePattern = new Regex(@"^(.{3,60})\s+(?:causes|leads to|results in|triggers|produces|yields)\s+(.+)$", RegexOptions.IgnoreCase);
+        var consequencePattern = new Regex(@"^(?:Because of|Since|Due to|As a result of)\s+(.{4,60}),\s*(.+)$", RegexOptions.IgnoreCase);
+        var mechanismPattern = new Regex(@"^(.{3,60})\s+(?:works by|functions by|operates by|serves to|is used to|acts to|enables|helps to)\s+(.+)$", RegexOptions.IgnoreCase);
+        var functionRolePattern = new Regex(@"^(?:The function of|The purpose of|The primary role of)\s+(.{3,50})\s+is\s+(?:to\s+)?(.+)$", RegexOptions.IgnoreCase);
+        var distinctionPattern = new Regex(@"^(?:Unlike|In contrast to|Whereas)\s+(.{3,40}),\s*(.{3,50})\s+(.+)$", RegexOptions.IgnoreCase);
+        var contrastPattern = new Regex(@"^(.{3,50})\s+differs from\s+(.{3,40})\s+(?:in that|because|by)\s+(.+)$", RegexOptions.IgnoreCase);
+        var quantPattern = new Regex(@"^(.{3,60})\s+(?:contains|requires|consists of|has|includes)\s+(at least|maximum of|more than|approximately|\d+[\w\s%]+)\s+(.+)$", RegexOptions.IgnoreCase);
+
+        foreach (var rawLine in cleanLines)
+        {
+            var line = rawLine.Trim();
+            if (line.Length < 10 ||
+                line.StartsWith("Answer", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("Ans", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("Key", StringComparison.OrdinalIgnoreCase) ||
+                line.StartsWith("Solution", StringComparison.OrdinalIgnoreCase) ||
+                Regex.IsMatch(line, @"^(?:Q(?:uestion)?\s*\d*[:.]?|\d+[\.\)])", RegexOptions.IgnoreCase) ||
+                IsMcqOptionOrAnswerKeyLine(line))
+            {
+                continue;
+            }
+
+            // 1. Explicit definitions
+            var colMatch = colonPattern.Match(line);
+            if (colMatch.Success)
+            {
+                var subj = colMatch.Groups[1].Value.Trim();
+                var pred = colMatch.Groups[2].Value.Trim();
+                if (!Regex.IsMatch(subj, @"^(?:Question|Q\d|Problem|Item|Note|Page|Summary)\b", RegexOptions.IgnoreCase) &&
+                    subj.Split(' ').Length <= 6 && pred.Length >= 6)
+                {
+                    if (seenKeys.Add(subj))
+                    {
+                        propositions.Add(new SubstantiveProposition(subj, pred, line, PropositionKind.Definition));
+                        continue;
+                    }
+                }
+            }
+
+            var isMatch = isPattern.Match(line);
+            if (isMatch.Success)
+            {
+                var subj = isMatch.Groups[1].Value.Trim();
+                var pred = isMatch.Groups[2].Value.Trim();
+                if (subj.Split(' ').Length <= 6 && pred.Length >= 6 && seenKeys.Add(subj))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, pred, line, PropositionKind.Definition));
+                    continue;
+                }
+            }
+
+            var dashMatch = dashPattern.Match(line);
+            if (dashMatch.Success)
+            {
+                var subj = dashMatch.Groups[1].Value.Trim();
+                var pred = dashMatch.Groups[2].Value.Trim();
+                if (subj.Split(' ').Length <= 6 && pred.Length >= 6 && seenKeys.Add(subj))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, pred, line, PropositionKind.Definition));
+                    continue;
+                }
+            }
+
+            // 2. Cause & Effect
+            var causeMatch = causePattern.Match(line);
+            if (causeMatch.Success)
+            {
+                var subj = causeMatch.Groups[1].Value.Trim();
+                var pred = causeMatch.Groups[2].Value.Trim();
+                if (subj.Length >= 3 && pred.Length >= 6 && seenKeys.Add(subj))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, pred, line, PropositionKind.CauseAndEffect, ConsequenceOrRole: pred));
+                    continue;
+                }
+            }
+
+            var conseqMatch = consequencePattern.Match(line);
+            if (conseqMatch.Success)
+            {
+                var subj = conseqMatch.Groups[1].Value.Trim();
+                var pred = conseqMatch.Groups[2].Value.Trim();
+                if (subj.Length >= 3 && pred.Length >= 6 && seenKeys.Add(subj))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, pred, line, PropositionKind.CauseAndEffect, ConsequenceOrRole: pred));
+                    continue;
+                }
+            }
+
+            // 3. Mechanism or Functional Process
+            var mechMatch = mechanismPattern.Match(line);
+            if (mechMatch.Success)
+            {
+                var subj = mechMatch.Groups[1].Value.Trim();
+                var pred = mechMatch.Groups[2].Value.Trim();
+                if (subj.Length >= 3 && pred.Length >= 6 && seenKeys.Add(subj))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, pred, line, PropositionKind.MechanismOrProcess, ConsequenceOrRole: pred));
+                    continue;
+                }
+            }
+
+            var fnMatch = functionRolePattern.Match(line);
+            if (fnMatch.Success)
+            {
+                var subj = fnMatch.Groups[1].Value.Trim();
+                var pred = fnMatch.Groups[2].Value.Trim();
+                if (subj.Length >= 3 && pred.Length >= 6 && seenKeys.Add(subj))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, pred, line, PropositionKind.MechanismOrProcess, ConsequenceOrRole: pred));
+                    continue;
+                }
+            }
+
+            // 4. Comparison & Distinction
+            var distMatch = distinctionPattern.Match(line);
+            if (distMatch.Success)
+            {
+                var comp = distMatch.Groups[1].Value.Trim();
+                var subj = distMatch.Groups[2].Value.Trim();
+                var pred = distMatch.Groups[3].Value.Trim();
+                if (subj.Length >= 3 && pred.Length >= 6 && seenKeys.Add(subj))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, pred, line, PropositionKind.ComparisonOrDistinction, DistinguishingFeature: $"Unlike {comp}, {pred}"));
+                    continue;
+                }
+            }
+
+            var contMatch = contrastPattern.Match(line);
+            if (contMatch.Success)
+            {
+                var subj = contMatch.Groups[1].Value.Trim();
+                var comp = contMatch.Groups[2].Value.Trim();
+                var pred = contMatch.Groups[3].Value.Trim();
+                if (subj.Length >= 3 && pred.Length >= 6 && seenKeys.Add(subj))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, pred, line, PropositionKind.ComparisonOrDistinction, DistinguishingFeature: $"Differs from {comp}: {pred}"));
+                    continue;
+                }
+            }
+
+            // 5. Quantitative Fact
+            var quantMatch = quantPattern.Match(line);
+            if (quantMatch.Success)
+            {
+                var subj = quantMatch.Groups[1].Value.Trim();
+                var pred = $"{quantMatch.Groups[2].Value.Trim()} {quantMatch.Groups[3].Value.Trim()}";
+                if (subj.Length >= 3 && pred.Length >= 5 && seenKeys.Add(subj))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, pred, line, PropositionKind.QuantitativeFact));
+                    continue;
+                }
+            }
+
+            // 6. General declarative / expository sentence from notes (digging through all paragraphs!)
+            if (line.Length >= 25 && line.Length <= 240 && !line.Contains("?"))
+            {
+                // Split sentence on first main verb if possible, otherwise first 2-4 words as subject
+                var verbMatch = Regex.Match(line, @"^([A-Z][a-zA-Z0-9\s-]{2,40}?)\s+(is|are|can|will|must|provides|enables|acts|maintains|regulates|controls|involves|includes|requires)\s+(.+)$", RegexOptions.IgnoreCase);
+                if (verbMatch.Success)
+                {
+                    var subj = verbMatch.Groups[1].Value.Trim();
+                    var verb = verbMatch.Groups[2].Value.Trim();
+                    var rest = verbMatch.Groups[3].Value.Trim();
+                    if (subj.Split(' ').Length <= 6 && rest.Length >= 8 && seenKeys.Add(subj))
+                    {
+                        propositions.Add(new SubstantiveProposition(subj, $"{verb} {rest}", line, PropositionKind.CoreConcept));
+                        continue;
+                    }
+                }
+
+                // Fallback: use first 3-4 words as subject
+                var words = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (words.Length >= 6)
+                {
+                    int takeCount = Math.Min(4, words.Length / 2);
+                    var subj = string.Join(" ", words.Take(takeCount)).TrimEnd(',', ':', ';');
+                    var pred = string.Join(" ", words.Skip(takeCount));
+                    if (subj.Length >= 4 && pred.Length >= 12 && seenKeys.Add(subj))
+                    {
+                        propositions.Add(new SubstantiveProposition(subj, pred, line, PropositionKind.CoreConcept));
+                    }
+                }
+            }
+        }
+
+        // Guarantee at least foundational propositions if note was extremely concise
+        if (propositions.Count == 0)
+        {
+            propositions.Add(new SubstantiveProposition(
+                title,
+                $"Core academic principles and subject knowledge of {title}",
+                $"Foundational study material for {title}.",
+                PropositionKind.CoreConcept
+            ));
+        }
+
+        return propositions;
     }
 
     private static List<(string Term, string Definition, string FullSentence)> ExtractDefinitions(List<string> cleanLines)
@@ -1326,31 +1567,127 @@ public static class NoteScriptSynthesizer
     }
 
     private static List<GeneratedQuestionDto> GenerateFlashcardQuestions(
-        List<(string Term, string Definition, string FullSentence)> definitions,
+        List<SubstantiveProposition> propositions,
         string title,
         int countNeeded,
-        int setIndex = 0)
+        int setIndex = 0,
+        string? variant = null)
     {
         var result = new List<GeneratedQuestionDto>();
+        if (propositions.Count == 0) return result;
 
-        for (int i = 0; i < definitions.Count && result.Count < countNeeded; i++)
+        // Apply rotation / variant shuffling
+        var workingList = new List<SubstantiveProposition>(propositions);
+        if (setIndex > 0)
         {
-            var def = definitions[i];
-            var prompt = $"What is {def.Term}?";
+            int rot = (setIndex * 3) % workingList.Count;
+            workingList = workingList.Skip(rot).Concat(workingList.Take(rot)).ToList();
+        }
+        if (variant == "shuffle" || variant == "random" || setIndex >= 900)
+        {
+            var rng = new Random(setIndex);
+            workingList = workingList.OrderBy(_ => rng.Next()).ToList();
+        }
 
-            result.Add(new GeneratedQuestionDto(
-                "flashcard",
-                prompt,
-                new List<string> { $"Category: {title}", $"Term: {def.Term}" },
-                def.Definition,
-                new List<GeneratedOptionDto> { new GeneratedOptionDto(def.Definition, true, null) },
-                new List<string> { def.Definition },
-                null,
-                false,
-                $"Flashcard definition from {title}: \"{def.FullSentence}\"",
-                null,
-                $"Source: {def.FullSentence}"
-            ));
+        int propIdx = 0;
+        int dimensionCounter = setIndex;
+
+        while (result.Count < countNeeded && propIdx < workingList.Count * 3)
+        {
+            var prop = workingList[propIdx % workingList.Count];
+            int dimension = (dimensionCounter++) % 6;
+
+            string prompt;
+            string answer;
+            string dimensionTag;
+            string explanation;
+
+            switch (dimension)
+            {
+                case 0:
+                    // Dimension 1: CORE CONCEPT & ROLE
+                    dimensionTag = "CORE CONCEPT";
+                    prompt = $"What is the primary role and core definition of \"{prop.Subject}\" in {title}?";
+                    answer = prop.CorePredicate;
+                    explanation = $"Direct study note passage: \"{prop.FullPassage}\"";
+                    break;
+
+                case 1:
+                    // Dimension 2: REVERSE ACTIVE RECALL
+                    dimensionTag = "REVERSE RECALL";
+                    prompt = $"In {title}, which core concept or principle is characterized by: \"{prop.CorePredicate.TrimEnd('.')}\"?";
+                    answer = prop.Subject;
+                    explanation = $"The concept corresponding to this description is \"{prop.Subject}\". Notes: \"{prop.FullPassage}\"";
+                    break;
+
+                case 2:
+                    // Dimension 3: CAUSE & EFFECT / PROCESS
+                    dimensionTag = "CAUSE & EFFECT";
+                    if (prop.Kind == PropositionKind.CauseAndEffect || !string.IsNullOrWhiteSpace(prop.ConsequenceOrRole))
+                    {
+                        prompt = $"What is the direct consequence, function, or outcome associated with \"{prop.Subject}\"?";
+                        answer = prop.ConsequenceOrRole ?? prop.CorePredicate;
+                    }
+                    else
+                    {
+                        prompt = $"When studying {title}, what functional effect or mechanism does \"{prop.Subject}\" govern?";
+                        answer = prop.CorePredicate;
+                    }
+                    explanation = $"Operational mechanism verified from notes: \"{prop.FullPassage}\"";
+                    break;
+
+                case 3:
+                    // Dimension 4: KEY DISTINCTION
+                    dimensionTag = "KEY DISTINCTION";
+                    if (!string.IsNullOrWhiteSpace(prop.DistinguishingFeature))
+                    {
+                        prompt = $"What is the key distinguishing factor of \"{prop.Subject}\" according to the study material?";
+                        answer = prop.DistinguishingFeature;
+                    }
+                    else
+                    {
+                        prompt = $"What key attribute uniquely characterizes \"{prop.Subject}\" in the context of {title}?";
+                        answer = prop.CorePredicate;
+                    }
+                    explanation = $"Key distinction verified from notes: \"{prop.FullPassage}\"";
+                    break;
+
+                case 4:
+                    // Dimension 5: APPLICATION DRILL
+                    dimensionTag = "APPLICATION DRILL";
+                    prompt = $"In an applied analysis of {title}, how should the principle of \"{prop.Subject}\" be utilized or interpreted?";
+                    answer = prop.CorePredicate;
+                    explanation = $"Application context from notes: \"{prop.FullPassage}\"";
+                    break;
+
+                default:
+                    // Dimension 6: CONTEXTUAL CLOZE
+                    dimensionTag = "CONTEXTUAL CLOZE";
+                    prompt = $"Complete the key recall statement for {title}: \"{prop.Subject} — [ ________ ]\"";
+                    answer = prop.CorePredicate;
+                    explanation = $"Full statement from study material: \"{prop.FullPassage}\"";
+                    break;
+            }
+
+            // Ensure prompt isn't already added
+            if (!result.Any(existing => string.Equals(existing.Prompt, prompt, StringComparison.OrdinalIgnoreCase)))
+            {
+                result.Add(new GeneratedQuestionDto(
+                    "flashcard",
+                    prompt,
+                    new List<string> { $"Category: {title}", $"Concept: {prop.Subject}" },
+                    answer,
+                    new List<GeneratedOptionDto> { new GeneratedOptionDto(answer, true, null) },
+                    new List<string> { answer, prop.Subject },
+                    null,
+                    false,
+                    explanation,
+                    new List<string> { $"DIMENSION: {dimensionTag}", $"CONCEPT: {prop.Subject}" },
+                    $"Notes excerpt: {prop.FullPassage}"
+                ));
+            }
+
+            propIdx++;
         }
 
         return result;

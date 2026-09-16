@@ -71,6 +71,8 @@ class QuestionModel {
   final bool? isTrue; // for true_false questions
   final List<Map<String, String>>? matchingPairs; // for matching questions
   final String? correctAnswer;
+  final List<String> thinkingBreakdown;
+  final String? dimensionTag;
 
   QuestionModel({
     required this.id,
@@ -87,6 +89,8 @@ class QuestionModel {
     this.isTrue,
     this.matchingPairs,
     this.correctAnswer,
+    this.thinkingBreakdown = const [],
+    this.dimensionTag,
   });
 
   QuestionOptionModel? get correctOption {
@@ -252,6 +256,20 @@ class QuestionModel {
       }
     }
 
+    List<String> parsedThinking = [];
+    if (json["thinkingBreakdown"] is List) {
+      parsedThinking = (json["thinkingBreakdown"] as List).map((e) => e.toString()).toList();
+    }
+
+    String? dimensionTag;
+    for (final step in parsedThinking) {
+      final upper = step.toUpperCase();
+      if (upper.startsWith("DIMENSION:")) {
+        dimensionTag = step.substring("DIMENSION:".length).trim();
+        break;
+      }
+    }
+
     return QuestionModel(
       id: json["id"]?.toString() ?? "",
       studySetId: json["studySetId"]?.toString() ?? "",
@@ -267,6 +285,8 @@ class QuestionModel {
       matchingDefinitions: matchingDefinitions,
       matchingPairs: matchingPairs,
       correctAnswer: correctAnswer,
+      thinkingBreakdown: parsedThinking,
+      dimensionTag: dimensionTag,
     );
   }
 }
