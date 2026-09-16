@@ -229,6 +229,17 @@ using (var scope = app.Services.CreateScope())
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_UserSettings_UserId" ON "UserSettings" ("UserId");
         """);
+
+        try
+        {
+            db.Database.ExecuteSqlRaw("ALTER TABLE \"Courses\" ADD COLUMN \"ExamDate\" TEXT NULL;");
+        }
+        catch { }
+        try
+        {
+            db.Database.ExecuteSqlRaw("ALTER TABLE \"Courses\" ADD COLUMN \"ExamTitle\" TEXT NULL;");
+        }
+        catch { }
     }
     Console.WriteLine("[Database] Database schema verified and ready for student records.");
 }

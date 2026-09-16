@@ -252,6 +252,402 @@ public sealed class PracticeController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("today-plan")]
+    public async Task<ActionResult<TodayStudyPlanDto>> GetTodayStudyPlan(CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var courses = await _context.Courses
+            .Include(c => c.StudySets)
+                .ThenInclude(s => s.Questions)
+                    .ThenInclude(q => q.Options)
+            .Where(c => c.UserId == userId.Value)
+            .ToListAsync(cancellationToken);
+
+        if (courses.Count == 0)
+        {
+            return Ok(new TodayStudyPlanDto(
+                null, "No Courses", "N/A", null, null, 25,
+                new List<CoursePriorityDto>(),
+                new List<StudyPlanStepDto>(),
+                "Create or import your first course to generate an adaptive daily study plan.",
+                new ExplainableReadinessDto(0, 0, 0, 0, 0, "No study history recorded yet.")
+            ));
+        }
+
+        var attempts = await _context.SessionAnswers
+            .Include(a => a.Question)
+                .ThenInclude(q => q!.StudySet)
+                    .ThenInclude(s => s!.Course)
+            .Include(a => a.TestSession)
+            .Where(a => a.Question != null && a.Question.StudySet != null && a.Question.StudySet.Course != null && a.Question.StudySet.Course.UserId == userId.Value)
+            .ToListAsync(cancellationToken);
+
+        var primaryCourse = courses
+            .OrderBy(c => c.ExamDate.HasValue && c.ExamDate.Value > DateTime.UtcNow ? 0 : 1)
+            .ThenBy(c => c.ExamDate ?? DateTime.MaxValue)
+            .ThenBy(c =>
+            {
+                var cAttempts = attempts.Where(a => a.Question?.StudySet?.CourseId == c.Id).ToList();
+                return cAttempts.Count == 0 ? 0 : cAttempts.Average(a => a.PartialScore);
+            })
+            .First();
+
+        var daysUntilExam = primaryCourse.ExamDate.HasValue
+            ? Math.Max(0, (int)Math.Ceiling((primaryCourse.ExamDate.Value - DateTime.UtcNow).TotalDays))
+            : (int?)null;
+
+        var courseSets = primaryCourse.StudySets.ToList();
+        var priorities = new List<CoursePriorityDto>();
+
+        foreach (var set in courseSets)
+        {
+            var setAttempts = attempts.Where(a => a.Question?.StudySetId == set.Id).ToList();
+            var accuracy = setAttempts.Count == 0
+                ? 50m
+                : Math.Round(setAttempts.Average(a => a.PartialScore) * 100m, 1);
+            var missedCount = setAttempts.Count(a => !a.IsCorrect);
+            var status = accuracy >= 85m ? "Strong" : accuracy >= 60m ? "Needs Review" : "High Priority";
+            priorities.Add(new CoursePriorityDto(set.Title, accuracy, status, missedCount));
+        }
+
+        priorities = priorities.OrderBy(p => p.MasteryPercent).ToList();
+
+        var recentAttempts = attempts.Where(a => a.Question?.StudySet?.CourseId == primaryCourse.Id).ToList();
+        var flashcardAttempts = recentAttempts.Where(a => a.TestSession?.Mode == StudyMode.Flashcards).ToList();
+        var quizAttempts = recentAttempts.Where(a => a.TestSession?.Mode != StudyMode.Flashcards).ToList();
+
+        var qAccuracy = quizAttempts.Count == 0 ? 70m : Math.Round(quizAttempts.Average(a => a.PartialScore) * 100m, 1);
+        var fRetention = flashcardAttempts.Count == 0 ? 75m : Math.Round(flashcardAttempts.Average(a => a.PartialScore) * 100m, 1);
+        var activeDays = recentAttempts.Select(a => a.TestSession?.CompletedAt.Date).Distinct().Count(d => d.HasValue);
+        var unresolvedMistakes = recentAttempts.Where(a => !a.IsCorrect).GroupBy(a => a.QuestionId).Count();
+
+        var overallReadiness = Math.Clamp(
+            Math.Round((qAccuracy * 0.5m) + (fRetention * 0.35m) + (Math.Min(activeDays, 5) * 3m) - (unresolvedMistakes * 1.5m), 1),
+            20m, 98m);
+
+        var readinessExplanation = unresolvedMistakes > 0
+            ? $"Based on {qAccuracy}% question accuracy, {fRetention}% flashcard retention, and {unresolvedMistakes} active misconception patterns."
+            : $"Strong concept retention across {activeDays} study days with zero active misconception patterns.";
+
+        var steps = new List<StudyPlanStepDto>();
+        var lowestSet = courseSets.OrderBy(s => priorities.FirstOrDefault(p => p.TopicName == s.Title)?.MasteryPercent ?? 50m).FirstOrDefault();
+        var allFlashcards = primaryCourse.StudySets.SelectMany(s => s.Questions.Where(q => q.Type == QuestionType.Identification || (q.ThinkingBreakdownJson != null && q.ThinkingBreakdownJson.Contains("DIMENSION:")))).ToList();
+
+        steps.Add(new StudyPlanStepDto(
+            1, "spaced_flashcards",
+            "Review Spaced Flashcards",
+            5,
+            "Spaced repetition retrieval prompt. Solidifies decaying memory traces before new concepts.",
+            Math.Min(allFlashcards.Count > 0 ? allFlashcards.Count : 6, 8),
+            lowestSet?.Id,
+            lowestSet?.Title
+        ));
+
+        steps.Add(new StudyPlanStepDto(
+            2, "retrieval_practice",
+            $"Retrieval Practice: {lowestSet?.Title ?? "Core Topics"}",
+            10,
+            $"Prioritized due to {priorities.FirstOrDefault()?.MasteryPercent ?? 42}% mastery and {priorities.FirstOrDefault()?.MissedCount ?? 2} recent misses.",
+            5,
+            lowestSet?.Id,
+            lowestSet?.Title
+        ));
+
+        steps.Add(new StudyPlanStepDto(
+            3, "mistake_drill",
+            "Mistake Bank Targeted Drill",
+            7,
+            $"Directly targets {Math.Max(1, unresolvedMistakes)} previously missed questions to prevent recurring exam errors.",
+            Math.Max(1, Math.Min(unresolvedMistakes, 5)),
+            lowestSet?.Id,
+            lowestSet?.Title
+        ));
+
+        steps.Add(new StudyPlanStepDto(
+            4, "socratic_tutor",
+            "Socratic AI Tutor Check-in",
+            3,
+            "Interactive guided dialogue explaining the core rationale behind your most challenging concepts.",
+            1,
+            lowestSet?.Id,
+            lowestSet?.Title
+        ));
+
+        var aiRec = unresolvedMistakes > 0
+            ? $"⚠️ Priority focus on {priorities.FirstOrDefault()?.TopicName ?? "core concepts"}. You have {unresolvedMistakes} mistake patterns flagged for review."
+            : $"🚀 High exam momentum! Maintain consistency with quick spaced flashcard drills.";
+
+        return Ok(new TodayStudyPlanDto(
+            primaryCourse.Id,
+            primaryCourse.Name,
+            primaryCourse.Code,
+            primaryCourse.ExamDate,
+            daysUntilExam,
+            25,
+            priorities,
+            steps,
+            aiRec,
+            new ExplainableReadinessDto(overallReadiness, qAccuracy, fRetention, Math.Max(1, activeDays), unresolvedMistakes, readinessExplanation)
+        ));
+    }
+
+    [HttpGet("mistake-bank")]
+    public async Task<ActionResult<List<MistakeBankItemDto>>> GetMistakeBank([FromQuery] Guid? courseId, CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var query = _context.SessionAnswers
+            .Include(a => a.Question)
+                .ThenInclude(q => q!.Options)
+            .Include(a => a.Question)
+                .ThenInclude(q => q!.StudySet)
+                    .ThenInclude(s => s!.Course)
+            .Where(a => a.Question != null && a.Question.StudySet != null && a.Question.StudySet.Course != null && a.Question.StudySet.Course.UserId == userId.Value);
+
+        if (courseId.HasValue && courseId.Value != Guid.Empty)
+        {
+            query = query.Where(a => a.Question!.StudySet!.CourseId == courseId.Value);
+        }
+
+        var answers = await query.ToListAsync(cancellationToken);
+
+        var grouped = answers
+            .GroupBy(a => a.QuestionId)
+            .Select(g =>
+            {
+                var q = g.First().Question!;
+                var misses = g.Count(a => !a.IsCorrect);
+                var lastMiss = g.Where(a => !a.IsCorrect).OrderByDescending(a => a.Id).FirstOrDefault();
+                var lastAnswer = g.OrderByDescending(a => a.Id).FirstOrDefault();
+                var isResolved = lastAnswer?.IsCorrect == true;
+
+                var misconception = !string.IsNullOrWhiteSpace(q.Explanation)
+                    ? q.Explanation
+                    : "Review the question prompt and examine the distinguishing characteristics between the correct answer and distractor choices.";
+
+                return new MistakeBankItemDto(
+                    q.Id,
+                    q.StudySetId,
+                    q.StudySet?.Title ?? "Study Set",
+                    q.StudySet?.Course?.Code ?? "COURSE",
+                    q.StudySet?.Course?.Name ?? "General",
+                    q.Prompt,
+                    q.Type.ToString(),
+                    q.Options.Select(o => o.OptionText).ToList(),
+                    GetCorrectAnswer(q),
+                    misconception,
+                    misses,
+                    lastMiss != null ? DateTime.UtcNow : DateTime.UtcNow.AddDays(-1),
+                    lastMiss?.UserSubmittedAnswer,
+                    misses >= 3
+                        ? $"Recurring misconception: missed {misses} times across recent sessions."
+                        : misses >= 2
+                            ? "Needs reinforcement: missed 2 times."
+                            : "Recent stumble: missed in last session.",
+                    isResolved
+                );
+            })
+            .Where(m => m.MissCount > 0)
+            .OrderBy(m => m.IsResolved ? 1 : 0)
+            .ThenByDescending(m => m.MissCount)
+            .ToList();
+
+        return Ok(grouped);
+    }
+
+    [HttpPost("mistake-bank/resolve")]
+    public async Task<IActionResult> ResolveMistake([FromBody] ResolveMistakeRequest request, CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var question = await _context.Questions
+            .Include(q => q.StudySet)
+                .ThenInclude(s => s!.Course)
+            .FirstOrDefaultAsync(q => q.Id == request.QuestionId && q.StudySet != null && q.StudySet.Course != null && q.StudySet.Course.UserId == userId.Value, cancellationToken);
+
+        if (question is null) return NotFound(new { message = "Question not found." });
+
+        var session = new TestSession
+        {
+            Id = Guid.NewGuid(),
+            StudySetId = question.StudySetId,
+            Mode = StudyMode.WeakSpotMastery,
+            Score = request.IsResolved ? 1 : 0,
+            TotalQuestions = 1,
+            TimeSpentSeconds = 15,
+            CompletedAt = DateTime.UtcNow
+        };
+
+        session.Answers.Add(new SessionAnswer
+        {
+            Id = Guid.NewGuid(),
+            QuestionId = question.Id,
+            UserSubmittedAnswer = GetCorrectAnswer(question),
+            IsCorrect = request.IsResolved,
+            PartialScore = request.IsResolved ? 1m : 0m,
+            AiFeedback = "Mistake Bank drill resolved by student."
+        });
+
+        _context.TestSessions.Add(session);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { success = true, isResolved = request.IsResolved });
+    }
+
+    [HttpGet("smart-session")]
+    public async Task<ActionResult<SmartSessionPayloadDto>> GetSmartSession([FromQuery] Guid? courseId, CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var coursesQuery = _context.Courses
+            .Include(c => c.StudySets)
+                .ThenInclude(s => s.Questions)
+                    .ThenInclude(q => q.Options)
+            .Where(c => c.UserId == userId.Value);
+
+        if (courseId.HasValue && courseId.Value != Guid.Empty)
+        {
+            coursesQuery = coursesQuery.Where(c => c.Id == courseId.Value);
+        }
+
+        var courses = await coursesQuery.ToListAsync(cancellationToken);
+        if (courses.Count == 0) return NotFound(new { message = "No courses available for smart session." });
+
+        var allQuestions = courses.SelectMany(c => c.StudySets.SelectMany(s => s.Questions)).ToList();
+        if (allQuestions.Count == 0) return BadRequest(new { message = "No study material found. Add questions or flashcards first." });
+
+        var pastAnswers = await _context.SessionAnswers
+            .Where(a => allQuestions.Select(q => q.Id).Contains(a.QuestionId))
+            .ToListAsync(cancellationToken);
+
+        // Stage 1: Flashcards (up to 5)
+        var flashcards = allQuestions
+            .Where(q => q.Type == QuestionType.Identification || (q.ThinkingBreakdownJson != null && q.ThinkingBreakdownJson.Contains("DIMENSION:")))
+            .OrderBy(q => pastAnswers.Count(a => a.QuestionId == q.Id))
+            .Take(5)
+            .Select(q => new SmartSessionFlashcardDto(
+                q.Id,
+                q.StudySetId,
+                q.Prompt,
+                GetCorrectAnswer(q),
+                q.ThinkingBreakdownJson?.Contains("DIMENSION:") == true ? "CORE CONCEPT" : "ACTIVE RECALL",
+                "Spaced retrieval: strengthens recall retention of foundational concepts."
+            ))
+            .ToList();
+
+        if (flashcards.Count == 0)
+        {
+            flashcards = allQuestions
+                .Take(4)
+                .Select(q => new SmartSessionFlashcardDto(
+                    q.Id,
+                    q.StudySetId,
+                    q.Prompt,
+                    GetCorrectAnswer(q),
+                    "CORE CONCEPT",
+                    "Foundational retrieval drill."
+                ))
+                .ToList();
+        }
+
+        // Stage 2: Weak Topic Retrieval Practice (up to 5 non-flashcard questions with lowest accuracy)
+        var retrievalQuestions = allQuestions
+            .Where(q => q.Type != QuestionType.Identification && (q.ThinkingBreakdownJson == null || !q.ThinkingBreakdownJson.Contains("DIMENSION:")))
+            .OrderBy(q =>
+            {
+                var qAnswers = pastAnswers.Where(a => a.QuestionId == q.Id).ToList();
+                return qAnswers.Count == 0 ? 0.5m : qAnswers.Average(a => a.PartialScore);
+            })
+            .Take(5)
+            .Select(q => new SmartSessionQuestionDto(
+                q.Id,
+                q.StudySetId,
+                q.Prompt,
+                q.Type.ToString(),
+                q.Options.Select(o => new SmartSessionOptionDto(o.Id, o.OptionText, o.IsCorrect, o.DistractorRationale)).ToList(),
+                GetCorrectAnswer(q),
+                q.Explanation,
+                "Stage 2: Retrieval Practice",
+                "Adaptive weak-topic targeting to close knowledge gaps."
+            ))
+            .ToList();
+
+        // Stage 3: Mistake Bank Drills (up to 3 questions that were previously answered incorrectly)
+        var missedQuestionIds = pastAnswers
+            .Where(a => !a.IsCorrect)
+            .GroupBy(a => a.QuestionId)
+            .OrderByDescending(g => g.Count())
+            .Select(g => g.Key)
+            .ToList();
+
+        var mistakeQuestions = allQuestions
+            .Where(q => missedQuestionIds.Contains(q.Id))
+            .Take(3)
+            .Select(q => new SmartSessionQuestionDto(
+                q.Id,
+                q.StudySetId,
+                q.Prompt,
+                q.Type.ToString(),
+                q.Options.Select(o => new SmartSessionOptionDto(o.Id, o.OptionText, o.IsCorrect, o.DistractorRationale)).ToList(),
+                GetCorrectAnswer(q),
+                q.Explanation,
+                "Stage 3: Mistake Bank Drill",
+                "Targeted retry of concepts where misconceptions occurred."
+            ))
+            .ToList();
+
+        return Ok(new SmartSessionPayloadDto(
+            "⚡ 25-Minute Adaptive Smart Session",
+            25,
+            flashcards,
+            retrievalQuestions,
+            mistakeQuestions
+        ));
+    }
+
+    [HttpGet("exam-readiness/{courseId:guid}")]
+    public async Task<ActionResult<ExplainableReadinessDto>> GetExamReadiness(Guid courseId, CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var course = await _context.Courses
+            .Include(c => c.StudySets)
+                .ThenInclude(s => s.Questions)
+            .FirstOrDefaultAsync(c => c.Id == courseId && c.UserId == userId.Value, cancellationToken);
+
+        if (course is null) return NotFound(new { message = "Course not found." });
+
+        var courseQuestionIds = course.StudySets.SelectMany(s => s.Questions.Select(q => q.Id)).ToList();
+        var attempts = await _context.SessionAnswers
+            .Include(a => a.TestSession)
+            .Where(a => courseQuestionIds.Contains(a.QuestionId))
+            .ToListAsync(cancellationToken);
+
+        var quizAttempts = attempts.Where(a => a.TestSession?.Mode != StudyMode.Flashcards).ToList();
+        var flashcardAttempts = attempts.Where(a => a.TestSession?.Mode == StudyMode.Flashcards).ToList();
+
+        var qAccuracy = quizAttempts.Count == 0 ? 65m : Math.Round(quizAttempts.Average(a => a.PartialScore) * 100m, 1);
+        var fRetention = flashcardAttempts.Count == 0 ? 70m : Math.Round(flashcardAttempts.Average(a => a.PartialScore) * 100m, 1);
+        var activeDays = attempts.Select(a => a.TestSession?.CompletedAt.Date).Distinct().Count(d => d.HasValue);
+        var unresolved = attempts.Where(a => !a.IsCorrect).GroupBy(a => a.QuestionId).Count();
+
+        var overall = Math.Clamp(
+            Math.Round((qAccuracy * 0.5m) + (fRetention * 0.35m) + (Math.Min(activeDays, 5) * 3m) - (unresolved * 1.5m), 1),
+            20m, 98m);
+
+        var explanation = unresolved > 0
+            ? $"Readiness is {overall}% based on {qAccuracy}% accuracy, {fRetention}% flashcard retention, and {unresolved} active mistake patterns."
+            : $"High readiness of {overall}% with consistent retrieval accuracy and 0 active mistake patterns.";
+
+        return Ok(new ExplainableReadinessDto(overall, qAccuracy, fRetention, Math.Max(1, activeDays), unresolved, explanation));
+    }
+
     private async Task<AnswerGradeDto> GradeAsync(
         Question question,
         PracticeAnswerRequest submitted,

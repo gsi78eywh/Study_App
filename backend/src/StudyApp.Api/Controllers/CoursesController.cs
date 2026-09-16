@@ -8,8 +8,9 @@ using StudyApp.Domain.Enums;
 
 namespace StudyApp.Api.Controllers;
 
-public record CreateCourseRequest(string Code, string Name, string? ColorHex = null);
-public record UpdateCourseRequest(string Code, string Name, string? ColorHex = null);
+public record CreateCourseRequest(string Code, string Name, string? ColorHex = null, DateTime? ExamDate = null, string? ExamTitle = null);
+public record UpdateCourseRequest(string Code, string Name, string? ColorHex = null, DateTime? ExamDate = null, string? ExamTitle = null);
+public record UpdateCourseExamRequest(DateTime? ExamDate, string? ExamTitle);
 
 [ApiController]
 [Route("api/v1/courses")]
@@ -39,6 +40,8 @@ public sealed class CoursesController : ControllerBase
             Code = "BIO-101",
             Name = "General Cellular Biology & Genetics",
             ColorHex = "#10B981",
+            ExamDate = DateTime.UtcNow.AddDays(5),
+            ExamTitle = "Midterm Examination",
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -68,38 +71,56 @@ public sealed class CoursesController : ControllerBase
         q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Provide carbon atoms for glucose synthesis", IsCorrect = false, DistractorRationale = "Carbon is supplied by carbon dioxide in the Calvin cycle." });
         q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Directly phosphorylate ADP without a proton gradient", IsCorrect = false, DistractorRationale = "ATP is generated via ATP synthase and the proton gradient." });
         q1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q1.Id, OptionText = "Cleave RuBisCO enzyme complexes", IsCorrect = false, DistractorRationale = "RuBisCO operates in the stroma and is not cleaved by water." });
-        bioSet.Questions.Add(q1);
 
         var q2 = new Question
         {
             Id = Guid.NewGuid(),
             StudySetId = bioSet.Id,
-            Type = QuestionType.Identification,
-            Prompt = "What specialized enzyme in the chloroplast stroma catalyzes the initial fixation of carbon dioxide to ribulose 1,5-bisphosphate (RuBP)?",
-            HintsJson = "[\"Abbreviated with 7 letters (RuB...)\",\"Most abundant enzyme on Earth.\"]",
-            Explanation = "RuBisCO (Ribulose-1,5-bisphosphate carboxylase-oxygenase) catalyzes the crucial initial carbon-fixing step.",
-            Difficulty = 2,
+            Type = QuestionType.TrueFalse,
+            Prompt = "True or False: Glycolysis requires molecular oxygen to generate pyruvate and net 2 ATP.",
+            HintsJson = "[\"Glycolysis is an anaerobic pathway.\"]",
+            Explanation = "Glycolysis occurs in the cytoplasm and operates anaerobically without oxygen.",
+            Difficulty = 1,
             SortOrder = 2
         };
-        q2.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q2.Id, OptionText = "RuBisCO", IsCorrect = true });
-        bioSet.Questions.Add(q2);
+        q2.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q2.Id, OptionText = "False", IsCorrect = true });
+        q2.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q2.Id, OptionText = "True", IsCorrect = false });
 
-        bioCourse.StudySets.Add(bioSet);
-        _context.Courses.Add(bioCourse);
-
-        var sampleNote = new NotebookPage
+        var q3 = new Question
         {
             Id = Guid.NewGuid(),
-            CourseId = bioCourse.Id,
-            Title = "Photosynthesis: Light vs Dark Reactions Summary",
-            ContentMarkdown = "# Photosynthesis Core Principles\n\n- **Light Reactions:** Thylakoid membrane. Uses H2O + photons -> ATP + NADPH + O2.\n- **Calvin Cycle:** Stroma. Uses CO2 + ATP + NADPH -> G3P (Glucose precursor).\n- **Key Rate Limiter:** RuBisCO temperature and CO2/O2 concentration ratio.",
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
+            StudySetId = bioSet.Id,
+            Type = QuestionType.Identification,
+            Prompt = "Identify the enzyme in the inner mitochondrial membrane that utilizes proton motive force to synthesize ATP.",
+            HintsJson = "[\"It operates like a molecular turbine.\"]",
+            Explanation = "ATP synthase phosphorylates ADP into ATP as H+ protons flow down their gradient.",
+            Difficulty = 2,
+            SortOrder = 3
         };
-        _context.NotebookPages.Add(sampleNote);
+        q3.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q3.Id, OptionText = "ATP Synthase", IsCorrect = true });
 
+        var q4 = new Question
+        {
+            Id = Guid.NewGuid(),
+            StudySetId = bioSet.Id,
+            Type = QuestionType.Identification,
+            Prompt = "What is the primary function of the Calvin Cycle (Light-Independent Reactions)?",
+            Explanation = "To fix inorganic atmospheric carbon dioxide into 3-carbon sugars (G3P) using ATP and NADPH produced by the light reactions.",
+            Difficulty = 2,
+            SortOrder = 4
+        };
+        q4.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = q4.Id, OptionText = "Fix carbon dioxide into glucose precursors using ATP and NADPH", IsCorrect = true });
+
+        bioSet.Questions.Add(q1);
+        bioSet.Questions.Add(q2);
+        bioSet.Questions.Add(q3);
+        bioSet.Questions.Add(q4);
+        bioCourse.StudySets.Add(bioSet);
+
+        _context.Courses.Add(bioCourse);
         await _context.SaveChangesAsync(cancellationToken);
-        return Ok(new { success = true, courseId = bioCourse.Id, message = "Starter Demo Pack loaded successfully!" });
+
+        return Ok(new { success = true, message = "Starter Demo Pack loaded successfully." });
     }
 
     [HttpGet]
@@ -117,6 +138,8 @@ public sealed class CoursesController : ControllerBase
                 course.Code,
                 course.Name,
                 course.ColorHex,
+                course.ExamDate,
+                course.ExamTitle,
                 course.CreatedAt,
                 course.UpdatedAt,
                 StudySetCount = course.StudySets.Count,
@@ -163,6 +186,8 @@ public sealed class CoursesController : ControllerBase
             Code = codeTrimmed,
             Name = request.Name.Trim(),
             ColorHex = NormalizeColor(request.ColorHex),
+            ExamDate = request.ExamDate,
+            ExamTitle = request.ExamTitle?.Trim(),
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -175,6 +200,8 @@ public sealed class CoursesController : ControllerBase
             code = course.Code,
             name = course.Name,
             colorHex = course.ColorHex,
+            examDate = course.ExamDate,
+            examTitle = course.ExamTitle,
             createdAt = course.CreatedAt,
             updatedAt = course.UpdatedAt,
             studySets = Array.Empty<object>()
@@ -196,6 +223,8 @@ public sealed class CoursesController : ControllerBase
                 course.Code,
                 course.Name,
                 course.ColorHex,
+                course.ExamDate,
+                course.ExamTitle,
                 course.CreatedAt,
                 course.UpdatedAt,
                 studySets = course.StudySets.Select(set => new
@@ -228,9 +257,27 @@ public sealed class CoursesController : ControllerBase
         course.Code = request.Code.Trim();
         course.Name = request.Name.Trim();
         course.ColorHex = NormalizeColor(request.ColorHex);
+        course.ExamDate = request.ExamDate;
+        course.ExamTitle = request.ExamTitle?.Trim();
         course.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync(cancellationToken);
         return Ok(course);
+    }
+
+    [HttpPut("{id:guid}/exam")]
+    public async Task<IActionResult> UpdateCourseExam(Guid id, [FromBody] UpdateCourseExamRequest request, CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var course = await _context.Courses.SingleOrDefaultAsync(c => c.Id == id && c.UserId == userId.Value, cancellationToken);
+        if (course is null) return NotFound(new { message = "Course not found." });
+
+        course.ExamDate = request.ExamDate;
+        course.ExamTitle = string.IsNullOrWhiteSpace(request.ExamTitle) ? null : request.ExamTitle.Trim();
+        course.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(cancellationToken);
+        return Ok(new { success = true, examDate = course.ExamDate, examTitle = course.ExamTitle });
     }
 
     [HttpDelete("{id:guid}")]

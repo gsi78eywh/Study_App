@@ -1,6 +1,7 @@
 import "package:dio/dio.dart";
 import "../constants/api_constants.dart";
 import "../services/session_service.dart";
+import "../../features/practice/models/adaptive_models.dart";
 
 class ApiClient {
   final SessionService sessionService;
@@ -66,4 +67,80 @@ class ApiClient {
   void updateBaseUrl(String newUrl) {
     dio.options.baseUrl = newUrl;
   }
+
+  Future<TodayStudyPlanModel?> getTodayStudyPlan() async {
+    try {
+      final res = await dio.get("/api/v1/practice/today-plan");
+      if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
+        return TodayStudyPlanModel.fromJson(res.data as Map<String, dynamic>);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<SmartSessionPayloadModel?> getSmartSession({String? courseId}) async {
+    try {
+      final res = await dio.get(
+        "/api/v1/practice/smart-session",
+        queryParameters: courseId != null ? {"courseId": courseId} : null,
+      );
+      if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
+        return SmartSessionPayloadModel.fromJson(res.data as Map<String, dynamic>);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<List<MistakeBankItemModel>> getMistakeBank({String? courseId}) async {
+    try {
+      final res = await dio.get(
+        "/api/v1/practice/mistake-bank",
+        queryParameters: courseId != null ? {"courseId": courseId} : null,
+      );
+      if (res.statusCode == 200 && res.data is List) {
+        return (res.data as List)
+            .map((item) => MistakeBankItemModel.fromJson(item as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<bool> resolveMistake(String questionId, {bool isResolved = true}) async {
+    try {
+      final res = await dio.post(
+        "/api/v1/practice/mistake-bank/resolve",
+        data: {"questionId": questionId, "isResolved": isResolved},
+      );
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<ExplainableReadinessModel?> getExamReadiness(String courseId) async {
+    try {
+      final res = await dio.get("/api/v1/practice/exam-readiness/$courseId");
+      if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
+        return ExplainableReadinessModel.fromJson(res.data as Map<String, dynamic>);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<bool> updateCourseExam(String courseId, DateTime? examDate, String? examTitle) async {
+    try {
+      final res = await dio.put(
+        "/api/v1/courses/$courseId/exam",
+        data: {
+          "examDate": examDate?.toIso8601String(),
+          "examTitle": examTitle,
+        },
+      );
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
 }
+

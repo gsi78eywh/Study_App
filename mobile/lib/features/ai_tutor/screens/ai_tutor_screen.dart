@@ -26,6 +26,9 @@ class AiTutorScreen extends StatefulWidget {
   final List<CourseModel> courses;
   final String? initialPrompt;
   final String? initialCourseContext;
+  final String? initialWeakConcepts;
+  final String? initialMistakesContext;
+  final bool startInSocraticMode;
 
   const AiTutorScreen({
     super.key,
@@ -33,6 +36,9 @@ class AiTutorScreen extends StatefulWidget {
     required this.courses,
     this.initialPrompt,
     this.initialCourseContext,
+    this.initialWeakConcepts,
+    this.initialMistakesContext,
+    this.startInSocraticMode = false,
   });
 
   @override
@@ -45,18 +51,26 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
   final List<ChatMessage> _messages = [];
   bool _isLoading = false;
   String? _selectedCourseContext;
+  late bool _isSocraticMode;
+  String? _weakConceptsContext;
+  String? _recentMistakesContext;
 
   final List<String> _quickPrompts = [
+    "💡 Give me a hint (don't reveal the answer)",
+    "🧠 Why did I get this wrong?",
+    "🎯 Test my understanding with a question",
     "💡 Explain this simply with an analogy",
     "🧪 Break down key formulas and variables",
     "📝 Give me a high-yield practice problem",
-    "🎯 What are the common exam pitfalls?",
     "🔍 Summarize the core theoretical principles",
   ];
 
   @override
   void initState() {
     super.initState();
+    _isSocraticMode = widget.startInSocraticMode;
+    _weakConceptsContext = widget.initialWeakConcepts;
+    _recentMistakesContext = widget.initialMistakesContext;
     _selectedCourseContext =
         widget.initialCourseContext ??
         (widget.courses.isNotEmpty ? widget.courses.first.name : null);
@@ -135,6 +149,9 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
           "message": query,
           "contextTopic": _selectedCourseContext,
           "apiKey": geminiKey,
+          "isSocraticMode": _isSocraticMode,
+          "weakConceptsContext": _weakConceptsContext,
+          "recentMistakesContext": _recentMistakesContext,
           "history": history.length > 6
               ? history.sublist(history.length - 6)
               : history,
@@ -488,45 +505,90 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Subject context badge
-            if (_selectedCourseContext != null)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                color: isDark
-                    ? const Color(0xFF1E293B)
-                    : const Color(0xFFEEF2FF),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 900),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.school_outlined,
-                          size: 16,
-                          color: AppColors.accent,
+            // Subject context & Socratic mode banner
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ),
+              color: isDark
+                  ? const Color(0xFF1E293B)
+                  : const Color(0xFFEEF2FF),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 900),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.school_outlined,
+                        size: 16,
+                        color: AppColors.accent,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _selectedCourseContext != null
+                              ? "Context: $_selectedCourseContext"
+                              : "General Study Mode",
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: isDark
+                                ? AppColors.darkTextPrimary
+                                : const Color(0xFF3730A3),
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            "Context: $_selectedCourseContext",
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: isDark
-                                  ? AppColors.darkTextPrimary
-                                  : const Color(0xFF3730A3),
+                      ),
+                      const SizedBox(width: 8),
+                      Tooltip(
+                        message: "UNESCO Guidance: Guides with hints & questions instead of revealing direct answers",
+                        child: InkWell(
+                          onTap: () => setState(() => _isSocraticMode = !_isSocraticMode),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: _isSocraticMode
+                                  ? const Color(0xFF6366F1)
+                                  : (isDark ? const Color(0xFF334155) : Colors.white),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _isSocraticMode
+                                    ? const Color(0xFF6366F1)
+                                    : (isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1)),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.lightbulb_rounded,
+                                  size: 13,
+                                  color: _isSocraticMode ? Colors.white : const Color(0xFFF59E0B),
+                                ),
+                                const SizedBox(width: 5),
+                                Text(
+                                  _isSocraticMode ? "Socratic Mode ON" : "Socratic Hints",
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: _isSocraticMode
+                                        ? Colors.white
+                                        : (isDark ? Colors.white : const Color(0xFF1E293B)),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
+            ),
 
             // Quick Prompt Chips
             Container(

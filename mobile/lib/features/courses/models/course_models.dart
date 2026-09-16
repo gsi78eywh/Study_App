@@ -1,8 +1,10 @@
-﻿class CourseModel {
+class CourseModel {
   final String id;
   final String code;
   final String name;
   final String colorHex;
+  final DateTime? examDate;
+  final String? examTitle;
   final DateTime createdAt;
   final DateTime? updatedAt;
   final List<StudySetModel> studySets;
@@ -12,10 +14,21 @@
     required this.code,
     required this.name,
     required this.colorHex,
+    this.examDate,
+    this.examTitle,
     required this.createdAt,
     this.updatedAt,
     this.studySets = const [],
   });
+
+  int? get daysUntilExam {
+    if (examDate == null) return null;
+    final diff = examDate!.difference(DateTime.now()).inDays;
+    return diff < 0 ? 0 : diff;
+  }
+
+  bool get hasUpcomingExam =>
+      examDate != null && examDate!.isAfter(DateTime.now().subtract(const Duration(days: 1)));
 
   factory CourseModel.fromJson(Map<String, dynamic> json) {
     return CourseModel(
@@ -23,6 +36,8 @@
       code: json["code"] ?? "",
       name: json["name"] ?? "",
       colorHex: json["colorHex"] ?? "#6366F1",
+      examDate: json["examDate"] != null ? DateTime.tryParse(json["examDate"]) : null,
+      examTitle: json["examTitle"]?.toString(),
       createdAt: DateTime.tryParse(json["createdAt"] ?? "") ?? DateTime.now(),
       updatedAt: json["updatedAt"] != null ? DateTime.tryParse(json["updatedAt"]) : null,
       studySets: (json["studySets"] as List<dynamic>?)
@@ -37,6 +52,8 @@
         "code": code,
         "name": name,
         "colorHex": colorHex,
+        "examDate": examDate?.toIso8601String(),
+        "examTitle": examTitle,
         "createdAt": createdAt.toIso8601String(),
         "updatedAt": updatedAt?.toIso8601String(),
       };

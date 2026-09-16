@@ -370,20 +370,39 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         // If an API key is available, attempt cloud Gemini API call
         if (!string.IsNullOrWhiteSpace(effectiveApiKey))
         {
-            var systemInstruction = """
-            You are 'Gemini Study Tutor', an encouraging, academically rigorous AI tutor and coding mentor for university students.
-            Guidelines:
-            - When a student asks for code (e.g. Flutter, Dart, HTML, CSS, JavaScript, Python, C#, Java, SQL), provide complete, working, modern code formatted inside Markdown code blocks with language syntax highlighting and concise line-by-line explanations.
-            - Provide clear conceptual explanations followed by step-by-step logic.
-            - Break down formulas, equations, or legal/scientific terminology clearly.
-            - When a student asks for practice or help, provide clear explanations.
-            """;
+            var systemInstruction = request.IsSocraticMode
+                ? """
+                You are 'Gemini Study Tutor' operating in SOCRATIC PEDAGOGICAL MODE.
+                Your mission is to build durable, active student understanding, following proven educational principles:
+                - DO NOT give away the final answer or solution immediately.
+                - Scaffold the student's thinking by providing one focused, clarifying hint at a time.
+                - Ask thought-provoking follow-up questions that guide the student to discover the answer themselves.
+                - Point out common traps or misconceptions if they are veering off track.
+                - If the student asks "What's the answer?", give a targeted hint and ask what they think the next step is.
+                - When they reach the correct answer, celebrate their insight and ask a brief reflection question to anchor retention.
+                """
+                : """
+                You are 'Gemini Study Tutor', an encouraging, academically rigorous AI tutor and mentor for university students.
+                Guidelines:
+                - Provide clear, high-yield explanations followed by step-by-step logic and intuitive analogies.
+                - Break down formulas, equations, or scientific terminology clearly.
+                - Connect concepts to practical applications and exam questions.
+                - Keep explanations focused and digestible with Markdown formatting.
+                """;
 
             var promptBuilder = new StringBuilder();
             promptBuilder.AppendLine(systemInstruction);
             if (!string.IsNullOrWhiteSpace(request.ContextTopic))
             {
-                promptBuilder.AppendLine($"\nSUBJECT CONTEXT: {request.ContextTopic}");
+                promptBuilder.AppendLine($"\nCURRENT COURSE / SUBJECT CONTEXT: {request.ContextTopic}");
+            }
+            if (!string.IsNullOrWhiteSpace(request.WeakConceptsContext))
+            {
+                promptBuilder.AppendLine($"\nSTUDENT'S RECENT WEAK CONCEPTS: {request.WeakConceptsContext}");
+            }
+            if (!string.IsNullOrWhiteSpace(request.RecentMistakesContext))
+            {
+                promptBuilder.AppendLine($"\nSTUDENT'S RECENT MISCONCEPTION PATTERNS: {request.RecentMistakesContext}");
             }
 
             if (request.History != null && request.History.Count > 0)

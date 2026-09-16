@@ -1,4 +1,4 @@
-﻿namespace StudyApp.Domain.Entities;
+namespace StudyApp.Domain.Entities;
 
 public class Course
 {
@@ -7,6 +7,8 @@ public class Course
     public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string ColorHex { get; set; } = "#4F46E5";
+    public DateTime? ExamDate { get; set; }
+    public string? ExamTitle { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 

@@ -23,6 +23,10 @@ import "../../../core/constants/api_constants.dart";
 import "../widgets/pomodoro_timer_sheet.dart";
 import "../../ingestion/widgets/camera_scanner_modal.dart";
 import "../../ingestion/widgets/progressive_exam_studio.dart";
+import "../../practice/models/adaptive_models.dart";
+import "../widgets/today_study_plan_widget.dart";
+import "../../quiz/screens/smart_session_player_screen.dart";
+import "../../quiz/screens/mistake_bank_screen.dart";
 
 class DashboardScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -46,6 +50,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isSyncing = false;
   bool _isLoadingCourses = true;
   bool _isLoadingDemoPack = false;
+  TodayStudyPlanModel? _todayStudyPlan;
+  bool _isLoadingStudyPlan = false;
 
   Future<void> _loadStarterDemoPack() async {
     setState(() => _isLoadingDemoPack = true);
@@ -193,6 +199,550 @@ class _DashboardScreenState extends State<DashboardScreen> {
       sessionService: widget.sessionService,
     );
     _fetchCoursesAndSync(fullFetch: true);
+    _loadTodayStudyPlan();
+  }
+
+  Future<void> _loadTodayStudyPlan() async {
+    if (!widget.sessionService.hasValidToken) return;
+    setState(() => _isLoadingStudyPlan = true);
+    try {
+      final plan = await widget.apiClient.getTodayStudyPlan();
+      if (mounted) {
+        setState(() {
+          _todayStudyPlan = plan;
+          _isLoadingStudyPlan = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingStudyPlan = false);
+    }
+  }
+
+  void _startSmartStudySession([String? courseId]) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SmartSessionPlayerScreen(
+          apiClient: widget.apiClient,
+          initialCourseId: courseId,
+          onSessionComplete: () {
+            _fetchCoursesAndSync(fullFetch: true);
+            _loadTodayStudyPlan();
+          },
+        ),
+      ),
+    );
+  }
+
+  void _openMistakeBank([String? courseId]) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MistakeBankScreen(
+          apiClient: widget.apiClient,
+          initialCourseId: courseId,
+          onMistakesChanged: () => _loadTodayStudyPlan(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showReadinessBreakdown(String courseId) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text("Calculating explainable readiness..."),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final readiness = await widget.apiClient.getExamReadiness(courseId);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+
+      if (readiness == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Unable to compute exam readiness. Try answering a quiz first."),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        return;
+      }
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => _buildReadinessModal(ctx, readiness),
+      );
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error fetching exam readiness: $e"),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildReadinessModal(BuildContext ctx, ExplainableReadinessModel readiness) {
+    final readinessPercent = (readiness.readinessScore * 100).toInt();
+    final Color scoreColor = readinessPercent >= 80
+        ? const Color(0xFF10B981)
+        : (readinessPercent >= 60 ? const Color(0xFFF59E0B) : const Color(0xFFEF4444));
+
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+      ),
+      decoration: BoxDecoration(
+        color: ctx.surfaceColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: ctx.cardBorderColor,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: scoreColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.analytics_rounded, color: scoreColor, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "${readiness.courseName} — Readiness",
+                      style: GoogleFonts.outfit(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: ctx.textPrimary,
+                      ),
+                    ),
+                    if (readiness.daysUntilExam != null)
+                      Text(
+                        "📅 ${readiness.daysUntilExam} days remaining until exam",
+                        style: const TextStyle(
+                          color: Color(0xFF6366F1),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      )
+                    else
+                      Text(
+                        "Explainable Mastery Engine",
+                        style: TextStyle(color: ctx.textSecondary, fontSize: 12),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: ctx.secondaryBg,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: ctx.cardBorderColor),
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 72,
+                          height: 72,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              CircularProgressIndicator(
+                                value: readiness.readinessScore,
+                                strokeWidth: 7,
+                                backgroundColor: ctx.cardBorderColor,
+                                color: scoreColor,
+                              ),
+                              Text(
+                                "$readinessPercent%",
+                                style: GoogleFonts.outfit(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                  color: ctx.textPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                readiness.readinessStatus,
+                                style: GoogleFonts.outfit(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  color: scoreColor,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                readiness.recommendationSummary,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: ctx.textSecondary,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    "Score Composition Factors",
+                    style: GoogleFonts.outfit(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: ctx.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: ctx.secondaryBg,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      children: [
+                        _buildFactorRow(
+                          ctx,
+                          Icons.quiz_outlined,
+                          "Retrieval Practice Accuracy",
+                          "${(readiness.recentAccuracy * 100).toInt()}%",
+                          readiness.recentAccuracy >= 0.75
+                              ? const Color(0xFF10B981)
+                              : const Color(0xFFF59E0B),
+                        ),
+                        Divider(color: ctx.cardBorderColor, height: 16),
+                        _buildFactorRow(
+                          ctx,
+                          Icons.style_outlined,
+                          "Spaced Flashcard Retention",
+                          "${(readiness.flashcardRetention * 100).toInt()}%",
+                          readiness.flashcardRetention >= 0.8
+                              ? const Color(0xFF10B981)
+                              : const Color(0xFFF59E0B),
+                        ),
+                        Divider(color: ctx.cardBorderColor, height: 16),
+                        _buildFactorRow(
+                          ctx,
+                          Icons.schedule_rounded,
+                          "Spacing & Consistency History",
+                          "${(readiness.spacingConsistencyScore * 100).toInt()}%",
+                          const Color(0xFF6366F1),
+                        ),
+                        Divider(color: ctx.cardBorderColor, height: 16),
+                        _buildFactorRow(
+                          ctx,
+                          Icons.warning_amber_rounded,
+                          "Unresolved Misconceptions",
+                          "${readiness.unresolvedMistakesCount} items",
+                          readiness.unresolvedMistakesCount == 0
+                              ? const Color(0xFF10B981)
+                              : const Color(0xFFEF4444),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (readiness.topicMastery.isNotEmpty) ...[
+                    Text(
+                      "Topic-Level Mastery Engine",
+                      style: GoogleFonts.outfit(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: ctx.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ...readiness.topicMastery.map((tm) {
+                      final p = (tm.masteryPercentage * 100).toInt();
+                      final color = p >= 80
+                          ? const Color(0xFF10B981)
+                          : (p >= 60 ? const Color(0xFFF59E0B) : const Color(0xFFEF4444));
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    tm.topicName,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: ctx.textPrimary,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Text(
+                                  "$p%",
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: color,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: LinearProgressIndicator(
+                                value: tm.masteryPercentage,
+                                minHeight: 6,
+                                backgroundColor: ctx.cardBorderColor,
+                                valueColor: AlwaysStoppedAnimation(color),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6366F1),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            icon: const Icon(Icons.bolt_rounded),
+            label: const Text(
+              "Start Targeted Smart Session",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _startSmartStudySession(readiness.courseId);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFactorRow(
+    BuildContext ctx,
+    IconData icon,
+    String title,
+    String value,
+    Color valueColor,
+  ) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: ctx.textSecondary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            title,
+            style: TextStyle(fontSize: 12, color: ctx.textPrimary),
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: valueColor,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showEditExamDialog(CourseModel course) async {
+    DateTime? selectedDate = course.examDate;
+    final titleController = TextEditingController(text: course.examTitle ?? "Final Exam");
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          return AlertDialog(
+            backgroundColor: ctx.surfaceColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                const Icon(Icons.event_note_rounded, color: Color(0xFF6366F1)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "Exam Countdown Target",
+                    style: GoogleFonts.outfit(
+                      fontWeight: FontWeight.bold,
+                      color: ctx.textPrimary,
+                      fontSize: 17,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Set your exam date for ${course.name}. Your daily study plan will adapt automatically as the exam approaches.",
+                    style: TextStyle(color: ctx.textSecondary, fontSize: 13),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: titleController,
+                    style: TextStyle(color: ctx.textPrimary),
+                    decoration: const InputDecoration(
+                      labelText: "Exam Title",
+                      hintText: "e.g. Finals, Midterm 1",
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.calendar_today_rounded, color: Color(0xFF6366F1)),
+                    title: Text(
+                      selectedDate == null
+                          ? "Select Exam Date"
+                          : "Exam: ${selectedDate!.month}/${selectedDate!.day}/${selectedDate!.year}",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: ctx.textPrimary,
+                        fontSize: 14,
+                      ),
+                    ),
+                    subtitle: selectedDate != null
+                        ? Text(
+                            "${selectedDate!.difference(DateTime.now()).inDays + 1} days remaining",
+                            style: const TextStyle(color: Color(0xFF10B981), fontSize: 12),
+                          )
+                        : null,
+                    trailing: OutlinedButton(
+                      onPressed: () async {
+                        final now = DateTime.now();
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: selectedDate ?? now.add(const Duration(days: 7)),
+                          firstDate: now,
+                          lastDate: now.add(const Duration(days: 365)),
+                        );
+                        if (picked != null) {
+                          setModalState(() => selectedDate = picked);
+                        }
+                      },
+                      child: const Text("Pick Date"),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              if (course.examDate != null)
+                TextButton(
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    await widget.apiClient.updateCourseExam(course.id, null, null);
+                    await _fetchCoursesAndSync(fullFetch: true);
+                    await _loadTodayStudyPlan();
+                  },
+                  child: const Text("Clear Exam", style: TextStyle(color: AppColors.danger)),
+                ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("Cancel"),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  if (selectedDate == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Please select an exam date.")),
+                    );
+                    return;
+                  }
+                  Navigator.pop(ctx);
+                  final success = await widget.apiClient.updateCourseExam(
+                    course.id,
+                    selectedDate,
+                    titleController.text.trim().isNotEmpty ? titleController.text.trim() : "Exam",
+                  );
+                  if (success) {
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text("Exam countdown set for ${course.name}! Study plan adapted."),
+                        backgroundColor: AppColors.accent,
+                      ),
+                    );
+                    await _fetchCoursesAndSync(fullFetch: true);
+                    await _loadTodayStudyPlan();
+                  }
+                },
+                child: const Text("Save Target"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _fetchCoursesAndSync({
@@ -218,6 +768,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _courses = result.syncedCourses;
       }
     });
+    _loadTodayStudyPlan();
 
     if (result.isUnauthorized ||
         result.message.contains("401") ||
@@ -1351,6 +1902,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               const SizedBox(height: 16),
 
+              // Today's Study Plan (AI Adaptive Learning System)
+              TodayStudyPlanWidget(
+                plan: _todayStudyPlan,
+                isLoading: _isLoadingStudyPlan,
+                onStartSmartSession: () => _startSmartStudySession(_todayStudyPlan?.courseId),
+                onOpenMistakeBank: () => _openMistakeBank(_todayStudyPlan?.courseId),
+                onShowReadinessBreakdown: (courseId) => _showReadinessBreakdown(courseId),
+                onStepTapped: (step) {
+                  if (step.stepNumber == 1) {
+                    setState(() => _currentTabIndex = 1);
+                  } else if (step.stepNumber == 4) {
+                    setState(() => _currentTabIndex = 4);
+                  } else {
+                    _startSmartStudySession(_todayStudyPlan?.courseId);
+                  }
+                },
+              ),
+              const SizedBox(height: 18),
+
               // High-yield stats row
               Container(
                 padding: const EdgeInsets.all(16),
@@ -1518,17 +2088,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                         const SizedBox(width: 8),
                         _buildQuickActionCard(
-                          "Focus Timer",
-                          "25m session",
-                          Icons.timer_outlined,
-                          const Color(0xFFEC4899),
-                          () => PomodoroTimerSheet.show(
-                            context,
-                            focusMinutes:
-                                _settingsService.settings.pomodoroFocusMinutes,
-                            shortBreakMinutes:
-                                _settingsService.settings.pomodoroShortBreakMinutes,
-                          ),
+                          "Mistake Bank",
+                          "${_todayStudyPlan?.unresolvedMistakesCount ?? 0} errors",
+                          Icons.psychology_alt_outlined,
+                          const Color(0xFFEF4444),
+                          () => _openMistakeBank(),
                         ),
                         const SizedBox(width: 8),
                         _buildQuickActionCard(
@@ -1834,7 +2398,91 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 8),
+                                const SizedBox(width: 6),
+                                // Exam Countdown Chip
+                                InkWell(
+                                  onTap: () => _showEditExamDialog(course),
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: course.hasUpcomingExam
+                                          ? const Color(0xFFEF4444).withValues(alpha: 0.15)
+                                          : context.secondaryBg,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: course.hasUpcomingExam
+                                            ? const Color(0xFFEF4444).withValues(alpha: 0.4)
+                                            : context.cardBorderColor,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.event_rounded,
+                                          size: 13,
+                                          color: course.hasUpcomingExam
+                                              ? const Color(0xFFEF4444)
+                                              : context.textSecondary,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          course.hasUpcomingExam
+                                              ? "${course.daysUntilExam}d: ${course.examTitle ?? 'Exam'}"
+                                              : "+ Exam Date",
+                                          style: TextStyle(
+                                            color: course.hasUpcomingExam
+                                                ? const Color(0xFFEF4444)
+                                                : context.textSecondary,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                if (course.studySets.isNotEmpty) ...[
+                                  InkWell(
+                                    onTap: () => _showReadinessBreakdown(course.id),
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.analytics_outlined,
+                                            size: 13,
+                                            color: Color(0xFF10B981),
+                                          ),
+                                          SizedBox(width: 3),
+                                          Text(
+                                            "Readiness",
+                                            style: TextStyle(
+                                              color: Color(0xFF10B981),
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                ],
                                 InkWell(
                                   onTap: () => _openCameraScanner(course.id),
                                   borderRadius: BorderRadius.circular(6),

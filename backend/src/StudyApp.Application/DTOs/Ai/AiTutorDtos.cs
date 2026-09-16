@@ -9,7 +9,10 @@ public record AskTutorRequest(
     string Message,
     string? ContextTopic = null,
     List<ChatMessageDto>? History = null,
-    string? ApiKey = null
+    string? ApiKey = null,
+    bool IsSocraticMode = false,
+    string? WeakConceptsContext = null,
+    string? RecentMistakesContext = null
 );
 
 public record AskTutorResponse(
