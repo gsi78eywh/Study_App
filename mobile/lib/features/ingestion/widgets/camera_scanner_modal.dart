@@ -13,7 +13,8 @@ enum ScannerMode {
   handwritten("Handwritten Notes", Icons.edit_note_rounded, "Optimized for handwritten lecture notes and diagrams"),
   textbook("Book & Printed", Icons.menu_book_rounded, "Optimized for textbook pages, dense paragraphs, and publications"),
   examSheet("Exam & Quiz Sheet", Icons.assignment_outlined, "Optimized for review questionnaires and test papers"),
-  definitions("Formulas & Glossary", Icons.science_outlined, "Optimized for definitions, terms, and formulas");
+  definitions("Formulas & Glossary", Icons.science_outlined, "Optimized for definitions, terms, and formulas"),
+  syllabus("Syllabus & Outline", Icons.calendar_month_rounded, "Extracts exam dates, assignment deadlines, and topics into Academic Calendar");
 
   final String label;
   final IconData icon;

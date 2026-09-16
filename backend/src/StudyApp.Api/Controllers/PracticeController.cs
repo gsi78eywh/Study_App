@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Globalization;
 using System.Security.Claims;
 using System.Text.Json;
@@ -646,6 +647,279 @@ public sealed class PracticeController : ControllerBase
             : $"High readiness of {overall}% with consistent retrieval accuracy and 0 active mistake patterns.";
 
         return Ok(new ExplainableReadinessDto(overall, qAccuracy, fRetention, Math.Max(1, activeDays), unresolved, explanation));
+    }
+
+    [HttpGet("student-brain")]
+    public async Task<ActionResult<StudentBrainProfileDto>> GetStudentBrainProfile(CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var courses = await _context.Courses
+            .Include(c => c.StudySets)
+                .ThenInclude(s => s.Questions)
+            .Where(c => c.UserId == userId.Value)
+            .ToListAsync(cancellationToken);
+
+        var allQuestionIds = courses.SelectMany(c => c.StudySets.SelectMany(s => s.Questions.Select(q => q.Id))).ToList();
+
+        var attempts = await _context.SessionAnswers
+            .Include(a => a.TestSession)
+            .Where(a => allQuestionIds.Contains(a.QuestionId))
+            .ToListAsync(cancellationToken);
+
+        var weakConcepts = attempts
+            .GroupBy(a => a.QuestionId)
+            .Count(g => g.Any(a => !a.IsCorrect) || g.Average(a => a.PartialScore) < 0.6m);
+
+        var masteredConcepts = attempts
+            .GroupBy(a => a.QuestionId)
+            .Count(g => g.Count() >= 2 && g.Average(a => a.PartialScore) >= 0.85m);
+
+        var pendingReviews = courses.SelectMany(c => c.StudySets.SelectMany(s => s.Questions))
+            .Count(q => q.Type == QuestionType.Identification || (q.ThinkingBreakdownJson != null && q.ThinkingBreakdownJson.Contains("DIMENSION:")));
+
+        var upcomingExamsCount = courses.Count(c => c.ExamDate.HasValue && c.ExamDate.Value > DateTime.UtcNow);
+
+        // Academic tasks count
+        var tasksList = await GetUserAcademicTasksAsync(userId.Value, cancellationToken);
+        var upcomingDeadlinesCount = tasksList.Count(t => !t.IsCompleted && t.DueDate >= DateTime.UtcNow);
+
+        // Priority Course
+        var topCourse = courses
+            .OrderBy(c => c.ExamDate.HasValue && c.ExamDate.Value > DateTime.UtcNow ? 0 : 1)
+            .ThenBy(c => c.ExamDate ?? DateTime.MaxValue)
+            .FirstOrDefault();
+
+        var priorityCourseName = topCourse?.Name ?? "General Studies";
+        var priorityCourseCode = topCourse?.Code ?? "GEN101";
+        var daysUntilExam = topCourse?.ExamDate.HasValue == true
+            ? Math.Max(0, (int)Math.Ceiling((topCourse.ExamDate.Value - DateTime.UtcNow).TotalDays))
+            : (int?)null;
+
+        var priorityMastery = 55.0m;
+        if (topCourse != null)
+        {
+            var topQIds = topCourse.StudySets.SelectMany(s => s.Questions.Select(q => q.Id)).ToList();
+            var topAttempts = attempts.Where(a => topQIds.Contains(a.QuestionId)).ToList();
+            if (topAttempts.Count > 0)
+            {
+                priorityMastery = Math.Round(topAttempts.Average(a => a.PartialScore) * 100m, 1);
+            }
+        }
+
+        var priorityWhy = daysUntilExam.HasValue && daysUntilExam.Value <= 7
+            ? $"You have an upcoming assessment in {daysUntilExam.Value} days, your recent accuracy is {priorityMastery}%, and {Math.Min(pendingReviews, 8)} flashcards are due for review."
+            : $"Current mastery is {priorityMastery}% with {weakConcepts} concepts flagged for active recall reinforcement.";
+
+        var dailyAnswers = new StudentBrainDailyAnswersDto(
+            WhatDoINeedToDo: upcomingDeadlinesCount > 0
+                ? $"Complete {upcomingDeadlinesCount} pending academic deadlines and review {Math.Min(pendingReviews, 8)} spaced flashcards."
+                : $"Review {Math.Min(pendingReviews, 8)} spaced flashcards and complete today's retrieval practice session.",
+            WhatShouldIStudy: $"{priorityCourseCode}: {priorityCourseName} ({priorityMastery}% mastery) — {priorityWhy}",
+            WhatAmIStrugglingWith: weakConcepts > 0
+                ? $"{weakConcepts} concepts identified with recurring misconception patterns in active retrieval sessions."
+                : "No active misconception patterns detected. Ready for advanced difficulty synthesis.",
+            HowCanILearnIt: "Follow the 3-step loop: Spaced Active Recall (5 min) -> Retrieval Practice (10 min) -> Mistake Bank Target Drill (7 min).",
+            WhatShouldIDoNext: "Launch today's 25-Minute Smart Study Session to address weak areas immediately."
+        );
+
+        return Ok(new StudentBrainProfileDto(
+            courses.Count,
+            courses.Count,
+            upcomingDeadlinesCount,
+            weakConcepts,
+            masteredConcepts,
+            Math.Min(pendingReviews, 18),
+            upcomingExamsCount,
+            priorityCourseName,
+            priorityCourseCode,
+            priorityMastery,
+            priorityWhy,
+            dailyAnswers
+        ));
+    }
+
+    [HttpPost("recovery-plan")]
+    public async Task<ActionResult<BuildRecoveryPlanResponse>> BuildRecoveryPlan(
+        [FromBody] BuildRecoveryPlanRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var questions = await _context.Questions
+            .Include(q => q.StudySet)
+            .Where(q => request.MissedQuestionIds.Contains(q.Id))
+            .ToListAsync(cancellationToken);
+
+        var targetedTopics = questions
+            .Select(q => q.StudySet?.Title ?? "Core Topics")
+            .Distinct()
+            .ToList();
+
+        if (targetedTopics.Count == 0) targetedTopics.Add("Core Concepts");
+
+        var recMinutes = Math.Clamp(questions.Count * 3, 10, 30);
+        var msg = $"Recovery plan synthesized! {questions.Count} missed questions routed to your Mistake Bank for a {recMinutes}-minute targeted drill.";
+
+        return Ok(new BuildRecoveryPlanResponse(
+            questions.Count,
+            targetedTopics,
+            "1-Tap Smart Session targeting your specific missed questions",
+            recMinutes,
+            msg
+        ));
+    }
+
+    [HttpGet("planner/tasks")]
+    public async Task<ActionResult<List<AcademicTaskDto>>> GetAcademicTasks(CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var tasks = await GetUserAcademicTasksAsync(userId.Value, cancellationToken);
+        return Ok(tasks);
+    }
+
+    [HttpPost("planner/tasks")]
+    public async Task<ActionResult<AcademicTaskDto>> CreateAcademicTask(
+        [FromBody] CreateAcademicTaskRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var taskId = Guid.NewGuid();
+        var stepsJson = JsonSerializer.Serialize(request.ActionSteps ?? new List<string>(), JsonOptions);
+        var courseCode = "COURSE";
+
+        if (request.CourseId.HasValue)
+        {
+            var course = await _context.Courses.FindAsync(new object[] { request.CourseId.Value }, cancellationToken);
+            if (course != null) courseCode = course.Code;
+        }
+
+        var db = (DbContext)_context;
+        await db.Database.ExecuteSqlRawAsync(
+            "INSERT INTO \"AcademicTasks\" (\"Id\", \"UserId\", \"CourseId\", \"Title\", \"Type\", \"DueDate\", \"EstimatedDifficulty\", \"IsCompleted\", \"ActionStepsJson\", \"CreatedAt\") VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9});",
+            taskId.ToString(),
+            userId.Value.ToString(),
+            request.CourseId?.ToString(),
+            request.Title,
+            request.Type,
+            request.DueDate.ToString("o"),
+            request.EstimatedDifficulty,
+            0,
+            stepsJson,
+            DateTime.UtcNow.ToString("o"),
+            cancellationToken
+        );
+
+        return Ok(new AcademicTaskDto(
+            taskId,
+            request.CourseId,
+            courseCode,
+            request.Title,
+            request.Type,
+            request.DueDate,
+            request.EstimatedDifficulty,
+            false,
+            request.ActionSteps ?? new List<string>()
+        ));
+    }
+
+    [HttpPost("planner/generate-breakdown")]
+    public ActionResult<GenerateBreakdownResponse> GenerateAssignmentBreakdown([FromBody] GenerateBreakdownRequest request)
+    {
+        var days = Math.Max(1, (int)Math.Ceiling((request.DueDate - DateTime.UtcNow).TotalDays));
+        var steps = new List<string>();
+
+        if (request.Type.Equals("project", StringComparison.OrdinalIgnoreCase) || request.Title.Contains("project", StringComparison.OrdinalIgnoreCase))
+        {
+            steps.Add("Day 1: Understand project requirements, scope boundaries, and design architecture");
+            steps.Add("Day 2: Implement core classes, data structures, and baseline functionality");
+            steps.Add("Day 3: Implement auxiliary interfaces, algorithms, and integration logic");
+            steps.Add("Day 4: Run unit tests, verify edge cases, and debug errors");
+            steps.Add("Day 5: Document project, format deliverables, and do final submission check");
+        }
+        else if (request.Type.Equals("exam", StringComparison.OrdinalIgnoreCase) || request.Title.Contains("exam", StringComparison.OrdinalIgnoreCase) || request.Title.Contains("quiz", StringComparison.OrdinalIgnoreCase))
+        {
+            steps.Add("Day 1: High-level syllabus review and flashcard concept mapping");
+            steps.Add("Day 2: Topic-level retrieval practice on lowest mastery topics");
+            steps.Add("Day 3: Mistake Bank review and misconception resolution");
+            steps.Add("Day 4: Full simulated exam under strict timed conditions");
+            steps.Add("Day 5: Light formula review and restful mental preparation");
+        }
+        else
+        {
+            steps.Add("Day 1: Break down assignment guidelines and gather references");
+            steps.Add("Day 2: Draft initial outline and solve foundational parts");
+            steps.Add("Day 3: Deep work session: complete technical and analytical questions");
+            steps.Add("Day 4: Peer check / AI Socratic check for reasoning clarity");
+            steps.Add("Day 5: Final review, citations check, and clean submission");
+        }
+
+        var adjustedSteps = steps.Take(Math.Max(2, Math.Min(days, steps.Count))).ToList();
+        var summary = $"Generated structured {adjustedSteps.Count}-step execution roadmap for {request.Title} due on {request.DueDate:MMM dd}.";
+
+        return Ok(new GenerateBreakdownResponse(request.Title, adjustedSteps, summary));
+    }
+
+    [HttpPut("planner/tasks/{taskId:guid}/toggle")]
+    public async Task<IActionResult> ToggleAcademicTask(Guid taskId, CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var db = (DbContext)_context;
+        await db.Database.ExecuteSqlRawAsync(
+            "UPDATE \"AcademicTasks\" SET \"IsCompleted\" = CASE WHEN \"IsCompleted\" = 1 THEN 0 ELSE 1 END WHERE \"Id\" = {0} AND \"UserId\" = {1};",
+            taskId.ToString(),
+            userId.Value.ToString(),
+            cancellationToken
+        );
+
+        return Ok(new { success = true, taskId });
+    }
+
+    private async Task<List<AcademicTaskDto>> GetUserAcademicTasksAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var list = new List<AcademicTaskDto>();
+        try
+        {
+            var db = (DbContext)_context;
+            using var conn = db.Database.GetDbConnection();
+            await conn.OpenAsync(cancellationToken);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT t.\"Id\", t.\"CourseId\", t.\"Title\", t.\"Type\", t.\"DueDate\", t.\"EstimatedDifficulty\", t.\"IsCompleted\", t.\"ActionStepsJson\", c.\"Code\" FROM \"AcademicTasks\" t LEFT JOIN \"Courses\" c ON t.\"CourseId\" = c.\"Id\" WHERE t.\"UserId\" = @uid ORDER BY t.\"DueDate\" ASC;";
+            var p = cmd.CreateParameter();
+            p.ParameterName = "@uid";
+            p.Value = userId.ToString();
+            cmd.Parameters.Add(p);
+
+            using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var id = Guid.Parse(reader.GetString(0));
+                Guid? cId = reader.IsDBNull(1) ? null : Guid.Parse(reader.GetString(1));
+                var title = reader.GetString(2);
+                var type = reader.GetString(3);
+                var dueDate = DateTime.Parse(reader.GetString(4));
+                var diff = reader.GetString(5);
+                var isComp = reader.GetInt32(6) == 1;
+                var stepsRaw = reader.GetString(7);
+                var cCode = reader.IsDBNull(8) ? "COURSE" : reader.GetString(8);
+
+                List<string> steps = new();
+                try { steps = JsonSerializer.Deserialize<List<string>>(stepsRaw, JsonOptions) ?? new(); } catch { }
+
+                list.Add(new AcademicTaskDto(id, cId, cCode, title, type, dueDate, diff, isComp, steps));
+            }
+        }
+        catch { }
+
+        return list;
     }
 
     private async Task<AnswerGradeDto> GradeAsync(

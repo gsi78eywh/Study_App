@@ -142,5 +142,105 @@ class ApiClient {
       return false;
     }
   }
+
+  Future<StudentBrainProfileModel?> getStudentBrainProfile() async {
+    try {
+      final res = await dio.get("/api/v1/practice/student-brain");
+      if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
+        return StudentBrainProfileModel.fromJson(res.data as Map<String, dynamic>);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<List<AcademicTaskModel>> getAcademicTasks() async {
+    try {
+      final res = await dio.get("/api/v1/practice/planner/tasks");
+      if (res.statusCode == 200 && res.data is List) {
+        return (res.data as List)
+            .map((item) => AcademicTaskModel.fromJson(item as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<AcademicTaskModel?> createAcademicTask({
+    String? courseId,
+    required String title,
+    required String type,
+    required DateTime dueDate,
+    String estimatedDifficulty = "Medium",
+    List<String>? actionSteps,
+  }) async {
+    try {
+      final res = await dio.post(
+        "/api/v1/practice/planner/tasks",
+        data: {
+          "courseId": courseId,
+          "title": title,
+          "type": type,
+          "dueDate": dueDate.toIso8601String(),
+          "estimatedDifficulty": estimatedDifficulty,
+          "actionSteps": actionSteps ?? [],
+        },
+      );
+      if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
+        return AcademicTaskModel.fromJson(res.data as Map<String, dynamic>);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<BreakdownResponseModel?> generateAssignmentBreakdown({
+    required String title,
+    required String type,
+    required DateTime dueDate,
+    String? contextNotes,
+  }) async {
+    try {
+      final res = await dio.post(
+        "/api/v1/practice/planner/generate-breakdown",
+        data: {
+          "title": title,
+          "type": type,
+          "dueDate": dueDate.toIso8601String(),
+          "contextNotes": contextNotes,
+        },
+      );
+      if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
+        return BreakdownResponseModel.fromJson(res.data as Map<String, dynamic>);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<bool> toggleAcademicTask(String taskId) async {
+    try {
+      final res = await dio.put("/api/v1/practice/planner/tasks/$taskId/toggle");
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<RecoveryPlanResponseModel?> buildRecoveryPlan({
+    String? studySetId,
+    required List<String> missedQuestionIds,
+  }) async {
+    try {
+      final res = await dio.post(
+        "/api/v1/practice/recovery-plan",
+        data: {
+          "studySetId": studySetId,
+          "missedQuestionIds": missedQuestionIds,
+        },
+      );
+      if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
+        return RecoveryPlanResponseModel.fromJson(res.data as Map<String, dynamic>);
+      }
+    } catch (_) {}
+    return null;
+  }
 }
 

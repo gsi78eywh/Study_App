@@ -8,6 +8,8 @@ class TodayStudyPlanWidget extends StatelessWidget {
   final bool isLoading;
   final VoidCallback onStartSmartSession;
   final VoidCallback onOpenMistakeBank;
+  final VoidCallback? onOpenStudentBrain;
+  final VoidCallback? onOpenAcademicPlanner;
   final ValueChanged<String>? onShowReadinessBreakdown;
   final ValueChanged<StudyPlanStepModel>? onStepTapped;
 
@@ -17,6 +19,8 @@ class TodayStudyPlanWidget extends StatelessWidget {
     this.isLoading = false,
     required this.onStartSmartSession,
     required this.onOpenMistakeBank,
+    this.onOpenStudentBrain,
+    this.onOpenAcademicPlanner,
     this.onShowReadinessBreakdown,
     this.onStepTapped,
   });
@@ -475,6 +479,72 @@ class TodayStudyPlanWidget extends StatelessWidget {
                     border: Border.all(color: context.cardBorderColor),
                   ),
                   child: const Text("🧘", style: TextStyle(fontSize: 14)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // Secondary Row: Student Brain OS + Academic Tasks
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: onOpenStudentBrain,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6366F1).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.25)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.psychology_rounded, size: 15, color: Color(0xFF6366F1)),
+                        const SizedBox(width: 6),
+                        Text(
+                          "My Student Brain",
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF6366F1),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: InkWell(
+                  onTap: onOpenAcademicPlanner,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: context.surfaceColor,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: context.cardBorderColor),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.calendar_month_rounded, size: 15, color: Color(0xFF3B82F6)),
+                        const SizedBox(width: 6),
+                        Text(
+                          "Academic Tasks",
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: context.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],

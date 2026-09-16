@@ -52,10 +52,12 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
   bool _isLoading = false;
   String? _selectedCourseContext;
   late bool _isSocraticMode;
+  bool _isTeachMeMode = false;
   String? _weakConceptsContext;
   String? _recentMistakesContext;
 
   final List<String> _quickPrompts = [
+    "👨‍🏫 Test me: Ask me to explain a concept (Feynman Technique)",
     "💡 Give me a hint (don't reveal the answer)",
     "🧠 Why did I get this wrong?",
     "🎯 Test my understanding with a question",
@@ -150,6 +152,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
           "contextTopic": _selectedCourseContext,
           "apiKey": geminiKey,
           "isSocraticMode": _isSocraticMode,
+          "isTeachMeMode": _isTeachMeMode,
           "weakConceptsContext": _weakConceptsContext,
           "recentMistakesContext": _recentMistakesContext,
           "history": history.length > 6
@@ -575,6 +578,52 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
                                     color: _isSocraticMode
+                                        ? Colors.white
+                                        : (isDark ? Colors.white : const Color(0xFF1E293B)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Tooltip(
+                        message: "Feynman Technique: You teach the concept, and the AI probes your understanding with thoughtful follow-up questions",
+                        child: InkWell(
+                          onTap: () => setState(() {
+                            _isTeachMeMode = !_isTeachMeMode;
+                            if (_isTeachMeMode) _isSocraticMode = false;
+                          }),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: _isTeachMeMode
+                                  ? const Color(0xFFEC4899)
+                                  : (isDark ? const Color(0xFF334155) : Colors.white),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _isTeachMeMode
+                                    ? const Color(0xFFEC4899)
+                                    : (isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1)),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.record_voice_over_rounded,
+                                  size: 13,
+                                  color: _isTeachMeMode ? Colors.white : const Color(0xFFEC4899),
+                                ),
+                                const SizedBox(width: 5),
+                                Text(
+                                  _isTeachMeMode ? "Teach AI ON" : "Teach the AI",
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: _isTeachMeMode
                                         ? Colors.white
                                         : (isDark ? Colors.white : const Color(0xFF1E293B)),
                                   ),

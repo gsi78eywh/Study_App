@@ -240,6 +240,32 @@ using (var scope = app.Services.CreateScope())
             db.Database.ExecuteSqlRaw("ALTER TABLE \"Courses\" ADD COLUMN \"ExamTitle\" TEXT NULL;");
         }
         catch { }
+
+        try
+        {
+            db.Database.ExecuteSqlRaw("""
+                CREATE TABLE IF NOT EXISTS "AcademicTasks" (
+                    "Id" TEXT PRIMARY KEY,
+                    "UserId" TEXT NOT NULL,
+                    "CourseId" TEXT NULL,
+                    "Title" TEXT NOT NULL,
+                    "Type" TEXT NOT NULL,
+                    "DueDate" TEXT NOT NULL,
+                    "EstimatedDifficulty" TEXT NOT NULL,
+                    "IsCompleted" INTEGER NOT NULL,
+                    "ActionStepsJson" TEXT NOT NULL,
+                    "CreatedAt" TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS "IX_AcademicTasks_UserId" ON "AcademicTasks" ("UserId");
+            """);
+        }
+        catch { }
+
+        try
+        {
+            db.Database.ExecuteSqlRaw("ALTER TABLE \"UserSettings\" ADD COLUMN \"LowDataMode\" INTEGER DEFAULT 0;");
+        }
+        catch { }
     }
     Console.WriteLine("[Database] Database schema verified and ready for student records.");
 }

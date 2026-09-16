@@ -25,6 +25,8 @@ import "../../ingestion/widgets/camera_scanner_modal.dart";
 import "../../ingestion/widgets/progressive_exam_studio.dart";
 import "../../practice/models/adaptive_models.dart";
 import "../widgets/today_study_plan_widget.dart";
+import "../widgets/student_brain_modal.dart";
+import "../widgets/academic_planner_modal.dart";
 import "../../quiz/screens/smart_session_player_screen.dart";
 import "../../quiz/screens/mistake_bank_screen.dart";
 
@@ -242,6 +244,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onMistakesChanged: () => _loadTodayStudyPlan(),
         ),
       ),
+    );
+  }
+
+  void _openStudentBrainModal() {
+    StudentBrainModal.show(
+      context,
+      apiClient: widget.apiClient,
+      onStartSmartSession: () => _startSmartStudySession(_todayStudyPlan?.courseId),
+      onOpenMistakeBank: () => _openMistakeBank(_todayStudyPlan?.courseId),
+      onOpenAcademicPlanner: () => _openAcademicPlannerModal(),
+    );
+  }
+
+  void _openAcademicPlannerModal() {
+    AcademicPlannerModal.show(
+      context,
+      apiClient: widget.apiClient,
+      courses: _courses,
     );
   }
 
@@ -1908,6 +1928,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 isLoading: _isLoadingStudyPlan,
                 onStartSmartSession: () => _startSmartStudySession(_todayStudyPlan?.courseId),
                 onOpenMistakeBank: () => _openMistakeBank(_todayStudyPlan?.courseId),
+                onOpenStudentBrain: () => _openStudentBrainModal(),
+                onOpenAcademicPlanner: () => _openAcademicPlannerModal(),
                 onShowReadinessBreakdown: (courseId) => _showReadinessBreakdown(courseId),
                 onStepTapped: (step) {
                   if (step.stepNumber == 1) {

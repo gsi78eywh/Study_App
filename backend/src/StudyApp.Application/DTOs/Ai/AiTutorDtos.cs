@@ -11,6 +11,7 @@ public record AskTutorRequest(
     List<ChatMessageDto>? History = null,
     string? ApiKey = null,
     bool IsSocraticMode = false,
+    bool IsTeachMeMode = false,
     string? WeakConceptsContext = null,
     string? RecentMistakesContext = null
 );

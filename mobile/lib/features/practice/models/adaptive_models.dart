@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 class TodayStudyPlanModel {
   final String? courseId;
   final String courseName;
@@ -375,6 +377,177 @@ class SmartSessionOptionModel {
       text: json["text"]?.toString() ?? "",
       isCorrect: json["isCorrect"] as bool? ?? false,
       distractorRationale: json["distractorRationale"]?.toString(),
+    );
+  }
+}
+
+class StudentBrainProfileModel {
+  final int coursesCount;
+  final int activeSubjectsCount;
+  final int upcomingDeadlinesCount;
+  final int weakConceptsCount;
+  final int masteredConceptsCount;
+  final int pendingReviewsCount;
+  final int upcomingExamsCount;
+  final String priorityCourse;
+  final String priorityCourseCode;
+  final double priorityMasteryPercent;
+  final String priorityWhy;
+  final StudentBrainDailyAnswersModel dailyAnswers;
+
+  StudentBrainProfileModel({
+    required this.coursesCount,
+    required this.activeSubjectsCount,
+    required this.upcomingDeadlinesCount,
+    required this.weakConceptsCount,
+    required this.masteredConceptsCount,
+    required this.pendingReviewsCount,
+    required this.upcomingExamsCount,
+    required this.priorityCourse,
+    required this.priorityCourseCode,
+    required this.priorityMasteryPercent,
+    required this.priorityWhy,
+    required this.dailyAnswers,
+  });
+
+  factory StudentBrainProfileModel.fromJson(Map<String, dynamic> json) {
+    return StudentBrainProfileModel(
+      coursesCount: (json["coursesCount"] as int?) ?? 0,
+      activeSubjectsCount: (json["activeSubjectsCount"] as int?) ?? 0,
+      upcomingDeadlinesCount: (json["upcomingDeadlinesCount"] as int?) ?? 0,
+      weakConceptsCount: (json["weakConceptsCount"] as int?) ?? 0,
+      masteredConceptsCount: (json["masteredConceptsCount"] as int?) ?? 0,
+      pendingReviewsCount: (json["pendingReviewsCount"] as int?) ?? 0,
+      upcomingExamsCount: (json["upcomingExamsCount"] as int?) ?? 0,
+      priorityCourse: json["priorityCourse"]?.toString() ?? "General",
+      priorityCourseCode: json["priorityCourseCode"]?.toString() ?? "COURSE",
+      priorityMasteryPercent: (json["priorityMasteryPercent"] as num?)?.toDouble() ?? 50.0,
+      priorityWhy: json["priorityWhy"]?.toString() ?? "Maintain consistent spacing practice.",
+      dailyAnswers: json["dailyAnswers"] != null
+          ? StudentBrainDailyAnswersModel.fromJson(json["dailyAnswers"] as Map<String, dynamic>)
+          : StudentBrainDailyAnswersModel.defaultEmpty(),
+    );
+  }
+}
+
+class StudentBrainDailyAnswersModel {
+  final String whatDoINeedToDo;
+  final String whatShouldIStudy;
+  final String whatAmIStrugglingWith;
+  final String howCanILearnIt;
+  final String whatShouldIDoNext;
+
+  StudentBrainDailyAnswersModel({
+    required this.whatDoINeedToDo,
+    required this.whatShouldIStudy,
+    required this.whatAmIStrugglingWith,
+    required this.howCanILearnIt,
+    required this.whatShouldIDoNext,
+  });
+
+  factory StudentBrainDailyAnswersModel.fromJson(Map<String, dynamic> json) {
+    return StudentBrainDailyAnswersModel(
+      whatDoINeedToDo: json["whatDoINeedToDo"]?.toString() ?? "Review spaced flashcards.",
+      whatShouldIStudy: json["whatShouldIStudy"]?.toString() ?? "Focus on lowest mastery topics.",
+      whatAmIStrugglingWith: json["whatAmIStrugglingWith"]?.toString() ?? "No severe misconceptions detected.",
+      howCanILearnIt: json["howCanILearnIt"]?.toString() ?? "Follow retrieval and spacing practice.",
+      whatShouldIDoNext: json["whatShouldIDoNext"]?.toString() ?? "Start today's Smart Session.",
+    );
+  }
+
+  factory StudentBrainDailyAnswersModel.defaultEmpty() {
+    return StudentBrainDailyAnswersModel(
+      whatDoINeedToDo: "Organize academic goals and complete daily retrieval practice.",
+      whatShouldIStudy: "Target lowest mastery areas first.",
+      whatAmIStrugglingWith: "Check Mistake Bank for recurring error patterns.",
+      howCanILearnIt: "Active recall -> targeted practice -> Socratic review.",
+      whatShouldIDoNext: "Launch 25-Minute Smart Study Session.",
+    );
+  }
+}
+
+class AcademicTaskModel {
+  final String id;
+  final String? courseId;
+  final String courseCode;
+  final String title;
+  final String type; // "assignment", "quiz", "project", "exam", "presentation"
+  final DateTime dueDate;
+  final String estimatedDifficulty;
+  bool isCompleted;
+  final List<String> actionSteps;
+
+  AcademicTaskModel({
+    required this.id,
+    this.courseId,
+    required this.courseCode,
+    required this.title,
+    required this.type,
+    required this.dueDate,
+    required this.estimatedDifficulty,
+    required this.isCompleted,
+    required this.actionSteps,
+  });
+
+  int get daysRemaining => math.max(0, dueDate.difference(DateTime.now()).inDays);
+
+  factory AcademicTaskModel.fromJson(Map<String, dynamic> json) {
+    return AcademicTaskModel(
+      id: json["id"]?.toString() ?? "",
+      courseId: json["courseId"]?.toString(),
+      courseCode: json["courseCode"]?.toString() ?? "COURSE",
+      title: json["title"]?.toString() ?? "Task",
+      type: json["type"]?.toString() ?? "assignment",
+      dueDate: DateTime.tryParse(json["dueDate"]?.toString() ?? "") ?? DateTime.now().add(const Duration(days: 3)),
+      estimatedDifficulty: json["estimatedDifficulty"]?.toString() ?? "Medium",
+      isCompleted: json["isCompleted"] as bool? ?? false,
+      actionSteps: (json["actionSteps"] as List<dynamic>?)?.map((s) => s.toString()).toList() ?? [],
+    );
+  }
+}
+
+class BreakdownResponseModel {
+  final String title;
+  final List<String> actionSteps;
+  final String strategySummary;
+
+  BreakdownResponseModel({
+    required this.title,
+    required this.actionSteps,
+    required this.strategySummary,
+  });
+
+  factory BreakdownResponseModel.fromJson(Map<String, dynamic> json) {
+    return BreakdownResponseModel(
+      title: json["title"]?.toString() ?? "Assignment",
+      actionSteps: (json["actionSteps"] as List<dynamic>?)?.map((s) => s.toString()).toList() ?? [],
+      strategySummary: json["strategySummary"]?.toString() ?? "Personalized milestone execution plan.",
+    );
+  }
+}
+
+class RecoveryPlanResponseModel {
+  final int missedCount;
+  final List<String> targetedTopics;
+  final String recoveryAction;
+  final int recommendedMinutes;
+  final String message;
+
+  RecoveryPlanResponseModel({
+    required this.missedCount,
+    required this.targetedTopics,
+    required this.recoveryAction,
+    required this.recommendedMinutes,
+    required this.message,
+  });
+
+  factory RecoveryPlanResponseModel.fromJson(Map<String, dynamic> json) {
+    return RecoveryPlanResponseModel(
+      missedCount: (json["missedCount"] as int?) ?? 0,
+      targetedTopics: (json["targetedTopics"] as List<dynamic>?)?.map((t) => t.toString()).toList() ?? [],
+      recoveryAction: json["recoveryAction"]?.toString() ?? "Targeted retrieval practice",
+      recommendedMinutes: (json["recommendedMinutes"] as int?) ?? 15,
+      message: json["message"]?.toString() ?? "Recovery plan synthesized.",
     );
   }
 }

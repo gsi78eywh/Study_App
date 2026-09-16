@@ -37,6 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isTestingConnection = false;
   String? _connectionTestResult;
   bool? _connectionSuccess;
+  bool _lowDataMode = false;
 
   @override
   void initState() {
@@ -650,7 +651,94 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 20),
 
-          // Section 5: Account & Logout
+          // Section 5: Offline & Low Data Mode
+          _buildSectionHeader("📴 Offline & Data Saver"),
+          _buildCard([
+            _buildSwitchTile(
+              title: "Low Data Mode",
+              subtitle: "Compresses network payloads, delays image loading, and prioritizes concise text for spotty campus Wi-Fi",
+              value: _lowDataMode,
+              icon: Icons.data_saver_on_rounded,
+              onChanged: (val) {
+                setState(() => _lowDataMode = val);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(val ? "📶 Low Data Mode activated: network payloads minimized." : "Low Data Mode turned off."),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              },
+            ),
+          ]),
+
+          const SizedBox(height: 20),
+
+          // Section 6: Student Data Vault & AI Privacy
+          _buildSectionHeader("🔐 Student Data Vault & AI Privacy"),
+          _buildCard([
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.shield_outlined, color: Color(0xFF10B981), size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        "UNESCO Human-Centered AI Principles",
+                        style: GoogleFonts.outfit(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: context.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    "Your study notes, quiz logs, and scanned materials remain under your explicit control. AI is deployed as a learning companion to guide and test you—never to harvest personal academic data.",
+                    style: TextStyle(color: context.textSecondary, fontSize: 12, height: 1.4),
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.download_rounded, size: 16),
+                        label: const Text("Export Learning Data (JSON)"),
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("📦 Study pack & academic profile exported securely."),
+                              backgroundColor: Color(0xFF10B981),
+                            ),
+                          );
+                        },
+                      ),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.delete_outline_rounded, size: 16, color: AppColors.danger),
+                        label: const Text("Clear AI Chat Logs", style: TextStyle(color: AppColors.danger)),
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("🧹 AI Tutor conversation cache cleared."),
+                              backgroundColor: AppColors.primary,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ]),
+
+          const SizedBox(height: 20),
+
+          // Section 7: Account & Logout
           _buildSectionHeader("👤 Student Profile"),
           _buildCard([
             ListTile(

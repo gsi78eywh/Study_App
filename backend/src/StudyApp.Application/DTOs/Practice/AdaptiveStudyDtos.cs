@@ -99,3 +99,73 @@ public record ResolveMistakeRequest(
     bool IsResolved
 );
 
+public record StudentBrainProfileDto(
+    int CoursesCount,
+    int ActiveSubjectsCount,
+    int UpcomingDeadlinesCount,
+    int WeakConceptsCount,
+    int MasteredConceptsCount,
+    int PendingReviewsCount,
+    int UpcomingExamsCount,
+    string PriorityCourse,
+    string PriorityCourseCode,
+    decimal PriorityMasteryPercent,
+    string PriorityWhy,
+    StudentBrainDailyAnswersDto DailyAnswers
+);
+
+public record StudentBrainDailyAnswersDto(
+    string WhatDoINeedToDo,
+    string WhatShouldIStudy,
+    string WhatAmIStrugglingWith,
+    string HowCanILearnIt,
+    string WhatShouldIDoNext
+);
+
+public record AcademicTaskDto(
+    Guid Id,
+    Guid? CourseId,
+    string CourseCode,
+    string Title,
+    string Type,
+    DateTime DueDate,
+    string EstimatedDifficulty,
+    bool IsCompleted,
+    List<string> ActionSteps
+);
+
+public record CreateAcademicTaskRequest(
+    Guid? CourseId,
+    string Title,
+    string Type,
+    DateTime DueDate,
+    string EstimatedDifficulty,
+    List<string>? ActionSteps
+);
+
+public record GenerateBreakdownRequest(
+    string Title,
+    string Type,
+    DateTime DueDate,
+    string? ContextNotes = null
+);
+
+public record GenerateBreakdownResponse(
+    string Title,
+    List<string> ActionSteps,
+    string StrategySummary
+);
+
+public record BuildRecoveryPlanRequest(
+    Guid? StudySetId,
+    List<Guid> MissedQuestionIds
+);
+
+public record BuildRecoveryPlanResponse(
+    int MissedCount,
+    List<string> TargetedTopics,
+    string RecoveryAction,
+    int RecommendedMinutes,
+    string Message
+);
+

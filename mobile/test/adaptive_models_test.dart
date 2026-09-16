@@ -170,5 +170,96 @@ void main() {
       expect(payload.mistakeDrillQuestions.length, 1);
       expect(payload.totalItems, 3);
     });
+
+    test('StudentBrainProfileModel parses 5 daily answers and learning metrics', () {
+      final json = {
+        "coursesCount": 4,
+        "activeSubjectsCount": 3,
+        "upcomingDeadlinesCount": 2,
+        "weakConceptsCount": 5,
+        "masteredConceptsCount": 24,
+        "pendingReviewsCount": 14,
+        "upcomingExamsCount": 1,
+        "priorityCourse": "Data Structures - Trees & Graphs",
+        "priorityCourseCode": "CS201",
+        "priorityMasteryPercent": 42.0,
+        "priorityWhy": "Exam in 5 days; accuracy currently at 42%.",
+        "dailyAnswers": {
+          "whatDoINeedToDo": "Complete Lab 4 and review 14 flashcards.",
+          "whatShouldIStudy": "Data Structures - Trees & Graphs",
+          "whatAmIStrugglingWith": "Balancing rotations in AVL trees.",
+          "howCanILearnIt": "10-min active recall followed by Socratic drill.",
+          "whatShouldIDoNext": "Launch 15-minute Blitz drill."
+        }
+      };
+
+      final profile = StudentBrainProfileModel.fromJson(json);
+
+      expect(profile.coursesCount, 4);
+      expect(profile.weakConceptsCount, 5);
+      expect(profile.masteredConceptsCount, 24);
+      expect(profile.dailyAnswers.whatShouldIStudy, "Data Structures - Trees & Graphs");
+      expect(profile.priorityWhy, contains("Exam in 5 days"));
+      expect(profile.priorityCourseCode, "CS201");
+    });
+
+    test('AcademicTaskModel serialization and toggle status test', () {
+      final json = {
+        "id": "task-abc",
+        "title": "Algorithms Problem Set 3",
+        "dueDate": "2026-09-22T23:59:59Z",
+        "type": "assignment",
+        "courseCode": "CS301",
+        "estimatedDifficulty": "Hard",
+        "isCompleted": false,
+        "actionSteps": ["Read problem", "Implement DP table", "Test base cases"]
+      };
+
+      final task = AcademicTaskModel.fromJson(json);
+
+      expect(task.id, "task-abc");
+      expect(task.title, "Algorithms Problem Set 3");
+      expect(task.type, "assignment");
+      expect(task.courseCode, "CS301");
+      expect(task.estimatedDifficulty, "Hard");
+      expect(task.isCompleted, false);
+      expect(task.actionSteps.length, 3);
+      expect(task.daysRemaining, isNotNull);
+    });
+
+    test('BreakdownResponseModel parses AI generated milestone steps', () {
+      final json = {
+        "title": "Term Paper Draft",
+        "strategySummary": "Progressive milestone drafting with daily checkpoints.",
+        "actionSteps": [
+          "Day 1: Formulate Thesis & Outline (45 mins)",
+          "Day 2: Write Introduction & Section 1 (60 mins)"
+        ]
+      };
+
+      final breakdown = BreakdownResponseModel.fromJson(json);
+
+      expect(breakdown.title, "Term Paper Draft");
+      expect(breakdown.actionSteps.length, 2);
+      expect(breakdown.strategySummary, contains("Progressive milestone"));
+    });
+
+    test('RecoveryPlanResponseModel parses recovery intervention payload', () {
+      final json = {
+        "missedCount": 3,
+        "targetedTopics": ["Binary Trees", "AVL Balancing"],
+        "recoveryAction": "Targeted retrieval practice",
+        "recommendedMinutes": 15,
+        "message": "Focus on balancing rotations before moving forward."
+      };
+
+      final recovery = RecoveryPlanResponseModel.fromJson(json);
+
+      expect(recovery.missedCount, 3);
+      expect(recovery.targetedTopics.length, 2);
+      expect(recovery.recommendedMinutes, 15);
+      expect(recovery.recoveryAction, "Targeted retrieval practice");
+    });
   });
 }
+
