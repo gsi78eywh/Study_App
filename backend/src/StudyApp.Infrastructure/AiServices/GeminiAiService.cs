@@ -33,6 +33,18 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
+    /// <summary>
+    /// Strict Philippine DSWD / CWC child-safe harm blocking filters for lower-grade elementary and school environments.
+    /// Blocks harassment, hate speech, sexually explicit, and dangerous content at BLOCK_LOW_AND_ABOVE.
+    /// </summary>
+    private static readonly object[] ChildSafeSafetySettings = new[]
+    {
+        new { category = "HARM_CATEGORY_HARASSMENT", threshold = "BLOCK_LOW_AND_ABOVE" },
+        new { category = "HARM_CATEGORY_HATE_SPEECH", threshold = "BLOCK_LOW_AND_ABOVE" },
+        new { category = "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold = "BLOCK_LOW_AND_ABOVE" },
+        new { category = "HARM_CATEGORY_DANGEROUS_CONTENT", threshold = "BLOCK_LOW_AND_ABOVE" }
+    };
+
     public GeminiAiService(
         HttpClient httpClient,
         IConfiguration configuration,
@@ -166,7 +178,8 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                     {
                         responseMimeType = "application/json",
                         temperature = 0.3
-                    }
+                    },
+                    safetySettings = ChildSafeSafetySettings
                 };
 
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -338,7 +351,8 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 generationConfig = new
                 {
                     temperature = 0.1
-                }
+                },
+                safetySettings = ChildSafeSafetySettings
             };
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -469,7 +483,8 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 generationConfig = new
                 {
                     temperature = 0.5
-                }
+                },
+                safetySettings = ChildSafeSafetySettings
             };
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -699,7 +714,8 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             {
                 new { parts = new[] { new { text = prompt } } }
             },
-            generationConfig = new { responseMimeType = "application/json", temperature = 0.2 }
+            generationConfig = new { responseMimeType = "application/json", temperature = 0.2 },
+            safetySettings = ChildSafeSafetySettings
         };
 
         try
@@ -766,7 +782,8 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         var payload = new
         {
             contents = new[] { new { parts = new[] { new { text = evaluationPrompt } } } },
-            generationConfig = new { responseMimeType = "application/json", temperature = 0.0 }
+            generationConfig = new { responseMimeType = "application/json", temperature = 0.0 },
+            safetySettings = ChildSafeSafetySettings
         };
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

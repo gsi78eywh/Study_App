@@ -6,6 +6,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../../core/services/audio_speech_service.dart';
+import '../../../core/services/child_safety_service.dart';
 import '../../../core/services/session_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../courses/models/course_models.dart';
@@ -65,6 +67,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
 
   @override
   void dispose() {
+    AudioSpeechHelper.instance.stop();
     _timer?.cancel();
     _textController.dispose();
     super.dispose();
@@ -401,14 +404,23 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(color: context.cardBorderColor),
                         ),
-                        child: Text(
-                          q.prompt,
-                          style: GoogleFonts.outfit(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w600,
-                            color: context.textPrimary,
-                            height: 1.45,
-                          ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                q.prompt,
+                                style: GoogleFonts.outfit(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w600,
+                                  color: context.textPrimary,
+                                  height: 1.45,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _buildSpeechButton(q.prompt, tooltip: 'Read question aloud'),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 18),
@@ -704,7 +716,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                     borderRadius: BorderRadius.circular(12),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                       decoration: BoxDecoration(
                         color: bgColor,
                         borderRadius: BorderRadius.circular(12),
@@ -1229,16 +1241,20 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
 
   Widget _buildRealtimeAnswerFeedbackBanner(QuestionModel q) {
     final isCorrect = _isCurrentCorrect;
+    final isJunior = ChildSafetyService.instance.isJuniorMode;
     final primaryColor =
-        isCorrect ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+        isCorrect ? const Color(0xFF10B981) : (isJunior ? const Color(0xFFF59E0B) : const Color(0xFFEF4444));
     final iconData =
-        isCorrect ? Icons.check_circle_rounded : Icons.highlight_off_rounded;
-    final title =
-        isCorrect ? '100% Correct Recall!' : 'Answer Revealed: Review Key';
+        isCorrect ? Icons.check_circle_rounded : (isJunior ? Icons.emoji_objects_rounded : Icons.highlight_off_rounded);
+    final title = isJunior
+        ? ChildSafetyService.instance.getEncouragingFeedback(isCorrect: isCorrect)
+        : (isCorrect ? '100% Correct Recall!' : 'Answer Revealed: Review Key');
     final subtitle = isCorrect
         ? 'Spot on! You selected the verified 100% accurate solution.'
-        : 'The exact 100% correct answer is highlighted in green below.';
-    final badgeLabel = isCorrect ? '100% Accurate' : 'Exact Answer Revealed';
+        : (isJunior
+            ? 'Making mistakes is how our brain grows stronger! The correct answer is below.'
+            : 'The exact 100% correct answer is highlighted in green below.');
+    final badgeLabel = isCorrect ? '100% Accurate' : (isJunior ? 'Keep Growing 🌱' : 'Exact Answer Revealed');
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1340,6 +1356,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                   ),
                 ),
               ),
+              _buildSpeechButton(q.explanation!, tooltip: 'Read explanation aloud'),
             ],
           ),
           const SizedBox(height: 8),
@@ -1353,6 +1370,30 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSpeechButton(String text, {String? tooltip}) {
+    return ListenableBuilder(
+      listenable: AudioSpeechHelper.instance,
+      builder: (context, _) {
+        final isSpeaking = AudioSpeechHelper.instance.isSpeaking;
+        return IconButton(
+          icon: Icon(
+            isSpeaking ? Icons.volume_up_rounded : Icons.volume_up_outlined,
+            color: isSpeaking ? Colors.teal : AppColors.primary,
+            size: 22,
+          ),
+          tooltip: tooltip ?? 'Read aloud',
+          onPressed: () {
+            if (isSpeaking) {
+              AudioSpeechHelper.instance.stop();
+            } else {
+              AudioSpeechHelper.instance.speak(text);
+            }
+          },
+        );
+      },
     );
   }
 

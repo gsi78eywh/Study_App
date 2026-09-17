@@ -3,12 +3,14 @@ import "package:flutter/material.dart";
 import "package:google_fonts/google_fonts.dart";
 import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
+import "../../../core/services/child_safety_service.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../../core/theme/theme_controller.dart";
 import "../../quiz/models/quiz_models.dart";
 import "../models/study_settings_model.dart";
 import "../services/settings_service.dart";
+import "../widgets/dswd_safety_modal.dart";
 
 class SettingsScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -324,6 +326,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           if (_selectedSettingsTab == 0) ...[
+            // DSWD Child Protection, Standards & Accessibility
+            _buildChildProtectionSection(),
+
             // Section 1: Practice & Quiz Configurations
             _buildSectionHeader("📚 Practice & Exam Configurations"),
             _buildCard([
@@ -974,6 +979,235 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 40),
         ],
       ),
+    );
+  }
+
+  Widget _buildChildProtectionSection() {
+    return ListenableBuilder(
+      listenable: ChildSafetyService.instance,
+      builder: (context, _) {
+        final cs = ChildSafetyService.instance;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSectionHeader("🛡️ DSWD Child Protection, Standards & Accessibility"),
+            _buildCard([
+              // Junior Learner Mode Toggle
+              _buildSwitchTile(
+                title: "Junior Learner Mode (Grades 1–6)",
+                subtitle: "Enables simplified vocabulary, cheerful encouragement, and age-calibrated learning guardrails (DSWD compliant)",
+                icon: Icons.child_care_rounded,
+                value: cs.isJuniorMode,
+                onChanged: (val) => cs.setJuniorMode(val),
+              ),
+              if (cs.isJuniorMode) ...[
+                Divider(color: context.cardBorderColor, height: 1),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              "Learner Grade Level",
+                              style: GoogleFonts.outfit(
+                                fontWeight: FontWeight.bold,
+                                color: context.textPrimary,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              cs.gradeLevelText,
+                              style: const TextStyle(
+                                color: Color(0xFFD97706),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        children: List.generate(6, (i) {
+                          final grade = i + 1;
+                          final isSelected = cs.gradeLevel == grade;
+                          return ChoiceChip(
+                            label: Text("Grade $grade"),
+                            selected: isSelected,
+                            onSelected: (selected) {
+                              if (selected) cs.setGradeLevel(grade);
+                            },
+                          );
+                        }),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              Divider(color: context.cardBorderColor, height: 1),
+              // Dynamic Accessibility Text Scaling (WCAG 2.1 AA)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            "Text Size & Accessibility (WCAG 2.1 AA / RA 11650)",
+                            style: GoogleFonts.outfit(
+                              fontWeight: FontWeight.bold,
+                              color: context.textPrimary,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            cs.textScale == AccessibilityTextScale.normal
+                                ? "Normal (100%)"
+                                : (cs.textScale == AccessibilityTextScale.large
+                                    ? "Large (120%)"
+                                    : "Extra Large (135%)"),
+                            style: const TextStyle(
+                              color: Colors.teal,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Increases app typography scale for young readers and students with visual or reading needs",
+                      style: TextStyle(color: context.textSecondary, fontSize: 12),
+                    ),
+                    const SizedBox(height: 10),
+                    SegmentedButton<AccessibilityTextScale>(
+                      segments: const [
+                        ButtonSegment(
+                          value: AccessibilityTextScale.normal,
+                          label: Text("Normal A"),
+                        ),
+                        ButtonSegment(
+                          value: AccessibilityTextScale.large,
+                          label: Text("Large A+"),
+                        ),
+                        ButtonSegment(
+                          value: AccessibilityTextScale.extraLarge,
+                          label: Text("XL A++"),
+                        ),
+                      ],
+                      selected: {cs.textScale},
+                      onSelectionChanged: (set) {
+                        cs.setTextScale(set.first);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              Divider(color: context.cardBorderColor, height: 1),
+              // Audio Speech Synthesis Toggle
+              _buildSwitchTile(
+                title: "🔊 Read Aloud (Text-to-Speech)",
+                subtitle: "Enable audio buttons across questions, flashcards, and explanations for auditory learners",
+                icon: Icons.record_voice_over_rounded,
+                value: cs.readAloudEnabled,
+                onChanged: (val) => cs.setReadAloudEnabled(val),
+              ),
+              Divider(color: context.cardBorderColor, height: 1),
+              // 20-20-20 Eye Break Interval
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "🌿 Digital Health (20-20-20 Eye Break)",
+                            style: GoogleFonts.outfit(
+                              fontWeight: FontWeight.bold,
+                              color: context.textPrimary,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Periodic pause to prevent ocular strain in children per DSWD PES guidelines",
+                            style: TextStyle(color: context.textSecondary, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    DropdownButton<int>(
+                      value: cs.eyeBreakMinutes,
+                      underline: const SizedBox(),
+                      items: const [
+                        DropdownMenuItem(value: 20, child: Text("Every 20 mins (Recommended)")),
+                        DropdownMenuItem(value: 30, child: Text("Every 30 mins")),
+                        DropdownMenuItem(value: 45, child: Text("Every 45 mins")),
+                        DropdownMenuItem(value: 0, child: Text("Disabled")),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) cs.setEyeBreakMinutes(val);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              Divider(color: context.cardBorderColor, height: 1),
+              // DSWD Child Safeguard Policy & Hotline Hub Card
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text("🛡️", style: TextStyle(fontSize: 20)),
+                ),
+                title: Text(
+                  "DSWD Child Safeguarding & Safety Hub",
+                  style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  "View MAKABATA 1383 Helpline, Bantay Bata 163, DepEd CPU, and child privacy protections",
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                onTap: () => DswdSafetyModal.show(context),
+              ),
+            ]),
+            const SizedBox(height: 20),
+          ],
+        );
+      },
     );
   }
 

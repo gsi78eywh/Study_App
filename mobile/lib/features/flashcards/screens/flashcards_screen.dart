@@ -3,6 +3,7 @@ import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
 import "../../../core/network/api_client.dart";
+import "../../../core/services/audio_speech_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../courses/models/course_models.dart";
 import "../../quiz/models/quiz_models.dart";
@@ -217,6 +218,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
 
   @override
   void dispose() {
+    AudioSpeechHelper.instance.stop();
     _focusNode.dispose();
     _flipController.dispose();
     super.dispose();
@@ -1461,6 +1463,11 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                                   height: 1.5,
                                                 ),
                                               ),
+                                              const SizedBox(height: 10),
+                                              _buildSpeechButton(
+                                                displayedText,
+                                                tooltip: isUnder ? "Read answer aloud" : "Read prompt aloud",
+                                              ),
                                               if (!isUnder && _showHint && card.hint != null) ...[
                                                 const SizedBox(height: 16),
                                                 Container(
@@ -1633,6 +1640,30 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSpeechButton(String text, {String? tooltip}) {
+    return ListenableBuilder(
+      listenable: AudioSpeechHelper.instance,
+      builder: (context, _) {
+        final isSpeaking = AudioSpeechHelper.instance.isSpeaking;
+        return IconButton(
+          icon: Icon(
+            isSpeaking ? Icons.volume_up_rounded : Icons.volume_up_outlined,
+            color: isSpeaking ? Colors.teal : AppColors.primary,
+            size: 24,
+          ),
+          tooltip: tooltip ?? "Read aloud",
+          onPressed: () {
+            if (isSpeaking) {
+              AudioSpeechHelper.instance.stop();
+            } else {
+              AudioSpeechHelper.instance.speak(text);
+            }
+          },
+        );
+      },
     );
   }
 }

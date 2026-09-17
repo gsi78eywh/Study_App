@@ -4,6 +4,8 @@ import "package:google_fonts/google_fonts.dart";
 
 import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
+import "../../../core/services/audio_speech_service.dart";
+import "../../../core/services/child_safety_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../courses/models/course_models.dart";
 
@@ -67,6 +69,21 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     "🔍 Summarize the core theoretical principles",
   ];
 
+  List<String> get _currentQuickPrompts {
+    if (ChildSafetyService.instance.isJuniorMode) {
+      final grade = ChildSafetyService.instance.gradeLevelText;
+      return [
+        "🎈 Explain this simply like I am in $grade",
+        "🌟 Can you give me a fun real-world example?",
+        "📝 Ask me a friendly question to test my understanding",
+        "💡 Give me a gentle hint without telling the answer",
+        "🎨 Use a simple story or analogy to explain this",
+        "✨ What are the 3 most important words to remember?",
+      ];
+    }
+    return _quickPrompts;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -80,13 +97,17 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     // Initial greeting from Tutor
     final hasGeminiKey =
         widget.apiClient.sessionService.geminiApiKey?.isNotEmpty ?? false;
+    final isJunior = ChildSafetyService.instance.isJuniorMode;
     _messages.add(
       ChatMessage(
         role: "assistant",
-        text:
-            "👋 Hi! I'm your **Gemini Study Tutor**, powered by Google Gemini AI.\n\n"
-            "I can help you master complex coursework, explain tricky equations, break down practice problems, and give you conceptual clarity.\n\n"
-            "What topic or question are we tackling today?",
+        text: isJunior
+            ? "👋 Hello friend! I'm your **Study Buddy**, powered by Gemini AI!\n\n"
+                "I can explain lessons simply, tell fun learning stories, give gentle hints, and help you practice without stress! 🌟\n\n"
+                "What topic would you like to explore today?"
+            : "👋 Hi! I'm your **Gemini Study Tutor**, powered by Google Gemini AI.\n\n"
+                "I can help you master complex coursework, explain tricky equations, break down practice problems, and give you conceptual clarity.\n\n"
+                "What topic or question are we tackling today?",
         modelUsed: hasGeminiKey ? "gemini-3.6-flash" : "Built-In Academic Engine",
         timestamp: DateTime.now(),
       ),
@@ -102,6 +123,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
 
   @override
   void dispose() {
+    AudioSpeechHelper.instance.stop();
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -144,11 +166,14 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
           .toList();
 
       final geminiKey = widget.apiClient.sessionService.geminiApiKey;
+      final effectiveMessage = ChildSafetyService.instance.isJuniorMode
+          ? ChildSafetyService.instance.enrichPromptForChildSafety(query)
+          : query;
 
       final response = await widget.apiClient.dio.post(
         ApiConstants.aiTutor,
         data: {
-          "message": query,
+          "message": effectiveMessage,
           "contextTopic": _selectedCourseContext,
           "apiKey": geminiKey,
           "isSocraticMode": _isSocraticMode,
@@ -659,10 +684,10 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: _quickPrompts.length,
+                    itemCount: _currentQuickPrompts.length,
                     separatorBuilder: (ctx, idx) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
-                      final prompt = _quickPrompts[index];
+                      final prompt = _currentQuickPrompts[index];
                       return ActionChip(
                         label: Text(
                           prompt,
@@ -798,6 +823,34 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                                           const SizedBox(width: 8),
                                         ],
                                         if (!isUser) ...[
+                                          InkWell(
+                                            onTap: () {
+                                              if (AudioSpeechHelper.instance.isSpeaking) {
+                                                AudioSpeechHelper.instance.stop();
+                                              } else {
+                                                AudioSpeechHelper.instance.speak(msg.text);
+                                              }
+                                            },
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.volume_up_rounded,
+                                                  size: 14,
+                                                  color: context.textSecondary,
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  "Read",
+                                                  style: GoogleFonts.inter(
+                                                    fontSize: 10,
+                                                    color: context.textSecondary,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
                                           InkWell(
                                             onTap: () {
                                               Clipboard.setData(

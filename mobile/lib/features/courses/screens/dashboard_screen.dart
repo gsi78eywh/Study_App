@@ -1,9 +1,11 @@
+import "dart:async";
 import "package:dio/dio.dart";
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
 
 import "../../../core/network/api_client.dart";
+import "../../../core/services/child_safety_service.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../../core/theme/theme_controller.dart";
@@ -19,8 +21,10 @@ import "../../sync/services/sync_service.dart";
 import "../../ai_tutor/screens/ai_tutor_screen.dart";
 import "../../settings/services/settings_service.dart";
 import "../../settings/screens/settings_screen.dart";
+import "../../settings/widgets/dswd_safety_modal.dart";
 import "../../../core/constants/api_constants.dart";
 import "../widgets/pomodoro_timer_sheet.dart";
+import "../widgets/eye_break_dialog.dart";
 import "../../ingestion/widgets/camera_scanner_modal.dart";
 import "../../ingestion/widgets/progressive_exam_studio.dart";
 import "../../practice/models/adaptive_models.dart";
@@ -196,6 +200,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Timer? _eyeBreakMonitoringTimer;
+
   @override
   void initState() {
     super.initState();
@@ -210,6 +216,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
     _fetchCoursesAndSync(fullFetch: true);
     _loadTodayStudyPlan();
+    _initEyeBreakMonitoring();
+  }
+
+  void _initEyeBreakMonitoring() {
+    _eyeBreakMonitoringTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      if (ChildSafetyService.instance.shouldPromptEyeBreak) {
+        EyeBreakDialog.show(context);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _eyeBreakMonitoringTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadTodayStudyPlan() async {
@@ -1791,6 +1813,222 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildChildSafetyBanner(BuildContext context) {
+    return ListenableBuilder(
+      listenable: ChildSafetyService.instance,
+      builder: (context, _) {
+        final cs = ChildSafetyService.instance;
+        final isDark = context.isDarkMode;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: cs.isJuniorMode
+                  ? [
+                      const Color(0xFFFEF3C7).withOpacity(isDark ? 0.2 : 0.8),
+                      const Color(0xFFE0E7FF).withOpacity(isDark ? 0.2 : 0.8),
+                    ]
+                  : [
+                      const Color(0xFFF0FDF4).withOpacity(isDark ? 0.15 : 0.7),
+                      const Color(0xFFE0F2FE).withOpacity(isDark ? 0.15 : 0.7),
+                    ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: cs.isJuniorMode
+                  ? const Color(0xFFF59E0B).withOpacity(0.35)
+                  : const Color(0xFF10B981).withOpacity(0.35),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                alignment: WrapAlignment.spaceBetween,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Mode indicator chip
+                      InkWell(
+                        onTap: () => _showJuniorModeDialog(),
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: cs.isJuniorMode ? const Color(0xFFF59E0B) : const Color(0xFF6366F1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                cs.isJuniorMode ? '🐣 Junior Mode (${cs.gradeLevelText})' : '🎓 Standard Mode',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.arrow_drop_down, color: Colors.white, size: 16),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // DSWD Compliant Badge
+                      InkWell(
+                        onTap: () => DswdSafetyModal.show(context),
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.shade700,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.verified_user_rounded, color: Colors.white, size: 14),
+                              SizedBox(width: 4),
+                              Text(
+                                '🛡️ DSWD Safe • 1383',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // 20-20-20 Eye Break quick button
+                  TextButton.icon(
+                    onPressed: () => EyeBreakDialog.show(context),
+                    icon: const Text('🌿', style: TextStyle(fontSize: 14)),
+                    label: Text(
+                      'Eye Rest (20-20-20)',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.tealAccent : Colors.teal.shade900,
+                      ),
+                    ),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                ],
+              ),
+              if (cs.isJuniorMode) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Text('🌟', style: TextStyle(fontSize: 14)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Junior Learner Guardrails Active: Elementary vocabulary, gentle hints, and audio speech enabled!',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                          color: isDark ? Colors.amber.shade200 : Colors.amber.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showJuniorModeDialog() {
+    final cs = ChildSafetyService.instance;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Text('🐣', style: TextStyle(fontSize: 24)),
+              SizedBox(width: 8),
+              Text('Learner Mode & Grade Level', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Switch between Junior Learner Mode (Grades 1–6) with DSWD child-safe vocabulary and Standard Mode for older students.',
+                style: TextStyle(fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Junior Learner Mode', style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text('Simplified vocabulary & encouraging guidance'),
+                value: cs.isJuniorMode,
+                onChanged: (val) {
+                  cs.setJuniorMode(val);
+                  setDialogState(() {});
+                  setState(() {});
+                },
+              ),
+              if (cs.isJuniorMode) ...[
+                const SizedBox(height: 8),
+                const Text('Grade Level:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  children: List.generate(6, (i) {
+                    final grade = i + 1;
+                    final isSelected = cs.gradeLevel == grade;
+                    return ChoiceChip(
+                      label: Text('Grade $grade'),
+                      selected: isSelected,
+                      onSelected: (selected) {
+                        if (selected) {
+                          cs.setGradeLevel(grade);
+                          setDialogState(() {});
+                          setState(() {});
+                        }
+                      },
+                    );
+                  }),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildCoursesTab() {
     final isDark = context.isDarkMode;
     final totalSets = _courses.fold<int>(
@@ -1928,6 +2166,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ],
               ),
+              const SizedBox(height: 16),
+
+              // DSWD Child Safety & Learner Mode Bar
+              _buildChildSafetyBanner(context),
               const SizedBox(height: 16),
 
               // Today's Study Plan (AI Adaptive Learning System)
@@ -2991,12 +3233,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildDesktopSidebar(bool isDark) {
+    final cs = ChildSafetyService.instance;
     final navItems = [
-      (Icons.dashboard_rounded, "Courses", 0),
-      (Icons.style_outlined, "Flashcards", 1),
-      (Icons.menu_book_outlined, "Notebook", 2),
-      (Icons.psychology_outlined, "AI Studio", 3),
-      (Icons.auto_awesome_rounded, "Gemini Tutor", 4),
+      (Icons.dashboard_rounded, cs.getFriendlyTabName(0, "Courses"), 0),
+      (Icons.style_outlined, cs.getFriendlyTabName(1, "Flashcards"), 1),
+      (Icons.menu_book_outlined, cs.getFriendlyTabName(2, "Notebook"), 2),
+      (Icons.psychology_outlined, cs.getFriendlyTabName(3, "AI Studio"), 3),
+      (Icons.auto_awesome_rounded, cs.getFriendlyTabName(4, "Gemini Tutor"), 4),
     ];
 
     return Container(
@@ -3145,6 +3388,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   },
                 ),
                 IconButton(
+                  icon: const Icon(Icons.verified_user_rounded, size: 20, color: Colors.teal),
+                  tooltip: "DSWD Child Safeguard & MAKABATA 1383",
+                  onPressed: () => DswdSafetyModal.show(context),
+                ),
+                IconButton(
                   icon: const Icon(Icons.settings_outlined, size: 20, color: Color(0xFF6366F1)),
                   tooltip: "Study Configurations",
                   onPressed: () {
@@ -3262,26 +3510,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   fontSize: 12,
                 ),
                 unselectedLabelStyle: const TextStyle(fontSize: 12),
-                items: const [
+                items: [
                   BottomNavigationBarItem(
-                    icon: Icon(Icons.dashboard_rounded),
-                    label: "Courses",
+                    icon: const Icon(Icons.dashboard_rounded),
+                    label: ChildSafetyService.instance.getFriendlyTabName(0, "Courses"),
                   ),
                   BottomNavigationBarItem(
-                    icon: Icon(Icons.style_outlined),
-                    label: "Flashcards",
+                    icon: const Icon(Icons.style_outlined),
+                    label: ChildSafetyService.instance.getFriendlyTabName(1, "Flashcards"),
                   ),
                   BottomNavigationBarItem(
-                    icon: Icon(Icons.menu_book_outlined),
-                    label: "Notebook",
+                    icon: const Icon(Icons.menu_book_outlined),
+                    label: ChildSafetyService.instance.getFriendlyTabName(2, "Notebook"),
                   ),
                   BottomNavigationBarItem(
-                    icon: Icon(Icons.psychology_outlined),
-                    label: "AI Studio",
+                    icon: const Icon(Icons.psychology_outlined),
+                    label: ChildSafetyService.instance.getFriendlyTabName(3, "AI Studio"),
                   ),
                   BottomNavigationBarItem(
-                    icon: Icon(Icons.auto_awesome_rounded),
-                    label: "Gemini Tutor",
+                    icon: const Icon(Icons.auto_awesome_rounded),
+                    label: ChildSafetyService.instance.getFriendlyTabName(4, "Gemini Tutor"),
                   ),
                 ],
               ),
