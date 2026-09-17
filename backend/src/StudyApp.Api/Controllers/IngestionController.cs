@@ -38,11 +38,25 @@ public class IngestionController : ControllerBase
     [HttpPost("text")]
     public async Task<IActionResult> GenerateFromText([FromBody] GenerateFromTextRequest request)
     {
-        if (request.CourseId == Guid.Empty || string.IsNullOrWhiteSpace(request.Content))
+        var userId = CurrentUserId();
+        if (userId is null) return Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(request.Content))
         {
-            return BadRequest(new { message = "A course and non-empty content are required." });
+            return BadRequest(new { message = "Study notes or content cannot be empty." });
         }
-        if (!await OwnsCourseAsync(request.CourseId)) return NotFound(new { message = "Course not found." });
+
+        Guid effectiveCourseId;
+        if (request.CourseId.HasValue && request.CourseId.Value != Guid.Empty)
+        {
+            if (!await OwnsCourseAsync(request.CourseId.Value)) return NotFound(new { message = "Course not found." });
+            effectiveCourseId = request.CourseId.Value;
+        }
+        else
+        {
+            var defaultCourse = await GetOrCreateDefaultCourseAsync(userId.Value);
+            effectiveCourseId = defaultCourse.Id;
+        }
 
         var sourceText = LimitSourceText(request.Content);
         var geminiKey = !string.IsNullOrWhiteSpace(request.ApiKey)
@@ -58,7 +72,7 @@ public class IngestionController : ControllerBase
             request.Variant,
             geminiKey);
 
-        var studySet = await SaveGeneratedSetAsync(request.CourseId, result, "Manual note input", "text/markdown", sourceText);
+        var studySet = await SaveGeneratedSetAsync(effectiveCourseId, result, "Manual note input", "text/markdown", sourceText);
         return Ok(new
         {
             studySet.Id,
@@ -90,7 +104,7 @@ public class IngestionController : ControllerBase
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> GenerateFromFile(
         [FromForm] IFormFile file,
-        [FromForm] Guid courseId,
+        [FromForm] Guid? courseId,
         [FromForm] string? title,
         [FromForm] string? questionTypes,
         [FromForm] int? targetCount,
@@ -98,6 +112,9 @@ public class IngestionController : ControllerBase
         [FromForm] string? variant,
         [FromForm] string? apiKey)
     {
+        var userId = CurrentUserId();
+        if (userId is null) return Unauthorized();
+
         if (file == null || file.Length == 0)
         {
             return BadRequest(new { message = "Please select a valid file." });
@@ -107,8 +124,18 @@ public class IngestionController : ControllerBase
         {
             return BadRequest(new { message = "File exceeds 30MB limit." });
         }
-        if (courseId == Guid.Empty) return BadRequest(new { message = "A course is required." });
-        if (!await OwnsCourseAsync(courseId)) return NotFound(new { message = "Course not found." });
+
+        Guid effectiveCourseId;
+        if (courseId.HasValue && courseId.Value != Guid.Empty)
+        {
+            if (!await OwnsCourseAsync(courseId.Value)) return NotFound(new { message = "Course not found." });
+            effectiveCourseId = courseId.Value;
+        }
+        else
+        {
+            var defaultCourse = await GetOrCreateDefaultCourseAsync(userId.Value);
+            effectiveCourseId = defaultCourse.Id;
+        }
 
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         var setHeader = CleanTitle(!string.IsNullOrWhiteSpace(title) ? title : Path.GetFileNameWithoutExtension(file.FileName));
@@ -185,7 +212,7 @@ public class IngestionController : ControllerBase
             return BadRequest(new { message = "Unsupported file type. Please upload a PDF, DOCX, TXT, or Image file (.png, .jpg, .jpeg, .webp, .bmp)." });
         }
 
-        var studySet = await SaveGeneratedSetAsync(courseId, result, file.FileName, ext, extractedSourceText);
+        var studySet = await SaveGeneratedSetAsync(effectiveCourseId, result, file.FileName, ext, extractedSourceText);
         return Ok(new
         {
             studySet.Id,
@@ -332,15 +359,29 @@ public class IngestionController : ControllerBase
     [HttpPost("url")]
     public async Task<IActionResult> GenerateFromUrl([FromBody] GenerateFromUrlRequest request)
     {
-        if (request.CourseId == Guid.Empty || string.IsNullOrWhiteSpace(request.Url))
+        var userId = CurrentUserId();
+        if (userId is null) return Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(request.Url))
         {
-            return BadRequest(new { message = "A course and URL are required." });
+            return BadRequest(new { message = "A URL is required." });
         }
         if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
         {
             return BadRequest(new { message = "Only valid HTTP(S) URLs can be imported." });
         }
-        if (!await OwnsCourseAsync(request.CourseId)) return NotFound(new { message = "Course not found." });
+
+        Guid effectiveCourseId;
+        if (request.CourseId.HasValue && request.CourseId.Value != Guid.Empty)
+        {
+            if (!await OwnsCourseAsync(request.CourseId.Value)) return NotFound(new { message = "Course not found." });
+            effectiveCourseId = request.CourseId.Value;
+        }
+        else
+        {
+            var defaultCourse = await GetOrCreateDefaultCourseAsync(userId.Value);
+            effectiveCourseId = defaultCourse.Id;
+        }
 
         string extractedText;
         try
@@ -372,7 +413,7 @@ public class IngestionController : ControllerBase
             request.Variant,
             geminiKey);
 
-        var studySet = await SaveGeneratedSetAsync(request.CourseId, result, uri.ToString(), "text/html", extractedText);
+        var studySet = await SaveGeneratedSetAsync(effectiveCourseId, result, uri.ToString(), "text/html", extractedText);
         return Ok(new
         {
             studySet.Id,
@@ -382,6 +423,76 @@ public class IngestionController : ControllerBase
             result.Summary,
             result.HighYieldBulletPoints,
             QuestionCount = studySet.Questions.Count
+        });
+    }
+
+    [HttpPost("scan-url")]
+    public async Task<IActionResult> ScanUrl([FromBody] ScanUrlRequest request)
+    {
+        var userId = CurrentUserId();
+        if (userId is null) return Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(request.Url))
+        {
+            return BadRequest(new { message = "A URL is required to scan." });
+        }
+        if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+        {
+            return BadRequest(new { message = "Only valid HTTP(S) URLs can be scanned." });
+        }
+
+        string extractedText;
+        try
+        {
+            extractedText = await _documentExtractor.ExtractUrlContentAsync(uri.ToString());
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = $"Could not extract content from the URL: {ex.Message}" });
+        }
+
+        if (string.IsNullOrWhiteSpace(extractedText))
+        {
+            return BadRequest(new { message = "No readable study text was found at that URL." });
+        }
+
+        var lines = extractedText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+        var words = extractedText.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+        string candidateTitle = uri.Host;
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("# ") || trimmed.StartsWith("### "))
+            {
+                candidateTitle = trimmed.TrimStart('#', ' ', '*');
+                break;
+            }
+            if (trimmed.Length >= 5 && trimmed.Length <= 70 && !trimmed.StartsWith("http"))
+            {
+                candidateTitle = trimmed;
+                break;
+            }
+        }
+
+        return Ok(new
+        {
+            url = uri.ToString(),
+            suggestedTitle = CleanTitle(candidateTitle),
+            charCount = extractedText.Length,
+            wordCount = words.Length,
+            lineCount = lines.Length,
+            extractedText = extractedText.Trim(),
+            hasContent = true,
+            message = "Article content extracted and parsed successfully."
         });
     }
 
@@ -897,6 +1008,34 @@ public class IngestionController : ControllerBase
     }
 
     private Guid? CurrentUserId() => Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId) ? userId : null;
+
+    private async Task<Course> GetOrCreateDefaultCourseAsync(Guid userId)
+    {
+        var existingCourse = await _context.Courses
+            .Where(c => c.UserId == userId)
+            .OrderBy(c => c.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (existingCourse != null)
+        {
+            return existingCourse;
+        }
+
+        var defaultCourse = new Course
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Code = "GEN-101",
+            Name = "General Studies",
+            ColorHex = "#6366F1",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        _context.Courses.Add(defaultCourse);
+        await _context.SaveChangesAsync();
+        return defaultCourse;
+    }
 
     private async Task<bool> OwnsCourseAsync(Guid courseId)
     {

@@ -587,92 +587,114 @@ class _NotebookScreenState extends State<NotebookScreen> {
                   ],
 
                   if (filtered.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(40),
-                      decoration: BoxDecoration(
-                        color: context.surfaceColor,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: context.cardBorderColor),
-                      ),
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.menu_book_rounded,
-                            size: 56,
-                            color: context.textSecondary.withValues(alpha: 0.6),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            _notes.isEmpty
-                                ? "Your Notebook is Empty"
-                                : "No Matching Notes Found",
-                            style: GoogleFonts.outfit(
-                              fontSize: 18,
-                              color: context.textPrimary,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _notes.isEmpty
-                                ? "Capture lecture takeaways, formulas, or synthesis summaries to build your personal study knowledge base."
-                                : "Try searching with a different keyword or select another subject filter.",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: context.textSecondary,
-                              fontSize: 13,
-                              height: 1.5,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            alignment: WrapAlignment.center,
-                            children: [
-                              ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: isDark
-                                      ? AppColors.primary
-                                      : AppColors.primaryDark,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 18,
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                icon: const Icon(Icons.add_rounded, size: 18),
-                                label: const Text("Create Your First Note"),
-                                onPressed: _showAddNoteDialog,
+                    Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 620),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 36),
+                          decoration: BoxDecoration(
+                            color: context.surfaceColor,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: context.cardBorderColor),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
+                                blurRadius: 16,
+                                offset: const Offset(0, 4),
                               ),
-                              if (widget.onLoadStarterPack != null &&
-                                  widget.courses.isEmpty)
-                                OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: AppColors.accent,
-                                    side: const BorderSide(
-                                      color: AppColors.accent,
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 18,
-                                      vertical: 12,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                  icon: const Icon(
-                                    Icons.auto_awesome,
-                                    size: 18,
-                                  ),
-                                  label: const Text("Load Starter Demo Pack"),
-                                  onPressed: widget.onLoadStarterPack,
-                                ),
                             ],
                           ),
-                        ],
+                          child: Column(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(18),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withValues(alpha: 0.12),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  Icons.menu_book_rounded,
+                                  size: 48,
+                                  color: isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+                              Text(
+                                _notes.isEmpty
+                                    ? "Your Notebook is Empty"
+                                    : "No Matching Notes Found",
+                                style: GoogleFonts.outfit(
+                                  fontSize: 20,
+                                  color: context.textPrimary,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _notes.isEmpty
+                                    ? "Capture lecture takeaways, formulas, or synthesis summaries to build your personal study knowledge base."
+                                    : "Try searching with a different keyword or select another subject filter.",
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: context.textSecondary,
+                                  fontSize: 13,
+                                  height: 1.5,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 12,
+                                alignment: WrapAlignment.center,
+                                children: [
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: isDark
+                                          ? AppColors.primary
+                                          : AppColors.primaryDark,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 20,
+                                        vertical: 12,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      elevation: 2,
+                                    ),
+                                    icon: const Icon(Icons.add_rounded, size: 18),
+                                    label: const Text("Create Your First Note", style: TextStyle(fontWeight: FontWeight.bold)),
+                                    onPressed: _showAddNoteDialog,
+                                  ),
+                                  if (widget.onLoadStarterPack != null &&
+                                      widget.courses.isEmpty)
+                                    OutlinedButton.icon(
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: AppColors.accent,
+                                        side: const BorderSide(
+                                          color: AppColors.accent,
+                                          width: 1.2,
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 18,
+                                          vertical: 12,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                      icon: const Icon(
+                                        Icons.auto_awesome,
+                                        size: 18,
+                                      ),
+                                      label: const Text("Load Starter Demo Pack"),
+                                      onPressed: widget.onLoadStarterPack,
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     )
                   else

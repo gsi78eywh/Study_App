@@ -104,6 +104,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final createAccountBtn = find.widgetWithText(TextButton, "Create Account");
+      await tester.ensureVisible(createAccountBtn);
       await tester.tap(createAccountBtn);
       await tester.pumpAndSettle();
 

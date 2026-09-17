@@ -44,7 +44,7 @@ public static class NoteScriptSynthesizer
         s = Regex.Replace(s, @"^#{1,6}\s*", "");
 
         // 2. Strip bullet markers (*, -, +, •, ◦, ▪, etc.)
-        s = Regex.Replace(s, @"^[\*\-\+•◦▪]\s*", "");
+        s = Regex.Replace(s, @"^[\*\-\+•◦▪]\s+", "");
 
         // 3. Strip bold/italic wrappers (**text**, *text*, __text__, _text_)
         s = Regex.Replace(s, @"\*\*([^*]+)\*\*", "$1");

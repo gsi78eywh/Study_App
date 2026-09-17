@@ -805,7 +805,7 @@ public sealed class PracticeController : ControllerBase
             "INSERT INTO \"AcademicTasks\" (\"Id\", \"UserId\", \"CourseId\", \"Title\", \"Type\", \"DueDate\", \"EstimatedDifficulty\", \"IsCompleted\", \"ActionStepsJson\", \"CreatedAt\") VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9});",
             taskId.ToString(),
             userId.Value.ToString(),
-            request.CourseId?.ToString(),
+            (object?)request.CourseId?.ToString() ?? DBNull.Value,
             request.Title,
             request.Type,
             request.DueDate.ToString("o"),

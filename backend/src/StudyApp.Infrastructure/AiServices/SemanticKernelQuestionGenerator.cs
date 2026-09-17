@@ -7,23 +7,41 @@ using StudyApp.Application.DTOs.Ingestion;
 
 namespace StudyApp.Infrastructure.AiServices;
 
+/// <summary>
+/// AI Question Generation Agent utilizing Microsoft Semantic Kernel.
+/// Connects to OpenAI-compatible endpoints (including Google Gemini 3.6 Flash via Generative Language API)
+/// and provides intelligent offline fallbacks through <see cref="NoteScriptSynthesizer"/>.
+/// </summary>
 public class SemanticKernelQuestionGenerator : IAiQuestionGenerator
 {
     private readonly Kernel _kernel;
     private readonly IConfiguration _configuration;
     private readonly bool _hasValidApiKey;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SemanticKernelQuestionGenerator"/> class.
+    /// </summary>
+    /// <param name="configuration">Application configuration containing AI provider settings.</param>
     public SemanticKernelQuestionGenerator(IConfiguration configuration)
     {
         _configuration = configuration;
 
         var builder = Kernel.CreateBuilder();
         var apiKey = _configuration["AiSettings:ApiKey"] ?? string.Empty;
-        var modelId = _configuration["AiSettings:ModelId"] ?? "gemini-1.5-flash";
+        var modelId = _configuration["AiSettings:ModelId"] ?? "gemini-3.6-flash";
 
         if (!string.IsNullOrWhiteSpace(apiKey) && apiKey != "YOUR_API_KEY_HERE")
         {
-            builder.AddOpenAIChatCompletion(modelId, apiKey);
+            var baseUrl = _configuration["AiSettings:BaseUrl"] ?? "https://generativelanguage.googleapis.com/v1beta/openai/";
+            if (Uri.TryCreate(baseUrl, UriKind.Absolute, out var endpointUri))
+            {
+                var customHttpClient = new HttpClient { BaseAddress = endpointUri };
+                builder.AddOpenAIChatCompletion(modelId, apiKey, httpClient: customHttpClient);
+            }
+            else
+            {
+                builder.AddOpenAIChatCompletion(modelId, apiKey);
+            }
             _hasValidApiKey = true;
         }
         else
@@ -34,6 +52,9 @@ public class SemanticKernelQuestionGenerator : IAiQuestionGenerator
         _kernel = builder.Build();
     }
 
+    /// <summary>
+    /// Generates structured study questions and flashcards from an uploaded image.
+    /// </summary>
     public Task<GeneratedStudySetResult> GenerateStudySetFromImageAsync(
         byte[] imageBytes,
         string mimeType,
@@ -48,6 +69,9 @@ public class SemanticKernelQuestionGenerator : IAiQuestionGenerator
         return Task.FromResult(AnalyzeAndSynthesizeLocally(title, $"[Visual content extracted from uploaded image for {title}]", targetCount, setIndex, variant));
     }
 
+    /// <summary>
+    /// Generates structured active-recall study questions, summary, and bullet points from raw notes text.
+    /// </summary>
     public async Task<GeneratedStudySetResult> GenerateStudySetAsync(
         string rawText,
         string title,
@@ -103,11 +127,19 @@ public class SemanticKernelQuestionGenerator : IAiQuestionGenerator
                 """;
 
                 var result = await _kernel.InvokePromptAsync(prompt, cancellationToken: cancellationToken);
-                var jsonString = result.GetValue<string>() ?? "{}";
+                var rawResult = result.GetValue<string>() ?? "{}";
 
-                if (jsonString.StartsWith("```json")) jsonString = jsonString.Substring(7);
-                if (jsonString.EndsWith("```")) jsonString = jsonString.Substring(0, jsonString.Length - 3);
-                jsonString = jsonString.Trim();
+                var jsonMatch = Regex.Match(rawResult, @"```(?:json)?\s*([\s\S]*?)\s*```", RegexOptions.IgnoreCase);
+                var jsonString = jsonMatch.Success ? jsonMatch.Groups[1].Value.Trim() : rawResult.Trim();
+                if (!jsonString.StartsWith("{") && jsonString.Contains("{"))
+                {
+                    var startIdx = jsonString.IndexOf('{');
+                    var endIdx = jsonString.LastIndexOf('}');
+                    if (startIdx >= 0 && endIdx > startIdx)
+                    {
+                        jsonString = jsonString.Substring(startIdx, endIdx - startIdx + 1);
+                    }
+                }
 
                 var parsed = JsonSerializer.Deserialize<AiResponsePayload>(jsonString, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 if (parsed?.Questions != null && parsed.Questions.Count > 0)

@@ -297,10 +297,19 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
           if (questions.isNotEmpty) {
             _allCards.removeWhere((c) => c.studySetId == set.id);
 
-            final course = widget.courses.firstWhere(
-              (c) => c.studySets.any((s) => s.id == set.id),
-              orElse: () => widget.courses.first,
-            );
+            final course = widget.courses.isNotEmpty
+                ? widget.courses.firstWhere(
+                    (c) => c.studySets.any((s) => s.id == set.id),
+                    orElse: () => widget.courses.first,
+                  )
+                : CourseModel(
+                    id: set.courseId,
+                    code: "GEN-101",
+                    name: "General Studies",
+                    colorHex: "#6366F1",
+                    createdAt: DateTime.now(),
+                    studySets: [set],
+                  );
 
             for (final q in questions) {
               final correctOpt = q.options.firstWhere(
@@ -1145,85 +1154,97 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
 
                     // Empty State with Direct Action Buttons
                     if (totalFilteredCards == 0)
-                      Container(
-                        padding: const EdgeInsets.all(36),
-                        decoration: BoxDecoration(
-                          color: context.surfaceColor,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: context.cardBorderColor),
-                        ),
-                        child: Column(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(18),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.12),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(Icons.style_outlined, size: 48, color: isDark ? AppColors.primaryLight : AppColors.primaryDark),
-                            ),
-                            const SizedBox(height: 18),
-                            Text(
-                              _cardFilter != "ALL" ? "No Cards in this Filter" : "No Flashcards in this Deck",
-                              style: GoogleFonts.outfit(fontSize: 20, color: context.textPrimary, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              _cardFilter != "ALL"
-                                  ? "You have no cards marked under '${_cardFilter == 'HIGH_RISK' ? 'Needs Practice' : 'Mastered'}'. Keep up the great studying!"
-                                  : "Upload lecture notes, whiteboard photos, or PDFs in the AI Studio to generate active recall flashcards.",
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.5),
-                            ),
-                            const SizedBox(height: 24),
-                            Wrap(
-                              alignment: WrapAlignment.center,
-                              spacing: 12,
-                              runSpacing: 12,
-                              children: [
-                                if (_cardFilter != "ALL")
-                                  ElevatedButton.icon(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppColors.accent,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                    ),
-                                    icon: const Icon(Icons.clear_all_rounded, size: 18),
-                                    label: const Text("Show All Cards", style: TextStyle(fontWeight: FontWeight.bold)),
-                                    onPressed: () {
-                                      setState(() {
-                                        _cardFilter = "ALL";
-                                        _applyFilter();
-                                      });
-                                    },
-                                  ),
-                                ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppColors.accent,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
-                                  icon: const Icon(Icons.cloud_sync_rounded, size: 18),
-                                  label: const Text("Sync Deck from Cloud", style: TextStyle(fontWeight: FontWeight.bold)),
-                                  onPressed: () => _refreshDeckFromServer(showToast: true),
+                      Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 620),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 36),
+                            decoration: BoxDecoration(
+                              color: context.surfaceColor,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: context.cardBorderColor),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 4),
                                 ),
-                                if (widget.onNavigateToStudio != null)
-                                  OutlinedButton.icon(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: context.textPrimary,
-                                      side: BorderSide(color: context.cardBorderColor),
-                                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                    ),
-                                    icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
-                                    label: const Text("⚡ Open AI Studio Ingestion"),
-                                    onPressed: widget.onNavigateToStudio,
-                                  ),
                               ],
                             ),
-                          ],
+                            child: Column(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(18),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary.withValues(alpha: 0.12),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(Icons.style_outlined, size: 48, color: isDark ? AppColors.primaryLight : AppColors.primaryDark),
+                                ),
+                                const SizedBox(height: 18),
+                                Text(
+                                  _cardFilter != "ALL" ? "No Cards in this Filter" : "No Flashcards in this Deck",
+                                  style: GoogleFonts.outfit(fontSize: 20, color: context.textPrimary, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  _cardFilter != "ALL"
+                                      ? "You have no cards marked under '${_cardFilter == 'HIGH_RISK' ? 'Needs Practice' : 'Mastered'}'. Keep up the great studying!"
+                                      : "Upload lecture notes, whiteboard photos, or PDFs in the AI Studio to generate active recall flashcards.",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.5),
+                                ),
+                                const SizedBox(height: 24),
+                                Wrap(
+                                  alignment: WrapAlignment.center,
+                                  spacing: 12,
+                                  runSpacing: 12,
+                                  children: [
+                                    if (_cardFilter != "ALL")
+                                      ElevatedButton.icon(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppColors.accent,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        ),
+                                        icon: const Icon(Icons.clear_all_rounded, size: 18),
+                                        label: const Text("Show All Cards", style: TextStyle(fontWeight: FontWeight.bold)),
+                                        onPressed: () {
+                                          setState(() {
+                                            _cardFilter = "ALL";
+                                            _applyFilter();
+                                          });
+                                        },
+                                      ),
+                                    ElevatedButton.icon(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppColors.accent,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      ),
+                                      icon: const Icon(Icons.cloud_sync_rounded, size: 18),
+                                      label: const Text("Sync Deck from Cloud", style: TextStyle(fontWeight: FontWeight.bold)),
+                                      onPressed: () => _refreshDeckFromServer(showToast: true),
+                                    ),
+                                    if (widget.onNavigateToStudio != null)
+                                      OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: context.textPrimary,
+                                          side: BorderSide(color: context.cardBorderColor),
+                                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        ),
+                                        icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
+                                        label: const Text("⚡ Open AI Studio Ingestion"),
+                                        onPressed: widget.onNavigateToStudio,
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       )
                     else ...[

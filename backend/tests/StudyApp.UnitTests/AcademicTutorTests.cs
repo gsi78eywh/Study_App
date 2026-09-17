@@ -42,11 +42,11 @@ public class AcademicTutorTests
     [Fact]
     public async Task GeminiAiService_AskTutorAsync_WithoutCloudApiKey_ReturnsSynthesizedResponseInsteadOfSleep()
     {
-        // Arrange: Configuration with placeholder API key
+        // Arrange: Configuration explicitly without cloud API key
         var inMemoryConfig = new Dictionary<string, string?>
         {
-            { "AiSettings:ApiKey", "YOUR_GEMINI_API_KEY_HERE" },
-            { "AiSettings:ModelId", "gemini-1.5-flash" }
+            { "AiSettings:ApiKey", "none" },
+            { "AiSettings:ModelId", "gemini-3.6-flash" }
         };
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(inMemoryConfig).Build();
         var httpClient = new HttpClient();
@@ -72,7 +72,7 @@ public class AcademicTutorTests
         var fakeTutor = new FakeAiTutorService();
         var inMemoryConfig = new Dictionary<string, string?>
         {
-            { "AiSettings:ModelId", "gemini-1.5-flash" }
+            { "AiSettings:ModelId", "gemini-3.6-flash" }
         };
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(inMemoryConfig).Build();
 
@@ -104,7 +104,7 @@ public class AcademicTutorTests
             LastReceivedApiKey = request.ApiKey;
             return Task.FromResult(new AskTutorResponse(
                 $"Replied to: {request.Message} with key: {request.ApiKey}",
-                "gemini-1.5-flash",
+                "gemini-3.6-flash",
                 DateTime.UtcNow
             ));
         }

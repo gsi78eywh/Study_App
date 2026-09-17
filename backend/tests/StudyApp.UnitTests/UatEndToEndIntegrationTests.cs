@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using StudyApp.Application.Common.Interfaces;
 using StudyApp.Application.DTOs.Sync;
@@ -20,6 +21,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:DefaultConnection", $"Data Source={_dbPath}");
     }
 
@@ -118,7 +120,7 @@ public class UatEndToEndIntegrationTests : IClassFixture<CustomWebApplicationFac
     [Fact]
     public async Task UAT_03_CoursesAndDemoPack_ProvisionsStarterCurriculumSuccessfully()
     {
-        var token = await AuthenticateTestUserAsync("demostudent@studyapp.test");
+        var token = await AuthenticateTestUserAsync($"demostudent_{Guid.NewGuid():N}@studyapp.test");
 
         using var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -141,7 +143,7 @@ public class UatEndToEndIntegrationTests : IClassFixture<CustomWebApplicationFac
     [Fact]
     public async Task UAT_04_TextIngestion_SynthesizesActiveRecallStudySets()
     {
-        var token = await AuthenticateTestUserAsync("ingeststudent@studyapp.test");
+        var token = await AuthenticateTestUserAsync($"ingeststudent_{Guid.NewGuid():N}@studyapp.test");
 
         using var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -149,7 +151,7 @@ public class UatEndToEndIntegrationTests : IClassFixture<CustomWebApplicationFac
         // 1. Create a course first
         var createCourseResp = await client.PostAsJsonAsync("/api/v1/courses", new
         {
-            code = "NEURO-301",
+            code = $"NEU_{Guid.NewGuid():N}"[..8],
             name = "Cellular Neuroscience",
             colorHex = "#3B82F6"
         });
@@ -182,9 +184,48 @@ public class UatEndToEndIntegrationTests : IClassFixture<CustomWebApplicationFac
     }
 
     [Fact]
+    public async Task UAT_04B_TextIngestion_WithoutCourse_AutoProvisionsDefaultCourse()
+    {
+        var token = await AuthenticateTestUserAsync($"nocoursestudent_{Guid.NewGuid():N}@studyapp.test");
+
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        // Ingest structured study notes without any courseId or courses created yet
+        var notes = """
+            # Cloud Microservices Architecture
+            - Microservices communicate asynchronously via message brokers such as RabbitMQ or Apache Kafka.
+            - Service discovery enables instances to dynamically locate each other without hardcoded IP addresses.
+            - The Circuit Breaker pattern prevents cascading failures when downstream dependencies degrade.
+            """;
+
+        var ingestResp = await client.PostAsJsonAsync("/api/v1/ingestion/text", new
+        {
+            courseId = (string?)null,
+            title = "Microservices Architecture Mastery",
+            content = notes,
+            questionTypes = new List<string> { "multiple_choice", "identification" },
+            targetCount = 5
+        });
+
+        Assert.Equal(HttpStatusCode.OK, ingestResp.StatusCode);
+        var ingestResult = await ingestResp.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(ingestResult.GetProperty("questionCount").GetInt32() > 0);
+        var createdCourseId = ingestResult.GetProperty("courseId").GetGuid();
+        Assert.NotEqual(Guid.Empty, createdCourseId);
+
+        // Verify the auto-created course is "GEN-101" - "General Studies"
+        var courseResp = await client.GetAsync($"/api/v1/courses/{createdCourseId}");
+        Assert.Equal(HttpStatusCode.OK, courseResp.StatusCode);
+        var courseJson = await courseResp.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("GEN-101", courseJson.GetProperty("code").GetString());
+        Assert.Equal("General Studies", courseJson.GetProperty("name").GetString());
+    }
+
+    [Fact]
     public async Task UAT_05_PracticeSession_FullServerAuthoritativeQuizLifecycle()
     {
-        var token = await AuthenticateTestUserAsync("quizstudent@studyapp.test");
+        var token = await AuthenticateTestUserAsync($"quizstudent_{Guid.NewGuid():N}@studyapp.test");
 
         using var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -246,7 +287,7 @@ public class UatEndToEndIntegrationTests : IClassFixture<CustomWebApplicationFac
     [Fact]
     public async Task UAT_06_BiDirectionalSync_MergesClientCoursesAndPreservesState()
     {
-        var token = await AuthenticateTestUserAsync("syncstudent@studyapp.test");
+        var token = await AuthenticateTestUserAsync($"syncstudent_{Guid.NewGuid():N}@studyapp.test");
 
         using var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -278,7 +319,7 @@ public class UatEndToEndIntegrationTests : IClassFixture<CustomWebApplicationFac
     [Fact]
     public async Task UAT_07_UserSettings_AcademicDefaultsAndUpdatesPersist()
     {
-        var token = await AuthenticateTestUserAsync("settingsstudent@studyapp.test");
+        var token = await AuthenticateTestUserAsync($"settingsstudent_{Guid.NewGuid():N}@studyapp.test");
 
         using var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -324,7 +365,7 @@ public class UatEndToEndIntegrationTests : IClassFixture<CustomWebApplicationFac
     [Fact]
     public async Task UAT_08_AiTutor_ReturnsStatusAndInteractiveGuidance()
     {
-        var token = await AuthenticateTestUserAsync("aistudent@studyapp.test");
+        var token = await AuthenticateTestUserAsync($"aistudent_{Guid.NewGuid():N}@studyapp.test");
 
         using var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -367,6 +408,11 @@ public class UatEndToEndIntegrationTests : IClassFixture<CustomWebApplicationFac
             email = email,
             password = "SecurePassword123!"
         });
+        if (!loginResp.IsSuccessStatusCode)
+        {
+            var body = await loginResp.Content.ReadAsStringAsync();
+            throw new InvalidOperationException($"AuthenticateTestUserAsync failed for {email} with status {loginResp.StatusCode}: {body}");
+        }
         var loginJson = await loginResp.Content.ReadFromJsonAsync<JsonElement>();
         return loginJson.GetProperty("token").GetString()!;
     }

@@ -1,3 +1,4 @@
+using System.Net;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Diagnostics;
@@ -19,6 +20,55 @@ using StudyApp.Infrastructure.Services;
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
+static bool IsLocalPortAvailable(int port)
+{
+    try
+    {
+        using var listener = new System.Net.Sockets.TcpListener(IPAddress.Parse("127.0.0.1"), port);
+        listener.Start();
+        return true;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
+static string ResolvePreferredUrl(string? configuredUrl)
+{
+    var preferred = configuredUrl;
+    if (string.IsNullOrWhiteSpace(preferred))
+    {
+        preferred = "http://localhost:5000";
+    }
+
+    var candidates = preferred
+        .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    foreach (var candidate in candidates)
+    {
+        if (!Uri.TryCreate(candidate, UriKind.Absolute, out var uri) || uri.Port <= 0)
+        {
+            continue;
+        }
+
+        if (IsLocalPortAvailable(uri.Port))
+        {
+            return candidate;
+        }
+    }
+
+    for (var port = 5000; port <= 5010; port++)
+    {
+        if (IsLocalPortAvailable(port))
+        {
+            return $"http://localhost:{port}";
+        }
+    }
+
+    return preferred.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? "http://localhost:5000";
+}
+
 // Keep Data Protection state outside the source tree. It is runtime state, not
 // application source, and should not be accidentally committed with the project.
 var dataProtectionDirectory = Path.Combine(
@@ -38,7 +88,7 @@ if (!string.IsNullOrWhiteSpace(port))
 }
 else if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
 {
-    builder.WebHost.UseUrls(builder.Configuration["Server:Urls"] ?? "http://localhost:5000");
+    builder.WebHost.UseUrls(ResolvePreferredUrl(builder.Configuration["Server:Urls"]));
 }
 
 // 1. Add DbContext with SQLite local fallback support

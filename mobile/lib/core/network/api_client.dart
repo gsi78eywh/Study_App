@@ -44,12 +44,36 @@ class ApiClient {
           String errorMessage = "A network error occurred.";
           if (e.response?.statusCode == 401) {
             errorMessage = "Session expired (401 Unauthorized). Please sign in again.";
-          } else if (e.response?.data is Map && (e.response?.data as Map).containsKey("message")) {
-            errorMessage = e.response?.data["message"];
+          } else if (e.response?.data is Map) {
+            final map = e.response!.data as Map;
+            if (map.containsKey("message") && map["message"] != null && map["message"].toString().trim().isNotEmpty) {
+              errorMessage = map["message"].toString().trim();
+            } else if (map.containsKey("errors") && map["errors"] is Map) {
+              final errMap = map["errors"] as Map;
+              final msgs = <String>[];
+              for (final val in errMap.values) {
+                if (val is List) {
+                  msgs.addAll(val.map((item) => item.toString()));
+                } else if (val != null) {
+                  msgs.add(val.toString());
+                }
+              }
+              if (msgs.isNotEmpty) {
+                errorMessage = msgs.join(" ");
+              } else if (map.containsKey("title") && map["title"] != null) {
+                errorMessage = map["title"].toString().trim();
+              }
+            } else if (map.containsKey("title") && map["title"] != null && map["title"].toString().trim().isNotEmpty) {
+              errorMessage = map["title"].toString().trim();
+            } else if (map.containsKey("error") && map["error"] != null && map["error"].toString().trim().isNotEmpty) {
+              errorMessage = map["error"].toString().trim();
+            }
           } else if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout) {
             errorMessage = "Server connection timed out. Please check if the C# backend is running.";
           } else if (e.type == DioExceptionType.connectionError) {
             errorMessage = "Cannot connect to C# backend at ${dio.options.baseUrl}. Ensure it is listening.";
+          } else if (e.message != null && e.message!.trim().isNotEmpty) {
+            errorMessage = e.message!.trim();
           }
           return handler.next(
             DioException(

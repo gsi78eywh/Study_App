@@ -64,7 +64,7 @@ public class DevController : ControllerBase
             aiService = new
             {
                 provider = _configuration["AiSettings:Provider"] ?? "GoogleGemini",
-                model = _configuration["AiSettings:ModelId"] ?? "gemini-1.5-flash",
+                model = _configuration["AiSettings:ModelId"] ?? "gemini-3.6-flash",
                 hasApiKey = hasGeminiKey
             },
             supportedQuestionSets = new[]

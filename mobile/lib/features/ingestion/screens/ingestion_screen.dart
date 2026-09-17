@@ -43,6 +43,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   bool _fastMode = false;
   bool _isScanning = false;
   bool _isExtractingTextToEditor = false;
+  bool _isScrapingUrl = false;
   Map<String, dynamic>? _scannedResult;
   int _loadingStep = 0;
   Timer? _stepTimer;
@@ -185,9 +186,153 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
             _titleController.text = file.name.split('.').first;
           }
         });
+
+        // Automatically extract text and bullet points into the Note Editor!
+        await _autoExtractFileToEditor(file, bytes);
       }
     } catch (e) {
       setState(() => _errorMessage = "Error picking file: $e");
+    }
+  }
+
+  Future<void> _autoExtractFileToEditor(PlatformFile file, Uint8List bytes) async {
+    setState(() {
+      _isScanning = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final multipartFile = MultipartFile.fromBytes(
+        bytes,
+        filename: file.name,
+      );
+
+      final geminiKey = widget.apiClient.sessionService.geminiApiKey;
+      final formDataMap = <String, dynamic>{
+        "file": multipartFile,
+      };
+      if (geminiKey != null && geminiKey.isNotEmpty) {
+        formDataMap["apiKey"] = geminiKey;
+      }
+
+      final response = await widget.apiClient.dio.post(
+        ApiConstants.scanContent,
+        data: FormData.fromMap(formDataMap),
+      );
+
+      if (response.statusCode == 200 && response.data is Map) {
+        final data = Map<String, dynamic>.from(response.data as Map);
+        final cleanText = (data["extractedText"] ?? "") as String;
+        final candidateTitle = (data["suggestedTitle"] ?? "") as String;
+        final charCount = data["charCount"] ?? cleanText.length;
+
+        setState(() {
+          _scannedResult = data;
+          if (cleanText.trim().isNotEmpty) {
+            _textController.text = cleanText.trim();
+            if (_titleController.text.trim().isEmpty || _titleController.text == file.name.split('.').first) {
+              _titleController.text = candidateTitle.isNotEmpty ? candidateTitle : file.name.split('.').first;
+            }
+            // Switch to Note Editor tab so the user immediately sees all extracted text & bullet points!
+            _tabController.animateTo(0);
+          }
+        });
+
+        if (mounted && cleanText.trim().isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("✨ Extracted $charCount characters from '${file.name}' directly into Note Editor!"),
+              backgroundColor: const Color(0xFF10B981),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+    } on DioException catch (e) {
+      setState(() {
+        _errorMessage = e.error?.toString() ?? e.message ?? "Scan failed. Ensure backend is running.";
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = "Scan error: $e";
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isScanning = false);
+      }
+    }
+  }
+
+  Future<void> _scrapeAndLoadUrlToEditor() async {
+    final rawUrl = _urlController.text.trim();
+    if (rawUrl.isEmpty) {
+      setState(() => _errorMessage = "Please provide an article or documentation URL to scrape.");
+      return;
+    }
+
+    final uri = Uri.tryParse(rawUrl);
+    if (uri == null || (uri.scheme != "http" && uri.scheme != "https")) {
+      setState(() => _errorMessage = "Please enter a valid HTTP(S) URL (e.g. https://...).");
+      return;
+    }
+
+    setState(() {
+      _isScrapingUrl = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final response = await widget.apiClient.dio.post(
+        ApiConstants.scanUrl,
+        data: {
+          "url": rawUrl,
+        },
+      );
+
+      if (response.statusCode == 200 && response.data is Map) {
+        final data = Map<String, dynamic>.from(response.data as Map);
+        final cleanText = (data["extractedText"] ?? "") as String;
+        final suggestedTitle = (data["suggestedTitle"] ?? "") as String;
+        final charCount = data["charCount"] ?? cleanText.length;
+
+        if (cleanText.trim().isEmpty) {
+          setState(() {
+            _errorMessage = "No readable instructional text could be found at that URL.";
+          });
+          return;
+        }
+
+        setState(() {
+          _textController.text = cleanText.trim();
+          if (_titleController.text.trim().isEmpty || _titleController.text == "C#") {
+            _titleController.text = suggestedTitle.isNotEmpty ? suggestedTitle : (uri.host);
+          }
+          // Navigate to Note Editor so user can verify, edit, and synthesize
+          _tabController.animateTo(0);
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("🌐 Scraped and loaded $charCount characters from '$rawUrl' into Note Editor!"),
+              backgroundColor: const Color(0xFF10B981),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+    } on DioException catch (e) {
+      setState(() {
+        _errorMessage = e.error?.toString() ?? e.message ?? "Could not scrape web page. Check that the URL is public and accessible.";
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = "Scraping error: $e";
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isScrapingUrl = false);
+      }
     }
   }
 
@@ -331,7 +476,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
       onExportAndCreateExam: (courseId, title, scannedText) {
         final course = widget.courses.firstWhere(
           (c) => c.id == courseId,
-          orElse: () => widget.courses.first,
+          orElse: () => widget.courses.isNotEmpty
+              ? widget.courses.first
+              : CourseModel(id: courseId.isNotEmpty ? courseId : "default", code: "GEN-101", name: "General Studies", colorHex: "#6366F1", createdAt: DateTime.now()),
         );
         ProgressiveExamStudio.show(
           context,
@@ -462,7 +609,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                     child: ListView.separated(
                       controller: scrollController,
                       itemCount: availableModules.length,
-                      separatorBuilder: (context, index) => const SizedBox(height: 8),
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
                       itemBuilder: (ctx, idx) {
                         final item = availableModules[idx];
                         final CourseModel course = item["course"];
@@ -1210,7 +1357,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         response = await widget.apiClient.dio.post(
           ApiConstants.ingestText,
           data: {
-            "courseId": _selectedCourseId,
+            "courseId": _selectedCourseId.trim().isNotEmpty ? _selectedCourseId.trim() : null,
             "title": _titleController.text.trim(),
             "content": _textController.text.trim(),
             "targetCount": _targetCount,
@@ -1260,7 +1407,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
         final formDataMap = <String, dynamic>{
           "file": multipartFile,
-          "courseId": _selectedCourseId,
+          if (_selectedCourseId.trim().isNotEmpty) "courseId": _selectedCourseId.trim(),
           "title": _titleController.text.trim(),
           "questionTypes": _selectedModes.map((m) {
               return switch (m) {
@@ -1309,7 +1456,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         response = await widget.apiClient.dio.post(
           ApiConstants.ingestUrl,
           data: {
-            "courseId": _selectedCourseId,
+            "courseId": _selectedCourseId.trim().isNotEmpty ? _selectedCourseId.trim() : null,
             "title": _titleController.text.trim(),
             "url": _urlController.text.trim(),
             "targetCount": _targetCount,
@@ -1368,34 +1515,44 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   }
 
   Widget _buildModePresetPill({
-    required String emoji,
+    required IconData icon,
     required String label,
-    required Color color,
+    bool isSelected = false,
     required VoidCallback onTap,
   }) {
+    const activeColor = Color(0xFF6366F1);
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.16),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: color.withValues(alpha: 0.75), width: 1.3),
+            color: isSelected
+                ? activeColor.withValues(alpha: 0.16)
+                : context.surfaceColor,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? activeColor : context.cardBorderColor,
+              width: 1,
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(emoji, style: const TextStyle(fontSize: 13)),
+              Icon(
+                icon,
+                size: 14,
+                color: isSelected ? activeColor : context.textSecondary,
+              ),
               const SizedBox(width: 6),
               Text(
                 label,
                 style: TextStyle(
-                  color: color,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.bold,
+                  color: isSelected ? activeColor : context.textPrimary,
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                 ),
               ),
             ],
@@ -2195,15 +2352,84 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                               style: TextStyle(color: context.textPrimary),
                               decoration: InputDecoration(
                                 labelText: "Web Article or Documentation URL",
-                                hintText: "https://en.wikipedia.org/wiki/...",
+                                hintText: "https://en.wikipedia.org/wiki/... or https://alison.com/...",
                                 prefixIcon: Icon(Icons.language_rounded, color: context.textSecondary),
+                                suffixIcon: _urlController.text.isNotEmpty
+                                    ? IconButton(
+                                        icon: const Icon(Icons.clear_rounded, size: 18),
+                                        onPressed: () {
+                                          setState(() => _urlController.clear());
+                                        },
+                                      )
+                                    : null,
                               ),
+                              onChanged: (v) => setState(() {}),
                             ),
                             const SizedBox(height: 12),
-                            Text(
-                              "The backend scrapes clean instructional sections and synthesizes active recall drills.",
-                              style: TextStyle(color: context.textSecondary, fontSize: 13),
+                            Row(
+                              children: [
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF6366F1),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                  icon: _isScrapingUrl
+                                      ? const SizedBox(
+                                          width: 14,
+                                          height: 14,
+                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                        )
+                                      : const Icon(Icons.download_rounded, size: 16),
+                                  label: Text(
+                                    _isScrapingUrl ? "Scraping Article..." : "🌐 Scrape & Open in Note Editor",
+                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                  ),
+                                  onPressed: (_isScrapingUrl || _isLoading) ? null : _scrapeAndLoadUrlToEditor,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    "Scrapes instructional text & bullet points directly into the editor for review.",
+                                    style: TextStyle(color: context.textSecondary, fontSize: 12),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
+                            if (_isScrapingUrl) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF6366F1).withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        "Scraping article content, headings & learning outcomes...",
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: isDark ? const Color(0xFFA5B4FC) : const Color(0xFF4338CA),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ],
@@ -2226,9 +2452,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                     child: Row(
                       children: [
                         _buildModePresetPill(
-                          emoji: "✨ 🎯",
+                          icon: Icons.all_inclusive_rounded,
                           label: "All Types (Simulated Exam)",
-                          color: const Color(0xFF6366F1),
+                          isSelected: _selectedModes.length >= 8,
                           onTap: () {
                             setState(() {
                               _selectedModes.addAll([
@@ -2248,9 +2474,11 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                         ),
                         const SizedBox(width: 8),
                         _buildModePresetPill(
-                          emoji: "✔ 📚",
+                          icon: Icons.fact_check_outlined,
                           label: "Objective (MCQ + T/F)",
-                          color: isDark ? AppColors.primary : AppColors.primaryDark,
+                          isSelected: _selectedModes.length == 2 &&
+                              _selectedModes.contains("Multiple Choice") &&
+                              _selectedModes.contains("True / False"),
                           onTap: () {
                             setState(() {
                               _selectedModes.clear();
@@ -2260,9 +2488,12 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                         ),
                         const SizedBox(width: 8),
                         _buildModePresetPill(
-                          emoji: "✍️",
+                          icon: Icons.edit_note_rounded,
                           label: "Active Recall (ID + Cloze + Enum)",
-                          color: const Color(0xFF10B981),
+                          isSelected: _selectedModes.length == 3 &&
+                              _selectedModes.contains("Identification") &&
+                              _selectedModes.contains("Cloze / Fill-in") &&
+                              _selectedModes.contains("Enumeration"),
                           onTap: () {
                             setState(() {
                               _selectedModes.clear();
@@ -2272,9 +2503,11 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                         ),
                         const SizedBox(width: 8),
                         _buildModePresetPill(
-                          emoji: "🧩",
+                          icon: Icons.extension_outlined,
                           label: "Drills (Matching + Scenario)",
-                          color: const Color(0xFFF59E0B),
+                          isSelected: _selectedModes.length == 2 &&
+                              _selectedModes.contains("Matching Type") &&
+                              _selectedModes.contains("Scenario Drills"),
                           onTap: () {
                             setState(() {
                               _selectedModes.clear();
@@ -2310,12 +2543,12 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                           fontSize: 12,
                         ),
-                        selectedColor: isDark ? AppColors.primary : AppColors.primaryDark,
+                        selectedColor: const Color(0xFF6366F1),
                         backgroundColor: context.surfaceColor,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(10),
                           side: BorderSide(
-                            color: isSelected ? (isDark ? AppColors.primary : AppColors.primaryDark) : context.cardBorderColor,
+                            color: isSelected ? const Color(0xFF6366F1) : context.cardBorderColor,
                           ),
                         ),
                         onSelected: (selected) {
@@ -2534,21 +2767,102 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
                   const SizedBox(height: 20),
 
-                  // Target questions slider
+                  // Target questions controls
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text("Target Questions:", style: TextStyle(color: context.textSecondary)),
-                      Text("$_targetCount Questions", style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.bold)),
+                      Text(
+                        "Target Questions:",
+                        style: TextStyle(
+                          color: context.textSecondary,
+                          fontSize: 13,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          "$_targetCount Questions",
+                          style: const TextStyle(
+                            color: Color(0xFF6366F1),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
-                  Slider(
-                    value: _targetCount.toDouble(),
-                    min: 5,
-                    max: 20,
-                    divisions: 3,
-                    activeColor: isDark ? AppColors.primary : AppColors.primaryDark,
-                    onChanged: (val) => setState(() => _targetCount = val.toInt()),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 12,
+                    runSpacing: 10,
+                    children: [
+                      // Quick-Select Badges
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [5, 10, 15, 20].map((count) {
+                          final isSelected = _targetCount == count;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              label: Text("$count"),
+                              selected: isSelected,
+                              labelStyle: TextStyle(
+                                fontSize: 12,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                color: isSelected ? Colors.white : context.textPrimary,
+                              ),
+                              selectedColor: const Color(0xFF6366F1),
+                              backgroundColor: context.surfaceColor,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                side: BorderSide(
+                                  color: isSelected ? const Color(0xFF6366F1) : context.cardBorderColor,
+                                ),
+                              ),
+                              onSelected: (_) => setState(() => _targetCount = count),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      // Compact Stepper + Capped Slider
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline_rounded, size: 20),
+                            color: context.textSecondary,
+                            tooltip: "Decrease questions",
+                            onPressed: _targetCount > 5
+                                ? () => setState(() => _targetCount = (_targetCount - 5).clamp(5, 20))
+                                : null,
+                          ),
+                          SizedBox(
+                            width: 200,
+                            child: Slider(
+                              value: _targetCount.toDouble(),
+                              min: 5,
+                              max: 20,
+                              divisions: 3,
+                              activeColor: const Color(0xFF6366F1),
+                              onChanged: (val) => setState(() => _targetCount = val.toInt()),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline_rounded, size: 20),
+                            color: context.textSecondary,
+                            tooltip: "Increase questions",
+                            onPressed: _targetCount < 20
+                                ? () => setState(() => _targetCount = (_targetCount + 5).clamp(5, 20))
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
 
                   // Stepped Progress Indicator Card while loading

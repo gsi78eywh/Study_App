@@ -160,8 +160,9 @@ Key Concepts:
   @override
   void initState() {
     super.initState();
-    _selectedCourseId = widget.initialCourseId ??
-        (widget.courses.isNotEmpty ? widget.courses.first.id : "");
+    _selectedCourseId = (widget.initialCourseId != null && widget.initialCourseId!.isNotEmpty)
+        ? widget.initialCourseId!
+        : (widget.courses.isNotEmpty ? widget.courses.first.id : "");
     _scanLaserController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
@@ -495,24 +496,38 @@ Key Concepts:
                             ),
                             child: DropdownButtonHideUnderline(
                               child: DropdownButton<String>(
-                                value: _selectedCourseId.isNotEmpty
+                                value: widget.courses.any((c) => c.id == _selectedCourseId)
                                     ? _selectedCourseId
-                                    : widget.courses.first.id,
+                                    : (widget.courses.isNotEmpty ? widget.courses.first.id : ""),
                                 isExpanded: true,
                                 icon: const Icon(Icons.keyboard_arrow_down_rounded),
-                                items: widget.courses.map((course) {
-                                  return DropdownMenuItem<String>(
-                                    value: course.id,
-                                    child: Text(
-                                      course.name,
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: context.textPrimary,
-                                      ),
-                                    ),
-                                  );
-                                }).toList(),
+                                items: widget.courses.isNotEmpty
+                                    ? widget.courses.map((course) {
+                                        return DropdownMenuItem<String>(
+                                          value: course.id,
+                                          child: Text(
+                                            course.name,
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: context.textPrimary,
+                                            ),
+                                          ),
+                                        );
+                                      }).toList()
+                                    : [
+                                        DropdownMenuItem<String>(
+                                          value: "",
+                                          child: Text(
+                                            "Default Space (General Studies)",
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: context.textSecondary,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                 onChanged: (val) {
                                   if (val != null) {
                                     setState(() => _selectedCourseId = val);

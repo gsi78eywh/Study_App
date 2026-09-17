@@ -116,7 +116,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       onExportAndCreateExam: (courseId, title, scannedText) {
         final course = _courses.firstWhere(
           (c) => c.id == courseId,
-          orElse: () => _courses.first,
+          orElse: () => _courses.isNotEmpty
+              ? _courses.first
+              : CourseModel(
+                  id: courseId.isNotEmpty ? courseId : "default",
+                  code: "GEN-101",
+                  name: "General Studies",
+                  colorHex: "#6366F1",
+                  createdAt: DateTime.now(),
+                ),
         );
         ProgressiveExamStudio.show(
           context,
@@ -1653,7 +1661,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: ListView.separated(
                   controller: scrollController,
                   itemCount: questions.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 12),
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (context, idx) {
                     final q = questions[idx];
                     final correctOpt = q.options.cast<QuestionOptionModel?>().firstWhere(
@@ -1943,97 +1951,129 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               const SizedBox(height: 18),
 
-              // High-yield stats row
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: isDark
-                        ? [
-                            AppColors.primary.withValues(alpha: 0.2),
-                            context.surfaceColor,
-                          ]
-                        : [
-                            AppColors.primaryLight.withValues(alpha: 0.12),
-                            context.surfaceColor,
-                          ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: context.cardBorderColor),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _buildStatItem(
-                      "Enrolled",
-                      "${_courses.length}",
-                      "Courses",
-                      Icons.book_rounded,
-                      isDark ? AppColors.primaryLight : AppColors.primaryDark,
-                    ),
-                    Container(
-                      height: 36,
-                      width: 1,
-                      color: context.cardBorderColor,
-                    ),
-                    _buildStatItem(
-                      "Active Sets",
-                      "$totalSets",
-                      "Study Sets",
-                      Icons.auto_stories_rounded,
-                      AppColors.accent,
-                    ),
-                    Container(
-                      height: 36,
-                      width: 1,
-                      color: context.cardBorderColor,
-                    ),
-                    _buildStatItem(
-                      "Synthesized",
-                      "$totalQuestions",
-                      "Questions",
-                      Icons.psychology_rounded,
-                      AppColors.warning,
-                    ),
-                    Container(
-                      height: 36,
-                      width: 1,
-                      color: context.cardBorderColor,
-                    ),
-                    InkWell(
-                      onTap: () => PomodoroTimerSheet.show(
-                        context,
-                        focusMinutes:
-                            _settingsService.settings.pomodoroFocusMinutes,
-                        shortBreakMinutes:
-                            _settingsService.settings.pomodoroShortBreakMinutes,
+              // High-yield stats row & Dedicated Pomodoro Micro-Widget
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth >= 740;
+                  final telemetryCard = Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: isDark
+                            ? [
+                                AppColors.primary.withValues(alpha: 0.2),
+                                context.surfaceColor,
+                              ]
+                            : [
+                                AppColors.primaryLight.withValues(alpha: 0.12),
+                                context.surfaceColor,
+                              ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 2,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: context.cardBorderColor),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildStatItem(
+                          "Enrolled",
+                          "${_courses.length}",
+                          "Courses",
+                          Icons.book_rounded,
+                          isDark ? AppColors.primaryLight : AppColors.primaryDark,
                         ),
-                        child: Column(
+                        Container(
+                          height: 36,
+                          width: 1,
+                          color: context.cardBorderColor,
+                        ),
+                        _buildStatItem(
+                          "Active Sets",
+                          "$totalSets",
+                          "Study Sets",
+                          Icons.auto_stories_rounded,
+                          AppColors.accent,
+                        ),
+                        Container(
+                          height: 36,
+                          width: 1,
+                          color: context.cardBorderColor,
+                        ),
+                        _buildStatItem(
+                          "Synthesized",
+                          "$totalQuestions",
+                          "Questions",
+                          Icons.psychology_rounded,
+                          AppColors.warning,
+                        ),
+                      ],
+                    ),
+                  );
+
+                  final pomodoroWidget = Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: context.surfaceColor,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFFEC4899).withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEC4899).withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.timer_outlined,
+                            color: Color(0xFFEC4899),
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
-                              Icons.timer_outlined,
-                              color: Color(0xFFEC4899),
-                              size: 20,
+                            Row(
+                              children: [
+                                Text(
+                                  "${_settingsService.settings.pomodoroFocusMinutes}:00",
+                                  style: GoogleFonts.outfit(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: context.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEC4899).withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text(
+                                    "FOCUS",
+                                    style: TextStyle(
+                                      color: Color(0xFFEC4899),
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 4),
                             Text(
-                              "25:00",
-                              style: GoogleFonts.outfit(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: context.textPrimary,
-                              ),
-                            ),
-                            Text(
-                              "Pomodoro",
+                              "Spaced Study Interval",
                               style: TextStyle(
                                 color: context.textSecondary,
                                 fontSize: 11,
@@ -2041,10 +2081,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           ],
                         ),
-                      ),
+                        const SizedBox(width: 14),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFEC4899),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            textStyle: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          icon: const Icon(Icons.play_arrow_rounded, size: 16),
+                          label: const Text("Start Focus"),
+                          onPressed: () => PomodoroTimerSheet.show(
+                            context,
+                            focusMinutes:
+                                _settingsService.settings.pomodoroFocusMinutes,
+                            shortBreakMinutes:
+                                _settingsService.settings.pomodoroShortBreakMinutes,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  );
+
+                  if (isWide) {
+                    return Row(
+                      children: [
+                        Expanded(child: telemetryCard),
+                        const SizedBox(width: 14),
+                        pomodoroWidget,
+                      ],
+                    );
+                  } else {
+                    return Column(
+                      children: [
+                        telemetryCard,
+                        const SizedBox(height: 12),
+                        pomodoroWidget,
+                      ],
+                    );
+                  }
+                },
               ),
               const SizedBox(height: 16),
 
@@ -2132,8 +2217,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(height: 20),
 
               // Enrolled Courses Header & Actions
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 10,
                 children: [
                   Text(
                     "Your Enrolled Courses",
@@ -2143,7 +2231,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       color: context.textPrimary,
                     ),
                   ),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
                       OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
@@ -2173,7 +2263,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                         onPressed: () => setState(() => _currentTabIndex = 3),
                       ),
-                      const SizedBox(width: 8),
                       ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: isDark
@@ -2215,133 +2304,132 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 )
               else if (_courses.isEmpty)
-                Container(
-                  padding: const EdgeInsets.all(36),
-                  decoration: BoxDecoration(
-                    color: context.surfaceColor,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: context.cardBorderColor),
-                  ),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.school_outlined,
-                        size: 56,
-                        color: context.textSecondary.withValues(alpha: 0.6),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        "Your Learning Workspace is Ready",
-                        style: GoogleFonts.outfit(
-                          fontSize: 18,
-                          color: context.textPrimary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        "You haven't created any courses yet. Add your first academic subject or upload lecture notes in AI Studio to get started.",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: context.textSecondary,
-                          fontSize: 13,
-                          height: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        alignment: WrapAlignment.center,
-                        children: [
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF6366F1),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 14,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              elevation: 2,
-                            ),
-                            icon: _isLoadingDemoPack
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.auto_awesome_rounded,
-                                    size: 18,
-                                  ),
-                            label: Text(
-                              _isLoadingDemoPack
-                                  ? "Loading Starter Deck..."
-                                  : "✨ Load Starter Demo Pack (Biology 101)",
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
-                            ),
-                            onPressed: _isLoadingDemoPack
-                                ? null
-                                : _loadStarterDemoPack,
-                          ),
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: isDark
-                                  ? AppColors.primary
-                                  : AppColors.primaryDark,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 14,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            icon: const Icon(Icons.add_rounded, size: 18),
-                            label: const Text(
-                              "Create Course",
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            onPressed: _showAddCourseDialog,
-                          ),
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: isDark
-                                  ? AppColors.primaryLight
-                                  : AppColors.primaryDark,
-                              side: BorderSide(
-                                color: isDark
-                                    ? AppColors.primary
-                                    : AppColors.primaryDark,
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 14,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            icon: const Icon(Icons.auto_awesome, size: 18),
-                            label: const Text(
-                              "Open AI Studio",
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            onPressed: () =>
-                                setState(() => _currentTabIndex = 3),
+                Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 620),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 36),
+                      decoration: BoxDecoration(
+                        color: context.surfaceColor,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: context.cardBorderColor),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
+                            blurRadius: 16,
+                            offset: const Offset(0, 4),
                           ),
                         ],
                       ),
-                    ],
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.12),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.school_outlined,
+                              size: 48,
+                              color: isDark
+                                  ? AppColors.primaryLight
+                                  : AppColors.primaryDark,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          Text(
+                            "Your Learning Workspace is Ready",
+                            style: GoogleFonts.outfit(
+                              fontSize: 20,
+                              color: context.textPrimary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            "You haven't created any courses yet. Create your first academic subject or explore our pre-configured biology deck to start active recall.",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: context.textSecondary,
+                              fontSize: 13,
+                              height: 1.5,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            alignment: WrapAlignment.center,
+                            children: [
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: isDark
+                                      ? AppColors.primary
+                                      : AppColors.primaryDark,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 22,
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  elevation: 2,
+                                ),
+                                icon: const Icon(Icons.add_rounded, size: 18),
+                                label: const Text(
+                                  "Create Course",
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                onPressed: _showAddCourseDialog,
+                              ),
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF6366F1),
+                                  side: const BorderSide(
+                                    color: Color(0xFF6366F1),
+                                    width: 1.2,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 18,
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                icon: _isLoadingDemoPack
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Color(0xFF6366F1),
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.auto_awesome_rounded,
+                                        size: 18,
+                                      ),
+                                label: Text(
+                                  _isLoadingDemoPack
+                                      ? "Loading..."
+                                      : "Load Starter Demo Pack",
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                onPressed: _isLoadingDemoPack
+                                    ? null
+                                    : _loadStarterDemoPack,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 )
               else
@@ -2902,96 +2990,302 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildDesktopSidebar(bool isDark) {
+    final navItems = [
+      (Icons.dashboard_rounded, "Courses", 0),
+      (Icons.style_outlined, "Flashcards", 1),
+      (Icons.menu_book_outlined, "Notebook", 2),
+      (Icons.psychology_outlined, "AI Studio", 3),
+      (Icons.auto_awesome_rounded, "Gemini Tutor", 4),
+    ];
+
+    return Container(
+      width: 240,
+      decoration: BoxDecoration(
+        color: context.surfaceColor,
+        border: Border(
+          right: BorderSide(color: context.cardBorderColor, width: 1),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Brand Logo
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [AppColors.primary, AppColors.accent],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.school_rounded, color: Colors.white, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "StudyApp",
+                        style: GoogleFonts.outfit(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: context.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        "Study Workspace",
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: context.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+
+          // Nav Items
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              children: navItems.map((item) {
+                final isSelected = _currentTabIndex == item.$3;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Material(
+                    color: isSelected
+                        ? (isDark
+                            ? AppColors.primary.withValues(alpha: 0.18)
+                            : AppColors.primaryLight.withValues(alpha: 0.12))
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: () => setState(() => _currentTabIndex = item.$3),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: isSelected
+                              ? Border.all(
+                                  color: isDark
+                                      ? AppColors.primary.withValues(alpha: 0.4)
+                                      : AppColors.primaryDark.withValues(alpha: 0.3),
+                                  width: 1,
+                                )
+                              : null,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              item.$1,
+                              size: 20,
+                              color: isSelected
+                                  ? (isDark ? AppColors.primaryLight : AppColors.primaryDark)
+                                  : context.textSecondary,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                item.$2,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                  color: isSelected
+                                      ? (isDark ? AppColors.primaryLight : AppColors.primaryDark)
+                                      : context.textPrimary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+
+          const Divider(height: 1),
+          // Sidebar Footer with utilities
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                ListenableBuilder(
+                  listenable: ThemeController.instance,
+                  builder: (context, _) {
+                    final currentIsDark = ThemeController.instance.isDarkMode;
+                    return IconButton(
+                      icon: Icon(
+                        currentIsDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                        size: 20,
+                        color: currentIsDark ? const Color(0xFFF59E0B) : AppColors.primaryDark,
+                      ),
+                      tooltip: currentIsDark ? "Switch to Light Mode" : "Switch to Dark Mode",
+                      onPressed: () => ThemeController.instance.toggleTheme(),
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined, size: 20, color: Color(0xFF6366F1)),
+                  tooltip: "Study Configurations",
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => SettingsScreen(
+                          apiClient: widget.apiClient,
+                          sessionService: widget.sessionService,
+                          settingsService: _settingsService,
+                          onLogout: _handleLogout,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: Icon(Icons.logout_rounded, size: 20, color: context.textSecondary),
+                  tooltip: "Sign Out",
+                  onPressed: _handleLogout,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = context.isDarkMode;
+    final isDesktop = MediaQuery.sizeOf(context).width >= 768;
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentTabIndex,
+      body: Row(
         children: [
-          // Tab 0: Courses
-          _buildCoursesTab(),
-          // Tab 1: Flashcards
-          FlashcardsScreen(
-            courses: _courses,
-            apiClient: widget.apiClient,
-            onLoadStarterPack: _loadStarterDemoPack,
-            onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
-            onCardDeleted: () => _fetchCoursesAndSync(fullFetch: true),
+          if (isDesktop) _buildDesktopSidebar(isDark),
+          Expanded(
+            child: IndexedStack(
+              index: _currentTabIndex,
+              children: [
+                // Tab 0: Courses
+                _buildCoursesTab(),
+                // Tab 1: Flashcards
+                FlashcardsScreen(
+                  courses: _courses,
+                  apiClient: widget.apiClient,
+                  onLoadStarterPack: _loadStarterDemoPack,
+                  onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
+                  onCardDeleted: () => _fetchCoursesAndSync(fullFetch: true),
+                ),
+                // Tab 2: Notebook
+                NotebookScreen(
+                  courses: _courses,
+                  apiClient: widget.apiClient,
+                  onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
+                  onLoadStarterPack: _loadStarterDemoPack,
+                ),
+                // Tab 3: AI Studio
+                IngestionScreen(
+                  courses: _courses,
+                  apiClient: widget.apiClient,
+                  onStudySetCreated: (newSet) async {
+                    await _fetchCoursesAndSync();
+                    if (!mounted) return;
+                    setState(() {
+                      final course = _courses.firstWhere(
+                        (c) => c.id == newSet.courseId,
+                        orElse: () => _courses.isNotEmpty
+                            ? _courses.first
+                            : CourseModel(
+                                id: newSet.courseId,
+                                code: "GEN-101",
+                                name: "General Studies",
+                                colorHex: "#6366F1",
+                                createdAt: DateTime.now(),
+                                studySets: [newSet],
+                              ),
+                      );
+                      if (!course.studySets.any((s) => s.id == newSet.id)) {
+                        course.studySets.insert(0, newSet);
+                      }
+                      _currentTabIndex = 0;
+                    });
+                  },
+                ),
+                // Tab 4: Gemini AI Tutor
+                AiTutorScreen(apiClient: widget.apiClient, courses: _courses),
+              ],
+            ),
           ),
-          // Tab 2: Notebook
-          NotebookScreen(
-            courses: _courses,
-            apiClient: widget.apiClient,
-            onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
-            onLoadStarterPack: _loadStarterDemoPack,
-          ),
-          // Tab 3: AI Studio
-          IngestionScreen(
-            courses: _courses,
-            apiClient: widget.apiClient,
-            onStudySetCreated: (newSet) {
-              setState(() {
-                final course = _courses.firstWhere(
-                  (c) => c.id == newSet.courseId,
-                  orElse: () => _courses.first,
-                );
-                course.studySets.insert(0, newSet);
-                _currentTabIndex = 0;
-              });
-            },
-          ),
-          // Tab 4: Gemini AI Tutor
-          AiTutorScreen(apiClient: widget.apiClient, courses: _courses),
         ],
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: context.surfaceColor,
-          border: Border(
-            top: BorderSide(color: context.cardBorderColor, width: 1),
-          ),
-        ),
-        child: BottomNavigationBar(
-          currentIndex: _currentTabIndex,
-          onTap: (index) => setState(() => _currentTabIndex = index),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          type: BottomNavigationBarType.fixed,
-          selectedItemColor: isDark
-              ? AppColors.primaryLight
-              : AppColors.primaryDark,
-          unselectedItemColor: context.textSecondary,
-          selectedLabelStyle: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 12,
-          ),
-          unselectedLabelStyle: const TextStyle(fontSize: 12),
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_rounded),
-              label: "Courses",
+      bottomNavigationBar: isDesktop
+          ? null
+          : Container(
+              decoration: BoxDecoration(
+                color: context.surfaceColor,
+                border: Border(
+                  top: BorderSide(color: context.cardBorderColor, width: 1),
+                ),
+              ),
+              child: BottomNavigationBar(
+                currentIndex: _currentTabIndex,
+                onTap: (index) => setState(() => _currentTabIndex = index),
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                type: BottomNavigationBarType.fixed,
+                selectedItemColor: isDark
+                    ? AppColors.primaryLight
+                    : AppColors.primaryDark,
+                unselectedItemColor: context.textSecondary,
+                selectedLabelStyle: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+                unselectedLabelStyle: const TextStyle(fontSize: 12),
+                items: const [
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.dashboard_rounded),
+                    label: "Courses",
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.style_outlined),
+                    label: "Flashcards",
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.menu_book_outlined),
+                    label: "Notebook",
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.psychology_outlined),
+                    label: "AI Studio",
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.auto_awesome_rounded),
+                    label: "Gemini Tutor",
+                  ),
+                ],
+              ),
             ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.style_outlined),
-              label: "Flashcards",
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.menu_book_outlined),
-              label: "Notebook",
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.psychology_outlined),
-              label: "AI Studio",
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.auto_awesome_rounded),
-              label: "Gemini Tutor",
-            ),
-          ],
-        ),
-      ),
       floatingActionButton: null,
     );
   }

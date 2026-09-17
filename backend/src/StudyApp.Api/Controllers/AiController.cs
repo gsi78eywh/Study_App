@@ -59,7 +59,7 @@ public class AiController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> GetStatus(CancellationToken cancellationToken)
     {
-        var model = _configuration["AiSettings:ModelId"] ?? "gemini-1.5-flash";
+        var model = _configuration["AiSettings:ModelId"] ?? "gemini-3.6-flash";
         var isHealthy = await _aiTutorService.IsHealthyAsync(cancellationToken);
 
         return Ok(new

@@ -87,7 +87,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
             "👋 Hi! I'm your **Gemini Study Tutor**, powered by Google Gemini AI.\n\n"
             "I can help you master complex coursework, explain tricky equations, break down practice problems, and give you conceptual clarity.\n\n"
             "What topic or question are we tackling today?",
-        modelUsed: hasGeminiKey ? "gemini-1.5-flash" : "Built-In Academic Engine",
+        modelUsed: hasGeminiKey ? "gemini-3.6-flash" : "Built-In Academic Engine",
         timestamp: DateTime.now(),
       ),
     );
@@ -214,6 +214,16 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     }
 
     try {
+      if (widget.courses.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("⚠️ Please create a course first before saving notebook entries."),
+            ),
+          );
+        }
+        return;
+      }
       final title = text
           .split('\n')
           .first

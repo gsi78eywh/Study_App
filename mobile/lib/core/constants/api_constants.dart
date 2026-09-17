@@ -17,6 +17,7 @@ class ApiConstants {
   static const String ingestFile = "/api/v1/ingestion/file";
   static const String ingestUrl = "/api/v1/ingestion/url";
   static const String scanContent = "/api/v1/ingestion/scan";
+  static const String scanUrl = "/api/v1/ingestion/scan-url";
 
   // Bi-directional Sync
   static const String sync = "/api/v1/sync";

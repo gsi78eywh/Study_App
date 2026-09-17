@@ -160,198 +160,249 @@ class _LoginScreenState extends State<LoginScreen> {
     final isDark = context.isDarkMode;
 
     return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Top Controls: Theme Toggle & Settings
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        ListenableBuilder(
-                          listenable: ThemeController.instance,
-                          builder: (context, _) {
-                            final currentIsDark = ThemeController.instance.isDarkMode;
-                            return IconButton(
-                              icon: Icon(
-                                currentIsDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-                                color: currentIsDark ? const Color(0xFFF59E0B) : AppColors.primaryDark,
-                              ),
-                              tooltip: currentIsDark ? "Switch to Light Mode" : "Switch to Dark Mode",
-                              onPressed: () => ThemeController.instance.toggleTheme(),
-                            );
-                          },
-                        ),
-                        IconButton(
-                          icon: Icon(Icons.settings_outlined, color: context.textSecondary),
-                          tooltip: "Backend Host Settings",
-                          onPressed: _showServerConfigDialog,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // App Logo & Branding
-                    Center(
-                      child: Container(
-                        width: 76,
-                        height: 76,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [AppColors.primary, AppColors.accent],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(22),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.primary.withValues(alpha: isDark ? 0.35 : 0.2),
-                              blurRadius: 24,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: const Icon(Icons.school_rounded, color: Colors.white, size: 40),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      "StudyApp",
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.outfit(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        color: context.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      "Student Learning, Spaced Recall & Exam Mastery",
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        color: context.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-
-                    // Error Message
-                    if (_errorMessage != null) ...[
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: AppColors.danger.withValues(alpha: isDark ? 0.15 : 0.08),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.error_outline_rounded, color: AppColors.danger, size: 20),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                _errorMessage!,
-                                style: const TextStyle(color: AppColors.danger, fontSize: 13, fontWeight: FontWeight.w500),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-
-                    // Email Field
-                    TextFormField(
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      style: TextStyle(color: context.textPrimary),
-                      decoration: InputDecoration(
-                        labelText: "Email Address",
-                        hintText: "student@university.edu",
-                        prefixIcon: Icon(Icons.email_outlined, color: context.textSecondary),
-                      ),
-                      validator: (val) {
-                        if (val == null || val.trim().isEmpty) return "Email is required";
-                        if (!val.contains("@")) return "Please enter a valid email address";
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 18),
-
-                    // Password Field
-                    TextFormField(
-                      controller: _passwordController,
-                      obscureText: _obscurePassword,
-                      style: TextStyle(color: context.textPrimary),
-                      decoration: InputDecoration(
-                        labelText: "Password",
-                        hintText: "Enter your password",
-                        prefixIcon: Icon(Icons.lock_outline, color: context.textSecondary),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                            color: context.textSecondary,
-                          ),
-                          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                        ),
-                      ),
-                      validator: (val) {
-                        if (val == null || val.isEmpty) return "Password is required";
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 28),
-
-                    // Sign In Button
-                    ElevatedButton(
-                      onPressed: _isLoading ? null : _handleLogin,
-                      child: _isLoading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Text("Sign In"),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Register Link
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          "Don't have an account?",
-                          style: TextStyle(color: context.textSecondary),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => RegisterScreen(
-                                  apiClient: widget.apiClient,
-                                  sessionService: widget.sessionService,
-                                ),
-                              ),
-                            );
-                          },
-                          child: const Text("Create Account", style: TextStyle(fontWeight: FontWeight.bold)),
-                        ),
-                      ],
-                    ),
+      body: Stack(
+        children: [
+          // Ambient radial background glow
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment.center,
+                  radius: 0.9,
+                  colors: [
+                    AppColors.primary.withValues(alpha: isDark ? 0.14 : 0.07),
+                    Colors.transparent,
                   ],
+                  stops: const [0.0, 1.0],
                 ),
               ),
             ),
           ),
-        ),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 440),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 36),
+                    decoration: BoxDecoration(
+                      color: context.surfaceColor,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: context.cardBorderColor, width: 1.2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.08),
+                          blurRadius: 36,
+                          offset: const Offset(0, 14),
+                        ),
+                      ],
+                    ),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Top Controls: Theme Toggle & Settings
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              ListenableBuilder(
+                                listenable: ThemeController.instance,
+                                builder: (context, _) {
+                                  final currentIsDark = ThemeController.instance.isDarkMode;
+                                  return IconButton(
+                                    icon: Icon(
+                                      currentIsDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                                      color: currentIsDark ? const Color(0xFFF59E0B) : AppColors.primaryDark,
+                                    ),
+                                    tooltip: currentIsDark ? "Switch to Light Mode" : "Switch to Dark Mode",
+                                    onPressed: () => ThemeController.instance.toggleTheme(),
+                                  );
+                                },
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.settings_outlined, color: context.textSecondary),
+                                tooltip: "Backend Host Settings",
+                                onPressed: _showServerConfigDialog,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // App Logo & Branding
+                          Center(
+                            child: Container(
+                              width: 76,
+                              height: 76,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [AppColors.primary, AppColors.accent],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  ),
+                                borderRadius: BorderRadius.circular(22),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppColors.primary.withValues(alpha: isDark ? 0.35 : 0.2),
+                                    blurRadius: 24,
+                                    offset: const Offset(0, 10),
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(Icons.school_rounded, color: Colors.white, size: 40),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            "StudyApp",
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.outfit(
+                              fontSize: 30,
+                              fontWeight: FontWeight.bold,
+                              color: context.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            "Student Learning, Spaced Recall & Exam Mastery",
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: context.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 28),
+
+                          // Error Message
+                          if (_errorMessage != null) ...[
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: AppColors.danger.withValues(alpha: isDark ? 0.15 : 0.08),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.error_outline_rounded, color: AppColors.danger, size: 20),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      _errorMessage!,
+                                      style: const TextStyle(color: AppColors.danger, fontSize: 13, fontWeight: FontWeight.w500),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                          ],
+
+                          // Email Field
+                          TextFormField(
+                            controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            style: TextStyle(color: context.textPrimary),
+                            decoration: InputDecoration(
+                              labelText: "Email Address",
+                              hintText: "student@university.edu",
+                              prefixIcon: Icon(Icons.email_outlined, color: context.textSecondary),
+                            ),
+                            validator: (val) {
+                              if (val == null || val.trim().isEmpty) return "Email is required";
+                              if (!val.contains("@")) return "Please enter a valid email address";
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 18),
+
+                          // Password Field
+                          TextFormField(
+                            controller: _passwordController,
+                            obscureText: _obscurePassword,
+                            style: TextStyle(color: context.textPrimary),
+                            decoration: InputDecoration(
+                              labelText: "Password",
+                              hintText: "Enter your password",
+                              prefixIcon: Icon(Icons.lock_outline, color: context.textSecondary),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                                  color: context.textSecondary,
+                                ),
+                                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                              ),
+                            ),
+                            validator: (val) {
+                              if (val == null || val.isEmpty) return "Password is required";
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 26),
+
+                          // Sign In Button
+                          ElevatedButton(
+                            onPressed: _isLoading ? null : _handleLogin,
+                            child: _isLoading
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Text("Sign In"),
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Demo Account Quick Button
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              _emailController.text = "dev@studyapp.local";
+                              _passwordController.text = "DevPass123!";
+                            },
+                            icon: const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFFF59E0B)),
+                            label: const Text("Use Demo Account (dev@studyapp.local)", style: TextStyle(fontSize: 12)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: context.textSecondary,
+                              side: BorderSide(color: context.cardBorderColor),
+                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Register Link
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                "Don't have an account?",
+                                style: TextStyle(color: context.textSecondary, fontSize: 13),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => RegisterScreen(
+                                        apiClient: widget.apiClient,
+                                        sessionService: widget.sessionService,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: const Text("Create Account", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -79,7 +79,7 @@ public class DocumentExtractor : IDocumentExtractor
                 };
 
                 var json = JsonSerializer.Serialize(payload);
-                var candidateModels = new[] { "gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro" };
+                var candidateModels = new[] { "gemini-3.6-flash", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash" };
 
                 foreach (var model in candidateModels)
                 {
@@ -388,34 +388,84 @@ public class DocumentExtractor : IDocumentExtractor
         var context = BrowsingContext.New(config);
         var document = await context.OpenAsync(req => req.Content(htmlContent).Address(uri), cancellationToken);
 
-        var elementsToRemove = document.QuerySelectorAll("script, style, nav, footer, header, noscript, svg, form, aside");
+        // Remove extraneous script, styles, interactive controls and navigation
+        var elementsToRemove = document.QuerySelectorAll("script, style, nav, footer, header, noscript, svg, form, aside, dialog, .cookie-banner, .advertisement");
         foreach (var el in elementsToRemove)
         {
             el.Remove();
         }
 
         var sb = new StringBuilder();
-        var title = document.Title;
+        var title = document.Title?.Trim();
         if (!string.IsNullOrEmpty(title))
         {
             sb.AppendLine($"# {title}\n");
         }
 
-        var mainContent = document.QuerySelector("main, article, #content, .content") ?? document.Body;
+        // Check for page description metadata (common on educational & doc sites)
+        var metaDesc = document.QuerySelector("meta[name='description'], meta[property='og:description']")?.GetAttribute("content")?.Trim();
+        if (!string.IsNullOrEmpty(metaDesc))
+        {
+            sb.AppendLine($"**Overview:** {metaDesc}\n");
+        }
+
+        var mainContent = document.QuerySelector("main, article, [role='main'], #content, .content, .article-content, .post-content, .entry-content, .course-content")
+            ?? document.Body;
+
         if (mainContent != null)
         {
-            var paragraphs = mainContent.QuerySelectorAll("h1, h2, h3, h4, p, li");
-            foreach (var p in paragraphs)
+            var nodes = mainContent.QuerySelectorAll("h1, h2, h3, h4, h5, h6, p, li, dt, dd, blockquote, tr");
+            int extractedNodeCount = 0;
+
+            foreach (var node in nodes)
             {
-                var text = p.TextContent.Trim();
-                if (!string.IsNullOrEmpty(text) && text.Length > 15)
+                var text = node.TextContent.Trim();
+                if (string.IsNullOrWhiteSpace(text) || text.Length < 3) continue;
+
+                var tag = node.TagName.ToLowerInvariant();
+                if (tag is "h1" or "h2" or "h3" or "h4" or "h5" or "h6")
+                {
+                    sb.AppendLine($"\n### {text}");
+                    extractedNodeCount++;
+                }
+                else if (tag == "li")
+                {
+                    sb.AppendLine($"• {text}");
+                    extractedNodeCount++;
+                }
+                else if (tag == "blockquote")
+                {
+                    sb.AppendLine($"> {text}");
+                    extractedNodeCount++;
+                }
+                else
                 {
                     sb.AppendLine(text);
+                    extractedNodeCount++;
+                }
+            }
+
+            // Fallback: If query selectors yielded very little text, extract from mainContent text content directly
+            if (extractedNodeCount < 3 || sb.Length < 150)
+            {
+                var rawText = CleanExtractedText(mainContent.TextContent);
+                if (!string.IsNullOrWhiteSpace(rawText) && rawText.Length > sb.Length)
+                {
+                    sb.Clear();
+                    if (!string.IsNullOrEmpty(title)) sb.AppendLine($"# {title}\n");
+                    if (!string.IsNullOrEmpty(metaDesc)) sb.AppendLine($"**Overview:** {metaDesc}\n");
+                    sb.AppendLine(rawText);
                 }
             }
         }
 
-        return LimitText(sb.ToString());
+        var result = LimitText(sb.ToString().Trim());
+        if (string.IsNullOrWhiteSpace(result))
+        {
+            throw new InvalidOperationException("No readable study text could be extracted from that URL. The page may require JavaScript rendering or a login.");
+        }
+
+        return result;
     }
 
     private static async Task<string> DownloadPublicUrlAsync(Uri uri, CancellationToken cancellationToken)
@@ -430,20 +480,34 @@ public class DocumentExtractor : IDocumentExtractor
             ConnectCallback = async (context, token) =>
             {
                 var entry = await Dns.GetHostEntryAsync(context.DnsEndPoint.Host, token);
-                var address = entry.AddressList.FirstOrDefault(ip => !IsPrivateOrLocal(ip))
-                    ?? throw new InvalidOperationException("URLs resolving to local or private networks cannot be imported.");
+                var publicAddresses = entry.AddressList.Where(ip => !IsPrivateOrLocal(ip)).ToList();
+                if (publicAddresses.Count == 0)
+                {
+                    throw new InvalidOperationException("URLs resolving to local or private networks cannot be imported.");
+                }
 
-                var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-                try
+                // Prefer IPv4 addresses for broad network route compatibility, then IPv6
+                var candidateAddresses = publicAddresses
+                    .OrderBy(ip => ip.AddressFamily == AddressFamily.InterNetwork ? 0 : 1)
+                    .ToList();
+
+                Exception? lastException = null;
+                foreach (var address in candidateAddresses)
                 {
-                    await socket.ConnectAsync(new IPEndPoint(address, context.DnsEndPoint.Port), token);
-                    return new NetworkStream(socket, ownsSocket: true);
+                    var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                    try
+                    {
+                        await socket.ConnectAsync(new IPEndPoint(address, context.DnsEndPoint.Port), token);
+                        return new NetworkStream(socket, ownsSocket: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        socket.Dispose();
+                        lastException = ex;
+                    }
                 }
-                catch
-                {
-                    socket.Dispose();
-                    throw;
-                }
+
+                throw lastException ?? new InvalidOperationException("Failed to establish a network connection to the specified host.");
             },
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
             PooledConnectionLifetime = TimeSpan.FromMinutes(1)
@@ -451,9 +515,13 @@ public class DocumentExtractor : IDocumentExtractor
 
         using var client = new HttpClient(handler)
         {
-            Timeout = TimeSpan.FromSeconds(15)
+            Timeout = TimeSpan.FromSeconds(20)
         };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("StudyApp-Extractor/1.0");
+
+        // Realistic modern browser headers so CDNs/WAFs do not reject crawler requests
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+        client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8");
+        client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
 
         using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)

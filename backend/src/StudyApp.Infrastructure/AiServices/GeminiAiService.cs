@@ -11,6 +11,10 @@ using StudyApp.Application.DTOs.Ingestion;
 
 namespace StudyApp.Infrastructure.AiServices;
 
+/// <summary>
+/// Primary AI agent service integrating Google Gemini (e.g. Gemini 3.6 Flash) for active-recall
+/// study set generation, OCR document synthesis, code documentation, and interactive academic tutoring.
+/// </summary>
 public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 {
     private readonly HttpClient _httpClient;
@@ -18,6 +22,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
     private readonly ILogger<GeminiAiService> _logger;
     private readonly string _apiKey;
     private readonly string _model;
+    private readonly bool _cloudCallsDisabled;
 
     private static readonly ConcurrentDictionary<string, (DateTime CachedAt, object Data)> _cache = new();
     private static readonly SemaphoreSlim _concurrencyLimiter = new(4, 4);
@@ -38,12 +43,24 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         _logger = logger;
 
         _apiKey = _configuration["AiSettings:ApiKey"] ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(_apiKey) || _apiKey.Contains("YOUR_GEMINI_API_KEY"))
+        if (string.Equals(_apiKey, "none", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(_apiKey, "disabled", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(_apiKey, "offline", StringComparison.OrdinalIgnoreCase))
+        {
+            _apiKey = string.Empty;
+            _cloudCallsDisabled = true;
+        }
+        else if (string.IsNullOrWhiteSpace(_apiKey) || _apiKey.Contains("YOUR_GEMINI_API_KEY"))
         {
             _apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? string.Empty;
+            _cloudCallsDisabled = false;
+        }
+        else
+        {
+            _cloudCallsDisabled = false;
         }
 
-        _model = _configuration["AiSettings:ModelId"] ?? "gemini-1.5-flash";
+        _model = _configuration["AiSettings:ModelId"] ?? "gemini-3.6-flash";
     }
 
     public async Task<GeneratedStudySetResult> GenerateStudySetAsync(
@@ -61,9 +78,9 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             return GenerateEmptyFallback(title);
         }
 
-        var effectiveApiKey = !string.IsNullOrWhiteSpace(apiKeyOverride)
+        var effectiveApiKey = !_cloudCallsDisabled && !string.IsNullOrWhiteSpace(apiKeyOverride)
             ? apiKeyOverride.Trim()
-            : (!string.IsNullOrWhiteSpace(_apiKey) ? _apiKey : null);
+            : (!_cloudCallsDisabled && !string.IsNullOrWhiteSpace(_apiKey) ? _apiKey : null);
 
         var textHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawText)));
         var typesKey = string.Join("_", requestedTypes);
@@ -75,7 +92,11 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             return cachedResult;
         }
 
-        if (!string.IsNullOrWhiteSpace(effectiveApiKey) && !effectiveApiKey.Contains("YOUR_GEMINI_API_KEY"))
+        if (!string.IsNullOrWhiteSpace(effectiveApiKey) &&
+            !effectiveApiKey.Contains("YOUR_GEMINI_API_KEY") &&
+            !string.Equals(effectiveApiKey, "none", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(effectiveApiKey, "disabled", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(effectiveApiKey, "offline", StringComparison.OrdinalIgnoreCase))
         {
             try
             {
@@ -351,20 +372,23 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         AskTutorRequest request,
         CancellationToken cancellationToken = default)
     {
-        var cacheKey = $"tutor_{request.Message.Trim().ToLowerInvariant()}_{request.ContextTopic?.ToLowerInvariant()}";
+        var isExplicitlyOffline = _cloudCallsDisabled ||
+            string.Equals(request.ApiKey, "none", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(request.ApiKey, "disabled", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(request.ApiKey, "offline", StringComparison.OrdinalIgnoreCase);
+
+        var effectiveApiKey = !isExplicitlyOffline
+            ? (!string.IsNullOrWhiteSpace(request.ApiKey)
+                ? request.ApiKey.Trim()
+                : (!string.IsNullOrWhiteSpace(_apiKey)
+                    ? _apiKey
+                    : (Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? Environment.GetEnvironmentVariable("GOOGLE_API_KEY"))))
+            : null;
+
+        var cacheKey = $"tutor_{request.Message.Trim().ToLowerInvariant()}_{request.ContextTopic?.ToLowerInvariant()}_{(effectiveApiKey != null ? "ai" : "local")}";
         if (_cache.TryGetValue(cacheKey, out var cached) && cached.Data is AskTutorResponse cachedResponse)
         {
             return cachedResponse;
-        }
-
-        var effectiveApiKey = !string.IsNullOrWhiteSpace(request.ApiKey)
-            ? request.ApiKey.Trim()
-            : (!string.IsNullOrWhiteSpace(_apiKey) ? _apiKey : null);
-
-        if (string.IsNullOrWhiteSpace(effectiveApiKey))
-        {
-            effectiveApiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ??
-                              Environment.GetEnvironmentVariable("GOOGLE_API_KEY");
         }
 
         // If an API key is available, attempt cloud Gemini API call
@@ -393,12 +417,15 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 - When they reach the correct answer, celebrate their insight and ask a brief reflection question to anchor retention.
                 """
                 : """
-                You are 'Gemini Study Tutor', an encouraging, academically rigorous AI tutor and mentor for university students.
+                You are 'Gemini Study Tutor', an encouraging, academically rigorous AI tutor and coding mentor for university students.
                 Guidelines:
-                - Provide clear, high-yield explanations followed by step-by-step logic and intuitive analogies.
-                - Break down formulas, equations, or scientific terminology clearly.
+                - When a student asks for code (e.g. Flutter, Dart, HTML, CSS, JavaScript, Python, C#, Java, SQL), provide complete, working, modern code formatted inside Markdown code blocks with language syntax highlighting and concise line-by-line explanations.
+                - When a student asks for code documentation, docstrings, or API specifications, provide comprehensive, industry-standard documentation (e.g. C# XML docs with <summary>, <param>, <returns>, Python PEP 257/Google-style docstrings, JSDoc/TSDoc for TypeScript, and Dartdoc for Flutter) along with test cases and clear architectural notes.
+                - Provide clear conceptual explanations followed by step-by-step logic.
+                - Break down formulas, equations, or legal/scientific terminology clearly.
                 - Connect concepts to practical applications and exam questions.
                 - Keep explanations focused and digestible with Markdown formatting.
+                - When a student asks for practice, test cases, or debugging help, provide clear explanations with executable test cases.
                 """;
 
             var promptBuilder = new StringBuilder();
@@ -481,12 +508,16 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         CancellationToken cancellationToken)
     {
         var key = !string.IsNullOrWhiteSpace(apiKeyOverride) ? apiKeyOverride.Trim() : _apiKey;
-        if (string.IsNullOrWhiteSpace(key) || key.Contains("YOUR_GEMINI_API_KEY"))
+        if (string.IsNullOrWhiteSpace(key) ||
+            key.Contains("YOUR_GEMINI_API_KEY") ||
+            string.Equals(key, "none", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(key, "disabled", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(key, "offline", StringComparison.OrdinalIgnoreCase))
         {
             return (null, "Built-In Academic Engine");
         }
 
-        var modelsToTry = new[] { _model, "gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-pro" }
+        var modelsToTry = new[] { _model, "gemini-3.6-flash", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash" }
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 

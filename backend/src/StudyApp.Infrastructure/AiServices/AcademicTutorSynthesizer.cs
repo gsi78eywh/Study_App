@@ -14,7 +14,13 @@ public static class AcademicTutorSynthesizer
         var topic = (contextTopic ?? string.Empty).Trim();
         var lowerTopic = topic.ToLowerInvariant();
 
-        // 1. Flutter Setup & Getting Started
+        // 1. Code Documentation, Docstrings & Technical Specifications
+        if (Regex.IsMatch(lowerPrompt, @"\b(code documentation|document(?:ing)? code|docstrings?|xml doc(?:umentation)?|jsdoc|tsdoc|dartdoc|swagger|openapi doc|function documentation|api doc(?:umentation)?)\b"))
+        {
+            return BuildCodeDocumentationResponse(rawPrompt, topic) + OfflineNotice;
+        }
+
+        // 2. Flutter Setup & Getting Started
         if (Regex.IsMatch(lowerPrompt, @"\bflutter\b") && (Regex.IsMatch(lowerPrompt, @"\b(setup|install|start|create|begin|init|get started|configure)\b") || lowerPrompt.Length < 35))
         {
             return BuildFlutterSetupResponse() + OfflineNotice;
@@ -55,6 +61,8 @@ public static class AcademicTutorSynthesizer
         {
             return BuildCorePrinciplesResponse(rawPrompt, topic) + OfflineNotice;
         }
+
+
 
         // 8. Programming: C# / .NET / ASP.NET Core
         if (Regex.IsMatch(lowerPrompt, @"\b(c#|csharp|\.net|asp\.net|ef core|entity framework|linq)\b"))
@@ -481,6 +489,152 @@ public static class AcademicTutorSynthesizer
         - [ ] Can you solve a baseline problem without referencing notes?
         - [ ] Can you explain why the top distractor option is incorrect?
         """.Replace("[SUBJECT]", subject);
+    }
+
+    private static string BuildCodeDocumentationResponse(string prompt, string? topic)
+    {
+        var cleanPrompt = string.IsNullOrWhiteSpace(prompt) ? "Code Documentation Standards" : prompt;
+        return """"
+        ### 📚 Code Documentation & Technical Specification Standards: [PROMPT]
+
+        Professional code documentation clarifies **intent, architectural boundaries, edge cases, and usage contracts**—explaining the *Why* behind the code, rather than merely repeating *What* the syntax executes.
+
+        ---
+
+        #### 1. C# & .NET XML Documentation (`///`)
+        In modern .NET 8/9/10, XML documentation enables rich IDE IntelliSense tooltips, compiler validation (`CS1591`), and automated Swagger/OpenAPI schema generation.
+
+        ```csharp
+        /// <summary>
+        /// Manages active recall question synthesis and flashcard generation from student study notes.
+        /// </summary>
+        /// <remarks>
+        /// This service uses local heuristic analyzers for offline zero-latency fallback and delegates to
+        /// Google Gemini 3.6 Flash when cloud credentials are configured.
+        /// </remarks>
+        public sealed class QuestionGeneratorService : IQuestionGenerator
+        {
+            /// <summary>
+            /// Generates balanced active-recall questions from raw lecture or notebook text.
+            /// </summary>
+            /// <param name="rawNotes">The raw markdown or plaintext study notes provided by the student.</param>
+            /// <param name="targetCount">The desired number of flashcard questions (clamped between 5 and 50).</param>
+            /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+            /// <returns>A structured <see cref="GeneratedStudySetResult"/> containing summary and question entities.</returns>
+            /// <exception cref="ArgumentException">Thrown when <paramref name="rawNotes"/> is null or empty.</exception>
+            public async Task<GeneratedStudySetResult> GenerateAsync(
+                string rawNotes, 
+                int targetCount, 
+                CancellationToken cancellationToken = default)
+            {
+                if (string.IsNullOrWhiteSpace(rawNotes))
+                {
+                    throw new ArgumentException("Study notes content must not be blank.", nameof(rawNotes));
+                }
+
+                // Implementation logic...
+                return await Task.FromResult(new GeneratedStudySetResult());
+            }
+        }
+        ```
+
+        ---
+
+        #### 2. Python Docstrings (PEP 257 / Google Style)
+        Standard in production Python libraries, FastAPI, and data science pipelines:
+
+        ```python
+        def calculate_active_recall_retention(repetitions: int, ease_factor: float, interval_days: int) -> float:
+            """Calculates estimated memory retention percentage using the SuperMemo SM-2 algorithm.
+
+            Args:
+                repetitions (int): The number of consecutive successful quiz recalls.
+                ease_factor (float): The current difficulty multiplier (default baseline 2.5).
+                interval_days (int): Days elapsed since the previous study session.
+
+            Returns:
+                float: Projected percentage probability of retention in range [0.0, 1.0].
+
+            Raises:
+                ValueError: If `repetitions` is negative or `ease_factor` is below 1.3.
+
+            Example:
+                >>> calculate_active_recall_retention(3, 2.5, 6)
+                0.925
+            """
+            if repetitions < 0 or ease_factor < 1.3:
+                raise ValueError("Invalid repetition count or ease factor below minimum bound.")
+            return min(1.0, max(0.0, ease_factor / (1.0 + (interval_days * 0.05))))
+        ```
+
+        ---
+
+        #### 3. TypeScript / JavaScript (JSDoc / TSDoc)
+        Provides rich type hints, deprecation notices, and automated API document generation:
+
+        ```typescript
+        /**
+         * Represents the offline synchronization payload transmitted between Flutter client and SQLite server.
+         *
+         * @template TItem - The domain entity type being synchronized.
+         */
+        export interface SyncPayload<TItem> {
+          /** Unix timestamp in milliseconds indicating when local cache was last refreshed. */
+          readonly lastSyncedAt: number;
+          /** Batch of mutated entities ready for bidirectional merge. */
+          readonly items: readonly TItem[];
+          /**
+           * Resolves conflicting timestamps using server-authoritative Last-Write-Wins strategy.
+           *
+           * @param serverRecord - The existing row in the primary database.
+           * @param incomingRecord - The mutation received from the mobile client.
+           * @returns The winning entity to persist.
+           */
+          resolveConflict(serverRecord: TItem, incomingRecord: TItem): TItem;
+        }
+        ```
+
+        ---
+
+        #### 4. Dart / Flutter (Dartdoc `///`)
+        Used throughout Flutter framework widgets and state stores:
+
+        ```dart
+        /// A reactive study timer card supporting Pomodoro and Blitz active-recall sessions.
+        ///
+        /// Displays remaining seconds with a smooth circular countdown indicator.
+        ///
+        /// ```dart
+        /// StudyTimerCard(
+        ///   initialSeconds: 1500,
+        ///   onTimerCompleted: () => print('Time for a 5-minute break!'),
+        /// )
+        /// ```
+        class StudyTimerCard extends StatelessWidget {
+          /// Total duration of the study sprint in seconds.
+          final int initialSeconds;
+
+          /// Callback triggered when the countdown terminates at zero.
+          final VoidCallback onTimerCompleted;
+
+          const StudyTimerCard({
+            super.key,
+            required this.initialSeconds,
+            required this.onTimerCompleted,
+          });
+        }
+        ```
+
+        ---
+
+        #### 5. Code Documentation Best Practices Checklist
+        | Rule | Objective | Anti-Pattern |
+        | :--- | :--- | :--- |
+        | **Document Intent** | Clarify *why* a design decision was made. | `// Increments i by 1` |
+        | **Specify Contracts** | Clearly document preconditions, postconditions, and exceptions. | Silent unhandled null values |
+        | **Keep Synchronized** | Update docs in the exact same commit as code changes. | Stale comments claiming defunct behavior |
+        | **Show Working Examples** | Provide copy-pasteable minimal examples for consumers. | Abstract descriptions without context |
+        """".Replace("[PROMPT]", cleanPrompt);
     }
 
     private static string BuildCSharpResponse(string prompt)
