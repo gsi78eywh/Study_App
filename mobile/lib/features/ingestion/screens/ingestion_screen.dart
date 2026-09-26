@@ -16,12 +16,18 @@ class IngestionScreen extends StatefulWidget {
   final List<CourseModel> courses;
   final ApiClient apiClient;
   final void Function(StudySetModel)? onStudySetCreated;
+  final String? draftTitle;
+  final String? draftContent;
+  final int draftRevision;
 
   const IngestionScreen({
     super.key,
     required this.courses,
     required this.apiClient,
     this.onStudySetCreated,
+    this.draftTitle,
+    this.draftContent,
+    this.draftRevision = 0,
   });
 
   @override
@@ -29,6 +35,7 @@ class IngestionScreen extends StatefulWidget {
 }
 
 class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProviderStateMixin {
+  static const int _maxUploadBytes = 30 * 1024 * 1024;
   late final TabController _tabController;
   late String _selectedCourseId;
   final _titleController = TextEditingController();
@@ -107,6 +114,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _selectedCourseId = widget.courses.isNotEmpty ? widget.courses.first.id : "";
+    _applyIncomingDraft();
   }
 
   @override
@@ -115,6 +123,24 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     if (_selectedCourseId.isEmpty && widget.courses.isNotEmpty) {
       _selectedCourseId = widget.courses.first.id;
     }
+    if (widget.draftRevision != oldWidget.draftRevision) {
+      _applyIncomingDraft();
+    }
+  }
+
+  void _applyIncomingDraft() {
+    final content = widget.draftContent?.trim();
+    final title = widget.draftTitle?.trim();
+    if (content == null || content.isEmpty) return;
+
+    _titleController.text = title == null || title.isEmpty ? "Scanned study notes" : title;
+    _textController.text = content;
+    _errorMessage = null;
+    // The controller is available after initState; scheduling avoids changing a
+    // tab while the parent IndexedStack is still being built.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _tabController.animateTo(0);
+    });
   }
 
   @override
@@ -169,11 +195,16 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
       final files = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ["pdf", "docx", "txt", "md", "png", "jpg", "jpeg", "webp", "bmp"],
+        withData: true,
       );
 
       if (files.isNotEmpty) {
         final file = files.first;
         final size = await file.length();
+        if (size > _maxUploadBytes) {
+          setState(() => _errorMessage = "${file.name} is larger than 30 MB. Choose a smaller file or compress the images first.");
+          return;
+        }
         final bytes = await file.readAsBytes();
         setState(() {
           _selectedFile = file;
@@ -1397,6 +1428,10 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
         if (fileBytes.isEmpty) {
           setState(() => _errorMessage = "Could not read file data. Please re-select the file.");
+          return;
+        }
+        if (fileBytes.length > _maxUploadBytes) {
+          setState(() => _errorMessage = "This file is larger than 30 MB. Choose a smaller file or compress the images first.");
           return;
         }
 

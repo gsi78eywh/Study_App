@@ -9,6 +9,7 @@ class SmartSessionPlayerScreen extends StatefulWidget {
   final SmartSessionPayloadModel? payload;
   final String? initialCourseId;
   final VoidCallback onSessionComplete;
+  final VoidCallback? onCreateStudySet;
 
   const SmartSessionPlayerScreen({
     super.key,
@@ -16,6 +17,7 @@ class SmartSessionPlayerScreen extends StatefulWidget {
     this.payload,
     this.initialCourseId,
     required this.onSessionComplete,
+    this.onCreateStudySet,
   });
 
   @override
@@ -113,6 +115,10 @@ class _SmartSessionPlayerScreenState extends State<SmartSessionPlayerScreen> {
       return _buildSummaryScreen(context, isDark);
     }
 
+    if (payload.totalItems == 0) {
+      return _buildEmptySessionScreen(context);
+    }
+
     return Scaffold(
       backgroundColor: context.scaffoldBg,
       appBar: AppBar(
@@ -154,6 +160,64 @@ class _SmartSessionPlayerScreenState extends State<SmartSessionPlayerScreen> {
         child: Padding(
           padding: const EdgeInsets.all(18),
           child: _buildCurrentStageView(context, isDark),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptySessionScreen(BuildContext context) {
+    return Scaffold(
+      backgroundColor: context.scaffoldBg,
+      appBar: AppBar(title: const Text("Smart Study Session")),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: const BoxDecoration(
+                      color: Color(0x1A6366F1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.auto_stories_rounded, size: 48, color: Color(0xFF6366F1)),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    "Your next session starts with study material",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.outfit(fontSize: 22, fontWeight: FontWeight.bold, color: context.textPrimary),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Upload notes, scan a page, or create a study set. Once you practice, your plan will adapt to your strengths and mistakes.",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(fontSize: 14, height: 1.45, color: context.textSecondary),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        widget.onCreateStudySet?.call();
+                      },
+                      icon: const Icon(Icons.upload_file_rounded),
+                      label: const Text("Add study material"),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text("Back to dashboard"),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

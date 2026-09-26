@@ -86,6 +86,9 @@ class SessionService {
     await _prefs.remove(_keyEmail);
     await _prefs.remove(_keyFullName);
     await _prefs.remove(_keyLastSync);
+    // A personally supplied AI key must never survive sign-out on a shared
+    // phone or tablet. Backend-managed providers do not require this value.
+    await _prefs.remove(_keyGeminiApiKey);
   }
 
   Future<void> clearAuth() => clear();

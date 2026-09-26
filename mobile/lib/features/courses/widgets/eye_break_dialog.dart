@@ -86,7 +86,7 @@ class _EyeBreakDialogState extends State<EyeBreakDialog> {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.green.withOpacity(0.3),
+                      color: Colors.green.withValues(alpha: 0.3),
                       blurRadius: 16,
                       offset: const Offset(0, 6),
                     ),
@@ -114,7 +114,7 @@ class _EyeBreakDialogState extends State<EyeBreakDialog> {
               Text(
                 'Your brain and eyes worked hard! Rest your vision using the 20-20-20 pediatric health rule.',
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurface.withOpacity(0.75),
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
                   height: 1.4,
                 ),
                 textAlign: TextAlign.center,
@@ -125,9 +125,9 @@ class _EyeBreakDialogState extends State<EyeBreakDialog> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.teal.shade50.withOpacity(0.7),
+                  color: Colors.teal.shade50.withValues(alpha: 0.7),
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.teal.shade200.withOpacity(0.8)),
+                  border: Border.all(color: Colors.teal.shade200.withValues(alpha: 0.8)),
                 ),
                 child: Column(
                   children: [

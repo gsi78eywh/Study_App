@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>StudyApp uses the camera to scan your notes and turn them into study material.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>StudyApp lets you choose photos of notes and handouts to create study material.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

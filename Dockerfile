@@ -27,6 +27,7 @@ RUN mkdir -p /app/data
 
 # Default port configuration for Railway / Render
 ENV ASPNETCORE_URLS=http://+:8080
+ENV ConnectionStrings__DefaultConnection="Data Source=/app/data/studyapp.db"
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "StudyApp.Api.dll"]

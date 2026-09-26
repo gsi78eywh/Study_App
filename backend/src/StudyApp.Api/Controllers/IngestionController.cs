@@ -59,6 +59,10 @@ public class IngestionController : ControllerBase
         }
 
         var sourceText = LimitSourceText(request.Content);
+        if (!HasUsableStudyContent(sourceText))
+        {
+            return BadRequest(new { message = "Please provide a little more readable study content (at least a few words or sentences)." });
+        }
         var geminiKey = !string.IsNullOrWhiteSpace(request.ApiKey)
             ? request.ApiKey.Trim()
             : Request.Headers["X-Gemini-ApiKey"].ToString().Trim();
@@ -189,28 +193,44 @@ public class IngestionController : ControllerBase
                 extractedSourceText = cleanedOcr;
             }
 
-            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant, geminiKey);
         }
         else if (ext == ".pdf")
         {
             extractedSourceText = await _documentExtractor.ExtractPdfTextAsync(stream);
-            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant, geminiKey);
         }
         else if (ext == ".docx")
         {
             extractedSourceText = await _documentExtractor.ExtractDocxTextAsync(stream);
-            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant, geminiKey);
         }
         else if (ext is ".txt" or ".md")
         {
             using var reader = new StreamReader(stream, leaveOpen: true);
             extractedSourceText = LimitSourceText(await reader.ReadToEndAsync());
-            result = await _aiGenerator.GenerateStudySetAsync(extractedSourceText, setHeader, typesList, targetNum, chosenSetIndex, variant, geminiKey);
         }
         else
         {
             return BadRequest(new { message = "Unsupported file type. Please upload a PDF, DOCX, TXT, or Image file (.png, .jpg, .jpeg, .webp, .bmp)." });
         }
+
+        extractedSourceText = LimitSourceText(extractedSourceText ?? string.Empty);
+        if (!HasUsableStudyContent(extractedSourceText))
+        {
+            return BadRequest(new
+            {
+                message = ext == ".pdf"
+                    ? "No selectable text was found in this PDF. If it is a scanned handout, upload clear page photos with the Camera Scanner or paste the text after OCR."
+                : "We could not extract enough readable study content from this file. Try a clearer image, an unprotected document, or paste the notes directly."
+            });
+        }
+
+        result = await _aiGenerator.GenerateStudySetAsync(
+            extractedSourceText,
+            setHeader,
+            typesList,
+            targetNum,
+            chosenSetIndex,
+            variant,
+            geminiKey);
 
         var studySet = await SaveGeneratedSetAsync(effectiveCourseId, result, file.FileName, ext, extractedSourceText);
         return Ok(new
@@ -1047,7 +1067,7 @@ public class IngestionController : ControllerBase
 
     private static string CleanTitle(string? title)
     {
-        var cleaned = (title ?? string.Empty).Trim();
+        var cleaned = (title ?? string.Empty).Trim().Replace('\r', ' ').Replace('\n', ' ');
         return string.IsNullOrWhiteSpace(cleaned) ? "Untitled study set" : cleaned[..Math.Min(cleaned.Length, 160)];
     }
 
@@ -1055,6 +1075,18 @@ public class IngestionController : ControllerBase
     {
         const int maxCharacters = 150_000;
         return content.Length <= maxCharacters ? content : $"{content[..maxCharacters]}\n\n[Content truncated at {maxCharacters:N0} characters]";
+    }
+
+    // Avoid turning parser notices, a blank page, or accidental binary metadata
+    // into an authoritative-looking quiz. This deliberately stays lenient for
+    // short definitions while still requiring meaningful readable content.
+    private static bool HasUsableStudyContent(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return false;
+
+        var visibleCharacters = content.Count(char.IsLetterOrDigit);
+        var words = content.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        return visibleCharacters >= 20 && words.Length >= 4;
     }
 
     private static bool ValidateFileSignature(Stream stream, string ext)

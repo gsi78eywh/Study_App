@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using StudyApp.Application.Common.Interfaces;
@@ -19,6 +20,15 @@ using StudyApp.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+
+// Keep the server-side multipart contract explicit. The mobile app validates the
+// same 30 MB limit before it reads a file into memory, but this is the boundary
+// that protects the API when it is called directly.
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 30L * 1024 * 1024;
+    options.ValueLengthLimit = 150_000;
+});
 
 static bool IsLocalPortAvailable(int port)
 {

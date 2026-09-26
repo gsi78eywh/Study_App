@@ -1,17 +1,40 @@
-# study_app_mobile
+# StudyApp mobile client
 
-A new Flutter project.
+StudyApp is a Flutter client for the StudyApp API. It supports Android, iOS,
+web, and desktop targets. The mobile app has no provider API keys compiled into
+it: all AI requests go through the authenticated backend.
 
-## Getting Started
+## Local development
 
-This project is a starting point for a Flutter application.
+Start the API first, then run the client. Android emulators use
+`http://10.0.2.2:5000` automatically; iOS simulators, desktop, and web default
+to `http://localhost:5000`. A physical device must use a reachable HTTPS API
+URL, configured in Settings or at build time.
 
-A few resources to get you started if this is your first Flutter project:
+```powershell
+flutter run --dart-define=API_BASE_URL=https://api.example.com
+```
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Release checklist
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- Configure a unique Android application id and a real release signing key.
+- Set the production API URL with `API_BASE_URL`; never ship `localhost`.
+- Deploy the API with a persistent database volume and production environment
+  variables, including `JwtSettings__Secret` (32+ characters).
+- Restrict production CORS to the hosted web client origin when building web.
+- Complete Android/iOS store metadata, privacy policy, and account-deletion
+  requirements before publication.
+
+## Build targets
+
+```powershell
+# Play Store bundle
+flutter build appbundle --dart-define=API_BASE_URL=https://api.example.com
+
+# Static web release in build/web
+flutter build web --dart-define=API_BASE_URL=https://api.example.com
+```
+
+Flutter's Android app bundle is the appropriate Play Store artifact. The web
+release can be hosted on a static host, while the API must run separately in a
+container or managed .NET environment.

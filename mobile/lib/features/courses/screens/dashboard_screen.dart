@@ -58,6 +58,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isLoadingDemoPack = false;
   TodayStudyPlanModel? _todayStudyPlan;
   bool _isLoadingStudyPlan = false;
+  String? _studioDraftTitle;
+  String? _studioDraftContent;
+  int _studioDraftRevision = 0;
 
   Future<void> _loadStarterDemoPack() async {
     setState(() => _isLoadingDemoPack = true);
@@ -147,7 +150,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       },
       onExportToEditor: (title, scannedText) {
-        setState(() => _currentTabIndex = 3);
+        setState(() {
+          _studioDraftTitle = title;
+          _studioDraftContent = scannedText;
+          _studioDraftRevision++;
+          _currentTabIndex = 3;
+        });
       },
     );
   }
@@ -215,7 +223,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       sessionService: widget.sessionService,
     );
     _fetchCoursesAndSync(fullFetch: true);
-    _loadTodayStudyPlan();
     _initEyeBreakMonitoring();
   }
 
@@ -260,6 +267,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _fetchCoursesAndSync(fullFetch: true);
             _loadTodayStudyPlan();
           },
+          onCreateStudySet: () => setState(() => _currentTabIndex = 3),
         ),
       ),
     );
@@ -1826,12 +1834,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             gradient: LinearGradient(
               colors: cs.isJuniorMode
                   ? [
-                      const Color(0xFFFEF3C7).withOpacity(isDark ? 0.2 : 0.8),
-                      const Color(0xFFE0E7FF).withOpacity(isDark ? 0.2 : 0.8),
+                      const Color(0xFFFEF3C7).withValues(alpha: isDark ? 0.2 : 0.8),
+                      const Color(0xFFE0E7FF).withValues(alpha: isDark ? 0.2 : 0.8),
                     ]
                   : [
-                      const Color(0xFFF0FDF4).withOpacity(isDark ? 0.15 : 0.7),
-                      const Color(0xFFE0F2FE).withOpacity(isDark ? 0.15 : 0.7),
+                      const Color(0xFFF0FDF4).withValues(alpha: isDark ? 0.15 : 0.7),
+                      const Color(0xFFE0F2FE).withValues(alpha: isDark ? 0.15 : 0.7),
                     ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -1839,8 +1847,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: cs.isJuniorMode
-                  ? const Color(0xFFF59E0B).withOpacity(0.35)
-                  : const Color(0xFF10B981).withOpacity(0.35),
+                  ? const Color(0xFFF59E0B).withValues(alpha: 0.35)
+                  : const Color(0xFF10B981).withValues(alpha: 0.35),
             ),
           ),
           child: Column(
@@ -2113,7 +2121,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           Icons.auto_awesome_rounded,
                           color: Color(0xFF8B5CF6),
                         ),
-                        tooltip: "Gemini AI Tutor",
+                        tooltip: "AI Study Tutor",
                         onPressed: () => setState(() => _currentTabIndex = 4),
                       ),
                       IconButton(
@@ -3239,7 +3247,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       (Icons.style_outlined, cs.getFriendlyTabName(1, "Flashcards"), 1),
       (Icons.menu_book_outlined, cs.getFriendlyTabName(2, "Notebook"), 2),
       (Icons.psychology_outlined, cs.getFriendlyTabName(3, "AI Studio"), 3),
-      (Icons.auto_awesome_rounded, cs.getFriendlyTabName(4, "Gemini Tutor"), 4),
+      (Icons.auto_awesome_rounded, cs.getFriendlyTabName(4, "AI Tutor"), 4),
     ];
 
     return Container(
@@ -3455,6 +3463,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 IngestionScreen(
                   courses: _courses,
                   apiClient: widget.apiClient,
+                  draftTitle: _studioDraftTitle,
+                  draftContent: _studioDraftContent,
+                  draftRevision: _studioDraftRevision,
                   onStudySetCreated: (newSet) async {
                     await _fetchCoursesAndSync();
                     if (!mounted) return;
@@ -3479,7 +3490,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     });
                   },
                 ),
-                // Tab 4: Gemini AI Tutor
+                // Tab 4: AI Tutor
                 AiTutorScreen(apiClient: widget.apiClient, courses: _courses),
               ],
             ),
@@ -3529,7 +3540,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   BottomNavigationBarItem(
                     icon: const Icon(Icons.auto_awesome_rounded),
-                    label: ChildSafetyService.instance.getFriendlyTabName(4, "Gemini Tutor"),
+                    label: ChildSafetyService.instance.getFriendlyTabName(4, "AI Tutor"),
                   ),
                 ],
               ),

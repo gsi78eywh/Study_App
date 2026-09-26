@@ -6,6 +6,17 @@ namespace StudyApp.UnitTests;
 public class WindowsOcrExtractorTests
 {
     [Fact]
+    public async Task ExtractPdfTextAsync_InvalidPdf_ReturnsNoStudyContent()
+    {
+        var extractor = new DocumentExtractor();
+        await using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("%PDF-not-a-real-document"));
+
+        var result = await extractor.ExtractPdfTextAsync(stream);
+
+        Assert.Equal(string.Empty, result);
+    }
+
+    [Fact]
     public async Task ExtractImageTextAsync_EmptyStream_ReturnsEmptyString()
     {
         var extractor = new DocumentExtractor();

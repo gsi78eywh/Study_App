@@ -333,11 +333,11 @@ public class DocumentExtractor : IDocumentExtractor
         }
         catch (Exception ex)
         {
-            sb.AppendLine($"[Notice: Document read with fallback text parser: {ex.Message}]");
-            ms.Position = 0;
-            using var reader = new StreamReader(ms, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
-            var fallback = await reader.ReadToEndAsync(cancellationToken);
-            sb.AppendLine(CleanExtractedText(fallback));
+            // Do not send a parser exception or raw PDF bytes to the question
+            // generator. Either can be mistaken for source material and produce
+            // confident but fabricated study questions.
+            _logger?.LogWarning(ex, "Could not read selectable text from PDF");
+            return string.Empty;
         }
 
         return LimitText(sb.ToString());
@@ -370,7 +370,8 @@ public class DocumentExtractor : IDocumentExtractor
         }
         catch (Exception ex)
         {
-            sb.AppendLine($"[Notice: DOCX fallback reader: {ex.Message}]");
+            _logger?.LogWarning(ex, "Could not read text from DOCX document");
+            return string.Empty;
         }
 
         return LimitText(sb.ToString());

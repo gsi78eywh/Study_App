@@ -12,7 +12,9 @@ class ApiClient {
       BaseOptions(
         baseUrl: sessionService.baseUrl ?? ApiConstants.defaultBaseUrl,
         connectTimeout: const Duration(seconds: 20),
-        receiveTimeout: const Duration(seconds: 40),
+        // AI synthesis and OCR can legitimately take longer than a normal API
+        // call. This must outlive the backend's 90-second AI provider timeout.
+        receiveTimeout: const Duration(seconds: 120),
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",

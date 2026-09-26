@@ -47,17 +47,17 @@ class ChildSafetyService extends ChangeNotifier {
 
   void _loadFromPrefs() {
     if (_prefs == null) return;
-    _isJuniorMode = _prefs!.getBool(keyJuniorMode) ?? false;
-    _gradeLevel = _prefs!.getInt(keyGradeLevel) ?? 3;
-    final scaleStr = _prefs!.getString(keyTextScale) ?? "normal";
+    _isJuniorMode = _prefs.getBool(keyJuniorMode) ?? false;
+    _gradeLevel = _prefs.getInt(keyGradeLevel) ?? 3;
+    final scaleStr = _prefs.getString(keyTextScale) ?? "normal";
     _textScale = AccessibilityTextScale.values.firstWhere(
       (e) => e.name == scaleStr,
       orElse: () => AccessibilityTextScale.normal,
     );
-    _dyslexiaFriendlyFont = _prefs!.getBool(keyDyslexiaFont) ?? false;
-    _readAloudEnabled = _prefs!.getBool(keyReadAloud) ?? true;
-    _eyeBreakMinutes = _prefs!.getInt(keyEyeBreakMinutes) ?? 20;
-    _kidSafeAiFilter = _prefs!.getBool(keyKidSafeAi) ?? true;
+    _dyslexiaFriendlyFont = _prefs.getBool(keyDyslexiaFont) ?? false;
+    _readAloudEnabled = _prefs.getBool(keyReadAloud) ?? true;
+    _eyeBreakMinutes = _prefs.getInt(keyEyeBreakMinutes) ?? 20;
+    _kidSafeAiFilter = _prefs.getBool(keyKidSafeAi) ?? true;
     _lastEyeBreakTime = DateTime.now();
   }
 

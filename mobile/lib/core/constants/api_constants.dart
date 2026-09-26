@@ -1,11 +1,18 @@
+import "package:flutter/foundation.dart";
+
 class ApiConstants {
   // Configurable base URL:
-  // For local development: defaults to "http://localhost:5000"
+  // For local development: uses the Android emulator loopback when applicable.
   // For production (e.g. Railway): pass via flutter build --dart-define=API_BASE_URL=https://your-api.up.railway.app
-  static const String defaultBaseUrl = String.fromEnvironment(
-    "API_BASE_URL",
-    defaultValue: "http://localhost:5000",
-  );
+  static const String _configuredBaseUrl = String.fromEnvironment("API_BASE_URL");
+
+  static String get defaultBaseUrl {
+    if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
+    if (kIsWeb) return "http://localhost:5000";
+    return defaultTargetPlatform == TargetPlatform.android
+        ? "http://10.0.2.2:5000"
+        : "http://localhost:5000";
+  }
 
   // Auth endpoints
   static const String login = "/api/v1/auth/login";
@@ -30,7 +37,7 @@ class ApiConstants {
   // Courses & Starter Pack
   static const String demoPack = "/api/v1/courses/demo-pack";
 
-  // Google Gemini AI endpoints
+  // Backend AI endpoints. The mobile app never calls an AI provider directly.
   static const String aiTutor = "/api/v1/ai/tutor";
   static const String aiExplain = "/api/v1/ai/explain";
   static const String aiStatus = "/api/v1/ai/status";
