@@ -24,6 +24,8 @@ import "../../settings/screens/settings_screen.dart";
 import "../../settings/widgets/dswd_safety_modal.dart";
 import "../../../core/constants/api_constants.dart";
 import "../widgets/pomodoro_timer_sheet.dart";
+import "../widgets/grade_tracker_sheet.dart";
+import "../widgets/user_manual_sheet.dart";
 import "../widgets/eye_break_dialog.dart";
 import "../../ingestion/widgets/camera_scanner_modal.dart";
 import "../../ingestion/widgets/progressive_exam_studio.dart";
@@ -31,6 +33,8 @@ import "../../practice/models/adaptive_models.dart";
 import "../widgets/today_study_plan_widget.dart";
 import "../widgets/student_brain_modal.dart";
 import "../widgets/academic_planner_modal.dart";
+import "../widgets/notification_sheet.dart";
+import "../../../core/services/notification_service.dart";
 import "../../quiz/screens/smart_session_player_screen.dart";
 import "../../quiz/screens/mistake_bank_screen.dart";
 
@@ -61,6 +65,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _studioDraftTitle;
   String? _studioDraftContent;
   int _studioDraftRevision = 0;
+  String? _activeCourseId;
 
   Future<void> _loadStarterDemoPack() async {
     setState(() => _isLoadingDemoPack = true);
@@ -292,6 +297,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       onStartSmartSession: () => _startSmartStudySession(_todayStudyPlan?.courseId),
       onOpenMistakeBank: () => _openMistakeBank(_todayStudyPlan?.courseId),
       onOpenAcademicPlanner: () => _openAcademicPlannerModal(),
+      onLoadStarterPack: _loadStarterDemoPack,
+      onAddCourse: _showAddCourseDialog,
     );
   }
 
@@ -300,6 +307,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       context,
       apiClient: widget.apiClient,
       courses: _courses,
+      onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
     );
   }
 
@@ -825,6 +833,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (result.success && (result.syncedCourses.isNotEmpty || fullFetch)) {
         _courses = result.syncedCourses;
       }
+      if (_courses.isNotEmpty && (_activeCourseId == null || !_courses.any((c) => c.id == _activeCourseId))) {
+        _activeCourseId = _courses.first.id;
+      }
     });
     _loadTodayStudyPlan();
 
@@ -1316,24 +1327,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _exportStudyGuide(StudySetModel set) async {
+    BuildContext? loadingDialogCtx;
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text("Generating exported study guide..."),
-              ],
+      builder: (ctx) {
+        loadingDialogCtx = ctx;
+        return Center(
+          child: Card(
+            color: context.surfaceColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(color: AppColors.accent),
+                  const SizedBox(height: 16),
+                  Text(
+                    "Generating exported study guide...",
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w600,
+                      color: context.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
 
     try {
@@ -1341,9 +1364,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
         "/api/v1/studysets/${set.id}/export",
         queryParameters: {"format": "markdown"},
       );
-      if (mounted) Navigator.of(context).pop();
-      final markdownContent = response.data?.toString() ?? "";
+
+      if (loadingDialogCtx != null && loadingDialogCtx!.mounted && Navigator.canPop(loadingDialogCtx!)) {
+        Navigator.pop(loadingDialogCtx!);
+        loadingDialogCtx = null;
+      }
+
+      String markdownContent = "";
+      String exportTitle = set.title;
+      if (response.data is Map) {
+        final map = response.data as Map;
+        markdownContent = map["content"]?.toString() ?? "";
+        exportTitle = map["title"]?.toString() ?? set.title;
+      } else if (response.data is String) {
+        markdownContent = response.data as String;
+      } else {
+        markdownContent = response.data?.toString() ?? "";
+      }
+
+      if (markdownContent.trim().isEmpty) {
+        markdownContent = "# ${set.title}\n\n*No study questions or flashcards found in this set to export.*";
+      }
+
       if (!mounted) return;
+
+      final plainText = markdownContent
+          .replaceAll(RegExp(r"^#+\s*", multiLine: true), "")
+          .replaceAll(RegExp(r"\*\*([^*]+)\*\*"), r"$1")
+          .replaceAll(RegExp(r"\*([^*]+)\*"), r"$1")
+          .replaceAll(RegExp(r"`([^`]+)`"), r"$1");
 
       showDialog(
         context: context,
@@ -1352,16 +1401,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
             children: [
-              const Icon(Icons.description_outlined, color: AppColors.accent),
-              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.description_rounded, color: AppColors.accent, size: 20),
+              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  "Exported Study Guide",
+                  exportTitle,
                   style: GoogleFonts.outfit(
                     fontWeight: FontWeight.bold,
                     color: ctx.textPrimary,
                     fontSize: 18,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -1380,29 +1438,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           actions: [
-            TextButton.icon(
-              icon: const Icon(Icons.copy_rounded, size: 16),
-              label: const Text("Copy Markdown"),
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: markdownContent));
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(
-                    content: Text("Exported study guide copied to clipboard!"),
-                    duration: Duration(seconds: 2),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.end,
+              children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.text_snippet_outlined, size: 16),
+                  label: const Text("Copy Text"),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: plainText));
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(
+                        content: Text("Plain text copied to clipboard!"),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                ),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.copy_rounded, size: 16),
+                  label: const Text("Copy Markdown"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.accent,
+                    foregroundColor: Colors.white,
                   ),
-                );
-              },
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("Done"),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: markdownContent));
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(
+                        content: Text("Markdown study guide copied to clipboard!"),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text("Done"),
+                ),
+              ],
             ),
           ],
         ),
       );
     } catch (e) {
+      if (loadingDialogCtx != null && loadingDialogCtx!.mounted && Navigator.canPop(loadingDialogCtx!)) {
+        Navigator.pop(loadingDialogCtx!);
+      }
       if (mounted) {
-        Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text("Failed to export study guide: $e"),
@@ -1821,6 +1905,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildQuickActionChip({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onTap,
+    bool isLoading = false,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          height: 38,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withValues(alpha: 0.35), width: 1.2),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isLoading)
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: color),
+                )
+              else
+                Icon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildChildSafetyBanner(BuildContext context) {
     return ListenableBuilder(
       listenable: ChildSafetyService.instance,
@@ -1860,83 +1991,100 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 crossAxisAlignment: WrapCrossAlignment.center,
                 alignment: WrapAlignment.spaceBetween,
                 children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Mode indicator chip
-                      InkWell(
-                        onTap: () => _showJuniorModeDialog(),
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: cs.isJuniorMode ? const Color(0xFFF59E0B) : const Color(0xFF6366F1),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                cs.isJuniorMode ? '🐣 Junior Mode (${cs.gradeLevelText})' : '🎓 Standard Mode',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              const Icon(Icons.arrow_drop_down, color: Colors.white, size: 16),
-                            ],
-                          ),
+                  // Mode indicator chip with descriptive tooltip
+                  Tooltip(
+                    message: "Study Mode Selector: Standard Academic Mode, Junior Learner Mode (Grades 1-6), or Exam Cram Sprint. Tap to switch.",
+                    child: InkWell(
+                      onTap: () => _showJuniorModeDialog(),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: cs.isJuniorMode ? const Color(0xFFF59E0B) : const Color(0xFF6366F1),
+                          borderRadius: BorderRadius.circular(20),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-
-                      // DSWD Compliant Badge
-                      InkWell(
-                        onTap: () => DswdSafetyModal.show(context),
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: Colors.teal.shade700,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.verified_user_rounded, color: Colors.white, size: 14),
-                              SizedBox(width: 4),
-                              Text(
-                                '🛡️ DSWD Safe • 1383',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              cs.isJuniorMode ? '🐣 Junior Mode (${cs.gradeLevelText})' : '🎓 Standard Mode',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
                               ),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.arrow_drop_down, color: Colors.white, size: 16),
+                          ],
                         ),
-                      ),
-                    ],
-                  ),
-
-                  // 20-20-20 Eye Break quick button
-                  TextButton.icon(
-                    onPressed: () => EyeBreakDialog.show(context),
-                    icon: const Text('🌿', style: TextStyle(fontSize: 14)),
-                    label: Text(
-                      'Eye Rest (20-20-20)',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.tealAccent : Colors.teal.shade900,
                       ),
                     ),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      visualDensity: VisualDensity.compact,
+                  ),
+
+                  // DSWD Compliant Badge with clear tooltip
+                  Tooltip(
+                    message: "DSWD Safety & Child Protection (MAKABATA 1383 Helpline): Educational safe filtering, PII privacy protection, and child welfare guardrails. Tap for safety details.",
+                    child: InkWell(
+                      onTap: () => DswdSafetyModal.show(context),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.teal.shade700,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.verified_user_rounded, color: Colors.white, size: 14),
+                            SizedBox(width: 4),
+                            Text(
+                              '🛡️ DSWD Safe • 1383',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // 20-20-20 Eye Break quick button with clear touchable affordance
+                  Tooltip(
+                    message: "20-20-20 Screen Wellness: Every 20 minutes, look at an object 20 feet away for 20 seconds to prevent digital eye strain.",
+                    child: InkWell(
+                      onTap: () => EyeBreakDialog.show(context),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF064E3B) : const Color(0xFFD1FAE5),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: isDark ? const Color(0xFF10B981) : const Color(0xFF059669),
+                            width: 1.2,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('🌿', style: TextStyle(fontSize: 13)),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Eye Rest (20-20-20)',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? const Color(0xFFA7F3D0) : const Color(0xFF065F46),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -1972,67 +2120,263 @@ class _DashboardScreenState extends State<DashboardScreen> {
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Row(
-            children: [
-              Text('🐣', style: TextStyle(fontSize: 24)),
-              SizedBox(width: 8),
-              Text('Learner Mode & Grade Level', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Switch between Junior Learner Mode (Grades 1–6) with DSWD child-safe vocabulary and Standard Mode for older students.',
-                style: TextStyle(fontSize: 13, height: 1.4),
-              ),
-              const SizedBox(height: 16),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Junior Learner Mode', style: TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text('Simplified vocabulary & encouraging guidance'),
-                value: cs.isJuniorMode,
-                onChanged: (val) {
-                  cs.setJuniorMode(val);
-                  setDialogState(() {});
-                  setState(() {});
-                },
-              ),
-              if (cs.isJuniorMode) ...[
-                const SizedBox(height: 8),
-                const Text('Grade Level:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  children: List.generate(6, (i) {
-                    final grade = i + 1;
-                    final isSelected = cs.gradeLevel == grade;
-                    return ChoiceChip(
-                      label: Text('Grade $grade'),
-                      selected: isSelected,
-                      onSelected: (selected) {
-                        if (selected) {
-                          cs.setGradeLevel(grade);
-                          setDialogState(() {});
-                          setState(() {});
-                        }
-                      },
-                    );
-                  }),
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            backgroundColor: context.surfaceColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Row(
+              children: [
+                const Icon(Icons.tune_rounded, color: Color(0xFF6366F1), size: 22),
+                const SizedBox(width: 10),
+                Text(
+                  'Select Study Mode',
+                  style: GoogleFonts.outfit(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: context.textPrimary,
+                  ),
                 ),
               ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Done'),
             ),
-          ],
-        ),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Antigravity adapts question difficulty, vocabulary, and pacing to match your learning stage:',
+                      style: TextStyle(fontSize: 12.5, color: context.textSecondary, height: 1.4),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Option 1: Standard Mode
+                    InkWell(
+                      onTap: () {
+                        cs.setJuniorMode(false);
+                        setDialogState(() {});
+                        setState(() {});
+                      },
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: !cs.isJuniorMode
+                              ? const Color(0xFF6366F1).withValues(alpha: 0.1)
+                              : context.secondaryBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: !cs.isJuniorMode
+                                ? const Color(0xFF6366F1)
+                                : context.cardBorderColor,
+                            width: !cs.isJuniorMode ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Text('🎓', style: TextStyle(fontSize: 24)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'Standard Mode',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: context.textPrimary,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      if (!cs.isJuniorMode)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF6366F1),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Text('Active', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Comprehensive college/senior high pacing, complete explanations & full question taxonomy.',
+                                    style: TextStyle(fontSize: 11.5, color: context.textSecondary),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Option 2: Junior Learner Mode
+                    InkWell(
+                      onTap: () {
+                        cs.setJuniorMode(true);
+                        setDialogState(() {});
+                        setState(() {});
+                      },
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: cs.isJuniorMode
+                              ? const Color(0xFFF59E0B).withValues(alpha: 0.12)
+                              : context.secondaryBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: cs.isJuniorMode
+                                ? const Color(0xFFF59E0B)
+                                : context.cardBorderColor,
+                            width: cs.isJuniorMode ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Text('🐣', style: TextStyle(fontSize: 24)),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Text(
+                                            'Junior Learner Mode',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                              color: context.textPrimary,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          if (cs.isJuniorMode)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFF59E0B),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: const Text('Active', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                            ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Grades 1–6: Simplified vocabulary, cheerful hints, audio read-aloud & DSWD child protections.',
+                                        style: TextStyle(fontSize: 11.5, color: context.textSecondary),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (cs.isJuniorMode) ...[
+                              const SizedBox(height: 10),
+                              const Divider(height: 1),
+                              const SizedBox(height: 8),
+                              Text('Select Grade Level:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: context.textPrimary)),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 6,
+                                children: List.generate(6, (i) {
+                                  final grade = i + 1;
+                                  final isSelected = cs.gradeLevel == grade;
+                                  return ChoiceChip(
+                                    label: Text('Grade $grade', style: const TextStyle(fontSize: 11)),
+                                    selected: isSelected,
+                                    selectedColor: const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                                    onSelected: (selected) {
+                                      if (selected) {
+                                        cs.setGradeLevel(grade);
+                                        setDialogState(() {});
+                                        setState(() {});
+                                      }
+                                    },
+                                  );
+                                }),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Option 3: Exam Cram Sprint
+                    InkWell(
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        if (_todayStudyPlan?.courseId != null) {
+                          _startSmartStudySession(_todayStudyPlan!.courseId);
+                        } else if (_courses.isNotEmpty) {
+                          _startSmartStudySession(_courses.first.id);
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Add a course or load the Starter Demo Pack to begin Exam Cram.")),
+                          );
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF4444).withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Text('⚡', style: TextStyle(fontSize: 24)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Exam Cram Sprint',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                      color: context.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'High-yield retrieval drills prioritizing your mistake bank and weak topics for rapid review.',
+                                    style: TextStyle(fontSize: 11.5, color: context.textSecondary),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFFEF4444)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Done'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -2063,19 +2407,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [
               // Student Welcome Header
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          "Welcome back, $displayName 👋",
-                          style: GoogleFonts.outfit(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: context.textPrimary,
-                          ),
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: [
+                            Text(
+                              "Welcome back, $displayName 👋",
+                              style: GoogleFonts.outfit(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: context.textPrimary,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF97316).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: const Color(0xFFF97316).withValues(alpha: 0.4),
+                                ),
+                              ),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text("🔥", style: TextStyle(fontSize: 12)),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      "${_todayStudyPlan?.readiness.spacingDaysActive ?? 1}-Day Streak",
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: const Color(0xFFF97316),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -2092,14 +2471,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(width: 6),
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
+                      ListenableBuilder(
+                        listenable: NotificationService.instance,
+                        builder: (context, _) {
+                          final unread = NotificationService.instance.unreadCount;
+                          return IconButton(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                            icon: Badge(
+                              isLabelVisible: unread > 0,
+                              label: Text("$unread", style: const TextStyle(fontSize: 10)),
+                              child: const Icon(
+                                Icons.notifications_outlined,
+                                color: Color(0xFF6366F1),
+                                size: 22,
+                              ),
+                            ),
+                            tooltip: "Notifications & Reminders",
+                            onPressed: () => NotificationSheet.show(context),
+                          );
+                        },
+                      ),
                       ListenableBuilder(
                         listenable: ThemeController.instance,
                         builder: (context, _) {
                           final currentIsDark =
                               ThemeController.instance.isDarkMode;
                           return IconButton(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                             icon: Icon(
                               currentIsDark
                                   ? Icons.light_mode_rounded
@@ -2107,6 +2513,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               color: currentIsDark
                                   ? const Color(0xFFF59E0B)
                                   : AppColors.primaryDark,
+                              size: 22,
                             ),
                             tooltip: currentIsDark
                                 ? "Switch to Light Mode"
@@ -2117,36 +2524,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         },
                       ),
                       IconButton(
-                        icon: const Icon(
-                          Icons.auto_awesome_rounded,
-                          color: Color(0xFF8B5CF6),
-                        ),
-                        tooltip: "AI Study Tutor",
-                        onPressed: () => setState(() => _currentTabIndex = 4),
-                      ),
-                      IconButton(
-                        icon: _isSyncing
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppColors.accent,
-                                ),
-                              )
-                            : const Icon(
-                                Icons.sync_rounded,
-                                color: AppColors.accent,
-                              ),
-                        tooltip: "Sync with Cloud",
-                        onPressed: _isSyncing
-                            ? null
-                            : () => _fetchCoursesAndSync(showSnackBar: true),
-                      ),
-                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.all(4),
+                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                         icon: const Icon(
                           Icons.settings_outlined,
                           color: Color(0xFF6366F1),
+                          size: 22,
                         ),
                         tooltip: "Study Configurations",
                         onPressed: () {
@@ -2162,17 +2546,82 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           );
                         },
                       ),
-                      IconButton(
-                        icon: Icon(
-                          Icons.logout_rounded,
-                          color: context.textSecondary,
-                        ),
-                        tooltip: "Sign Out",
-                        onPressed: _handleLogout,
-                      ),
                     ],
                   ),
                 ],
+              ),
+              const SizedBox(height: 12),
+
+              // Dedicated Quick Actions Bar
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: Row(
+                  children: [
+                    _buildQuickActionChip(
+                      icon: Icons.notifications_active_rounded,
+                      label: "Reminders",
+                      color: const Color(0xFF6366F1),
+                      onTap: () => NotificationSheet.show(context),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildQuickActionChip(
+                      icon: Icons.auto_awesome_rounded,
+                      label: "AI Tutor",
+                      color: const Color(0xFF8B5CF6),
+                      onTap: () => setState(() => _currentTabIndex = 4),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildQuickActionChip(
+                      icon: Icons.menu_book_rounded,
+                      label: "User Manual",
+                      color: const Color(0xFF10B981),
+                      onTap: () => UserManualSheet.show(
+                        context,
+                        onOpenIngest: () => setState(() => _currentTabIndex = 3),
+                        onOpenGradeTracker: () => GradeTrackerSheet.show(
+                          context,
+                          widget.apiClient,
+                          onGradesUpdated: () {
+                            _fetchCoursesAndSync(fullFetch: true);
+                            _loadTodayStudyPlan();
+                          },
+                        ),
+                        onOpenFlashcards: () => setState(() => _currentTabIndex = 1),
+                        onOpenAiTutor: () => setState(() => _currentTabIndex = 4),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildQuickActionChip(
+                      icon: Icons.sync_rounded,
+                      label: _isSyncing ? "Syncing..." : "Cloud Sync",
+                      color: AppColors.accent,
+                      isLoading: _isSyncing,
+                      onTap: _isSyncing ? null : () => _fetchCoursesAndSync(showSnackBar: true),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildQuickActionChip(
+                      icon: Icons.grade_rounded,
+                      label: "Grade Tracker",
+                      color: const Color(0xFFF59E0B),
+                      onTap: () => GradeTrackerSheet.show(
+                        context,
+                        widget.apiClient,
+                        onGradesUpdated: () {
+                          _fetchCoursesAndSync(fullFetch: true);
+                          _loadTodayStudyPlan();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildQuickActionChip(
+                      icon: Icons.logout_rounded,
+                      label: "Sign Out",
+                      color: const Color(0xFFEF4444),
+                      onTap: _handleLogout,
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
 
@@ -2224,41 +2673,62 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: context.cardBorderColor),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _buildStatItem(
-                          "Enrolled",
-                          "${_courses.length}",
-                          "Courses",
-                          Icons.book_rounded,
-                          isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minWidth: constraints.maxWidth > 60 ? constraints.maxWidth - 40 : 320,
                         ),
-                        Container(
-                          height: 36,
-                          width: 1,
-                          color: context.cardBorderColor,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildStatItem(
+                              "Enrolled",
+                              "${_courses.length}",
+                              "Courses",
+                              Icons.book_rounded,
+                              isDark ? AppColors.primaryLight : AppColors.primaryDark,
+                            ),
+                            Container(
+                              height: 36,
+                              width: 1,
+                              color: context.cardBorderColor,
+                            ),
+                            _buildStatItem(
+                              "Active Sets",
+                              "$totalSets",
+                              "Study Sets",
+                              Icons.auto_stories_rounded,
+                              AppColors.accent,
+                            ),
+                            Container(
+                              height: 36,
+                              width: 1,
+                              color: context.cardBorderColor,
+                            ),
+                            _buildStatItem(
+                              "Synthesized",
+                              "$totalQuestions",
+                              "Questions",
+                              Icons.psychology_rounded,
+                              AppColors.warning,
+                            ),
+                            Container(
+                              height: 36,
+                              width: 1,
+                              color: context.cardBorderColor,
+                            ),
+                            _buildStatItem(
+                              "Streak",
+                              "${_todayStudyPlan?.readiness.spacingDaysActive ?? 1}d",
+                              "Momentum",
+                              Icons.local_fire_department_rounded,
+                              const Color(0xFFF97316),
+                            ),
+                          ],
                         ),
-                        _buildStatItem(
-                          "Active Sets",
-                          "$totalSets",
-                          "Study Sets",
-                          Icons.auto_stories_rounded,
-                          AppColors.accent,
-                        ),
-                        Container(
-                          height: 36,
-                          width: 1,
-                          color: context.cardBorderColor,
-                        ),
-                        _buildStatItem(
-                          "Synthesized",
-                          "$totalQuestions",
-                          "Questions",
-                          Icons.psychology_rounded,
-                          AppColors.warning,
-                        ),
-                      ],
+                      ),
                     ),
                   );
 
@@ -2271,67 +2741,74 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         color: const Color(0xFFEC4899).withValues(alpha: 0.35),
                       ),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                    child: Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 12,
+                      runSpacing: 10,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEC4899).withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.timer_outlined,
-                            color: Color(0xFFEC4899),
-                            size: 20,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Row(
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEC4899).withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.timer_outlined,
+                                color: Color(0xFFEC4899),
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(
-                                  "${_settingsService.settings.pomodoroFocusMinutes}:00",
-                                  style: GoogleFonts.outfit(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: context.textPrimary,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEC4899).withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: const Text(
-                                    "FOCUS",
-                                    style: TextStyle(
-                                      color: Color(0xFFEC4899),
-                                      fontSize: 9.5,
-                                      fontWeight: FontWeight.bold,
+                                Row(
+                                  children: [
+                                    Text(
+                                      "${_settingsService.settings.pomodoroFocusMinutes}:00",
+                                      style: GoogleFonts.outfit(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: context.textPrimary,
+                                      ),
                                     ),
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFEC4899).withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: const Text(
+                                        "FOCUS",
+                                        style: TextStyle(
+                                          color: Color(0xFFEC4899),
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  "Spaced Study Interval",
+                                  style: TextStyle(
+                                    color: context.textSecondary,
+                                    fontSize: 11,
                                   ),
                                 ),
                               ],
                             ),
-                            Text(
-                              "Spaced Study Interval",
-                              style: TextStyle(
-                                color: context.textSecondary,
-                                fontSize: 11,
-                              ),
-                            ),
                           ],
                         ),
-                        const SizedBox(width: 14),
                         ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFFEC4899),
@@ -2356,6 +2833,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 _settingsService.settings.pomodoroFocusMinutes,
                             shortBreakMinutes:
                                 _settingsService.settings.pomodoroShortBreakMinutes,
+                            activeCourseCode: _todayStudyPlan?.courseCode,
+                            activeCourseName: _todayStudyPlan?.courseName,
+                            onStartStudySession: () => _startSmartStudySession(_todayStudyPlan?.courseId),
                           ),
                         ),
                       ],
@@ -2394,10 +2874,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
                       children: [
                         Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             const Icon(
                               Icons.bolt_rounded,
@@ -2429,17 +2913,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     Row(
                       children: [
                         _buildQuickActionCard(
-                          "Scan Notes",
-                          "In-app camera OCR",
+                          "Scan & Ingest Notes",
+                          "Camera OCR, PDF & docs",
                           Icons.document_scanner_rounded,
-                          const Color(0xFF06B6D4),
-                          () => _openCameraScanner(),
-                        ),
-                        const SizedBox(width: 8),
-                        _buildQuickActionCard(
-                          "Upload Notes",
-                          "PDF, docs & images",
-                          Icons.add_photo_alternate_outlined,
                           const Color(0xFF6366F1),
                           () => setState(() => _currentTabIndex = 3),
                         ),
@@ -2453,8 +2929,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                         const SizedBox(width: 8),
                         _buildQuickActionCard(
-                          "Flashcards",
-                          "Spaced recall",
+                          "Flashcards Deck",
+                          "Spaced retrieval",
                           Icons.style_outlined,
                           const Color(0xFF10B981),
                           () => setState(() => _currentTabIndex = 1),
@@ -2487,13 +2963,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     children: [
                       OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: isDark
-                              ? AppColors.primaryLight
-                              : AppColors.primaryDark,
-                          side: BorderSide(
-                            color: isDark
-                                ? AppColors.primary
-                                : AppColors.primaryDark,
+                          foregroundColor: const Color(0xFF10B981),
+                          side: const BorderSide(
+                            color: Color(0xFF10B981),
                           ),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 12,
@@ -2503,15 +2975,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             borderRadius: BorderRadius.circular(10),
                           ),
                         ),
-                        icon: const Icon(Icons.auto_awesome, size: 16),
+                        icon: const Icon(Icons.bar_chart_rounded, size: 16),
                         label: const Text(
-                          "AI Studio",
+                          "Grade Tracker",
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 12,
                           ),
                         ),
-                        onPressed: () => setState(() => _currentTabIndex = 3),
+                        onPressed: () => GradeTrackerSheet.show(
+                          context,
+                          widget.apiClient,
+                          onGradesUpdated: () { _fetchCoursesAndSync(fullFetch: true); _loadTodayStudyPlan(); },
+                        ),
                       ),
                       ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
@@ -2589,7 +3065,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           const SizedBox(height: 18),
                           Text(
-                            "Your Learning Workspace is Ready",
+                            "Welcome to Your Connected Study Loop",
                             style: GoogleFonts.outfit(
                               fontSize: 20,
                               color: context.textPrimary,
@@ -2598,7 +3074,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            "You haven't created any courses yet. Create your first academic subject or explore our pre-configured biology deck to start active recall.",
+                            "One seamless loop: add lecture notes, generate spaced flashcards, and master weak spots through AI retrieval drills.",
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: context.textSecondary,
@@ -2606,74 +3082,88 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               height: 1.5,
                             ),
                           ),
-                          const SizedBox(height: 24),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            alignment: WrapAlignment.center,
+                          const SizedBox(height: 18),
+
+                          // Connected 3-Step Flow Preview
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: context.secondaryBg,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: context.cardBorderColor),
+                            ),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              physics: const BouncingScrollPhysics(),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                children: [
+                                  _buildLoopStep("1. Course", Icons.school_outlined, "Add Course"),
+                                  const SizedBox(width: 8),
+                                  const Icon(Icons.arrow_forward_rounded, size: 14, color: Color(0xFF6366F1)),
+                                  const SizedBox(width: 8),
+                                  _buildLoopStep("2. Notes", Icons.notes_rounded, "Lecture 1"),
+                                  const SizedBox(width: 8),
+                                  const Icon(Icons.arrow_forward_rounded, size: 14, color: Color(0xFF6366F1)),
+                                  const SizedBox(width: 8),
+                                  _buildLoopStep("3. Mastery", Icons.bolt_rounded, "Flashcards"),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
+                              // Single Primary CTA: Create Your First Course
                               ElevatedButton.icon(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: isDark
-                                      ? AppColors.primary
-                                      : AppColors.primaryDark,
+                                  backgroundColor: const Color(0xFF6366F1),
                                   foregroundColor: Colors.white,
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 22,
-                                    vertical: 14,
+                                    horizontal: 28,
+                                    vertical: 16,
                                   ),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(14),
                                   ),
-                                  elevation: 2,
+                                  elevation: 4,
                                 ),
-                                icon: const Icon(Icons.add_rounded, size: 18),
+                                icon: const Icon(Icons.add_rounded, size: 20),
                                 label: const Text(
-                                  "Create Course",
-                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                  "Create Your First Course",
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                                 ),
                                 onPressed: _showAddCourseDialog,
                               ),
-                              OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xFF6366F1),
-                                  side: const BorderSide(
-                                    color: Color(0xFF6366F1),
-                                    width: 1.2,
-                                  ),
+                              const SizedBox(height: 10),
+                              // Receded Secondary Action: Explore with demo pack
+                              TextButton.icon(
+                                style: TextButton.styleFrom(
+                                  foregroundColor: context.textSecondary,
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 18,
-                                    vertical: 14,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
+                                    horizontal: 16,
+                                    vertical: 8,
                                   ),
                                 ),
                                 icon: _isLoadingDemoPack
                                     ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
+                                        width: 14,
+                                        height: 14,
                                         child: CircularProgressIndicator(
                                           strokeWidth: 2,
                                           color: Color(0xFF6366F1),
                                         ),
                                       )
-                                    : const Icon(
-                                        Icons.auto_awesome_rounded,
-                                        size: 18,
-                                      ),
+                                    : const Icon(Icons.auto_awesome_outlined, size: 16),
                                 label: Text(
                                   _isLoadingDemoPack
-                                      ? "Loading..."
-                                      : "Load Starter Demo Pack",
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13,
-                                  ),
+                                      ? "Loading Sample Curriculum..."
+                                      : "Or explore with Starter Demo Pack",
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                                 ),
-                                onPressed: _isLoadingDemoPack
-                                    ? null
-                                    : _loadStarterDemoPack,
+                                onPressed: _isLoadingDemoPack ? null : _loadStarterDemoPack,
                               ),
                             ],
                           ),
@@ -3240,6 +3730,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildLoopStep(String title, IconData icon, String detail) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF6366F1).withValues(alpha: 0.12),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, size: 18, color: const Color(0xFF6366F1)),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          title,
+          style: GoogleFonts.inter(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: context.textPrimary,
+          ),
+        ),
+        Text(
+          detail,
+          style: GoogleFonts.inter(
+            fontSize: 10,
+            color: context.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildDesktopSidebar(bool isDark) {
     final cs = ChildSafetyService.instance;
     final navItems = [
@@ -3376,18 +3898,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const Divider(height: 1),
           // Sidebar Footer with utilities
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Wrap(
+              alignment: WrapAlignment.spaceAround,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 2,
+              runSpacing: 4,
               children: [
                 ListenableBuilder(
                   listenable: ThemeController.instance,
                   builder: (context, _) {
                     final currentIsDark = ThemeController.instance.isDarkMode;
                     return IconButton(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.all(6),
+                      constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
                       icon: Icon(
                         currentIsDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-                        size: 20,
+                        size: 19,
                         color: currentIsDark ? const Color(0xFFF59E0B) : AppColors.primaryDark,
                       ),
                       tooltip: currentIsDark ? "Switch to Light Mode" : "Switch to Dark Mode",
@@ -3396,12 +3924,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   },
                 ),
                 IconButton(
-                  icon: const Icon(Icons.verified_user_rounded, size: 20, color: Colors.teal),
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.all(6),
+                  constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                  icon: const Icon(Icons.menu_book_rounded, size: 19, color: Color(0xFF10B981)),
+                  tooltip: "User Manual & Feature Guide",
+                  onPressed: () => UserManualSheet.show(
+                    context,
+                    onOpenIngest: () => setState(() => _currentTabIndex = 3),
+                    onOpenGradeTracker: () => GradeTrackerSheet.show(
+                      context,
+                      widget.apiClient,
+                      onGradesUpdated: () { _fetchCoursesAndSync(fullFetch: true); _loadTodayStudyPlan(); },
+                    ),
+                    onOpenFlashcards: () => setState(() => _currentTabIndex = 1),
+                    onOpenAiTutor: () => setState(() => _currentTabIndex = 4),
+                  ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.all(6),
+                  constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                  icon: const Icon(Icons.verified_user_rounded, size: 19, color: Colors.teal),
                   tooltip: "DSWD Child Safeguard & MAKABATA 1383",
                   onPressed: () => DswdSafetyModal.show(context),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.settings_outlined, size: 20, color: Color(0xFF6366F1)),
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.all(6),
+                  constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                  icon: const Icon(Icons.settings_outlined, size: 19, color: Color(0xFF6366F1)),
                   tooltip: "Study Configurations",
                   onPressed: () {
                     Navigator.of(context).push(
@@ -3417,7 +3969,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   },
                 ),
                 IconButton(
-                  icon: Icon(Icons.logout_rounded, size: 20, color: context.textSecondary),
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.all(6),
+                  constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                  icon: Icon(Icons.logout_rounded, size: 19, color: context.textSecondary),
                   tooltip: "Sign Out",
                   onPressed: _handleLogout,
                 ),
@@ -3463,6 +4018,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 IngestionScreen(
                   courses: _courses,
                   apiClient: widget.apiClient,
+                  initialCourseId: _activeCourseId,
+                  onCourseSelected: (id) => setState(() => _activeCourseId = id),
                   draftTitle: _studioDraftTitle,
                   draftContent: _studioDraftContent,
                   draftRevision: _studioDraftRevision,

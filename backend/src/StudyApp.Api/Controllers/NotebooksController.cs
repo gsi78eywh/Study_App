@@ -23,7 +23,12 @@ public sealed class NotebooksController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetNotes([FromQuery] Guid? courseId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetNotes(
+        [FromQuery] Guid? courseId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        [FromQuery] string? search = null,
+        CancellationToken cancellationToken = default)
     {
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
@@ -37,8 +42,26 @@ public sealed class NotebooksController : ControllerBase
             query = query.Where(n => n.CourseId == courseId.Value);
         }
 
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var searchTrimmed = search.Trim();
+            query = query.Where(n => n.Title.Contains(searchTrimmed) || n.ContentMarkdown.Contains(searchTrimmed));
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var effectivePage = Math.Max(1, page);
+        var effectivePageSize = Math.Clamp(pageSize, 1, 100);
+        var totalPages = (int)Math.Ceiling(totalCount / (double)effectivePageSize);
+
+        Response.Headers["X-Pagination-Total-Count"] = totalCount.ToString();
+        Response.Headers["X-Pagination-Page"] = effectivePage.ToString();
+        Response.Headers["X-Pagination-Page-Size"] = effectivePageSize.ToString();
+        Response.Headers["X-Pagination-Total-Pages"] = totalPages.ToString();
+
         var notes = await query
             .OrderByDescending(n => n.UpdatedAt ?? n.CreatedAt)
+            .Skip((effectivePage - 1) * effectivePageSize)
+            .Take(effectivePageSize)
             .Select(n => new
             {
                 n.Id,
@@ -165,6 +188,49 @@ public sealed class NotebooksController : ControllerBase
         await _context.SaveChangesAsync(cancellationToken);
 
         return NoContent();
+    }
+
+    [HttpGet("{id:guid}/export")]
+    public async Task<IActionResult> ExportNote(Guid id, [FromQuery] string format = "markdown", CancellationToken cancellationToken = default)
+    {
+        var userId = GetUserId();
+        if (userId is null) return Unauthorized();
+
+        var note = await _context.NotebookPages
+            .Include(page => page.Course)
+            .SingleOrDefaultAsync(page => page.Id == id && page.Course != null && page.Course.UserId == userId.Value, cancellationToken);
+
+        if (note is null) return NotFound(new { message = "Note not found." });
+
+        var courseName = note.Course?.Name ?? "General Notes";
+        var courseCode = note.Course?.Code ?? "GENERAL";
+        var cleanTitle = string.Join("_", note.Title.Split(Path.GetInvalidFileNameChars())).Replace(" ", "_");
+        var fileName = $"{cleanTitle}.md";
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"# {note.Title}");
+        sb.AppendLine($"**Course:** {courseCode} - {courseName}");
+        sb.AppendLine($"**Date:** {note.UpdatedAt ?? note.CreatedAt:yyyy-MM-dd HH:mm UTC}");
+        sb.AppendLine();
+        sb.AppendLine(note.ContentMarkdown);
+
+        var content = sb.ToString();
+        var acceptHeader = Request.Headers.Accept.ToString();
+        if (acceptHeader.Contains("application/json") || format.Equals("json", StringComparison.OrdinalIgnoreCase))
+        {
+            return Ok(new
+            {
+                noteId = note.Id,
+                title = note.Title,
+                courseCode,
+                courseName,
+                fileName,
+                content,
+                format = "markdown"
+            });
+        }
+
+        return File(System.Text.Encoding.UTF8.GetBytes(content), "text/markdown", fileName);
     }
 
     private Guid? GetUserId() => Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId) ? userId : null;

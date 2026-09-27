@@ -19,6 +19,8 @@ class IngestionScreen extends StatefulWidget {
   final String? draftTitle;
   final String? draftContent;
   final int draftRevision;
+  final String? initialCourseId;
+  final ValueChanged<String>? onCourseSelected;
 
   const IngestionScreen({
     super.key,
@@ -28,6 +30,8 @@ class IngestionScreen extends StatefulWidget {
     this.draftTitle,
     this.draftContent,
     this.draftRevision = 0,
+    this.initialCourseId,
+    this.onCourseSelected,
   });
 
   @override
@@ -48,9 +52,13 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   int _targetCount = 10;
   bool _isLoading = false;
   bool _fastMode = false;
+  bool _showAdvancedExamOptions = false;
   bool _isScanning = false;
   bool _isExtractingTextToEditor = false;
   bool _isScrapingUrl = false;
+  bool _isSavingToNotebook = false;
+  bool _isSynthesizingTranscript = false;
+  final _transcriptTextController = TextEditingController();
   Map<String, dynamic>? _scannedResult;
   int _loadingStep = 0;
   Timer? _stepTimer;
@@ -113,15 +121,29 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _selectedCourseId = widget.courses.isNotEmpty ? widget.courses.first.id : "";
+    if (widget.initialCourseId != null &&
+        widget.initialCourseId!.isNotEmpty &&
+        widget.courses.any((c) => c.id == widget.initialCourseId)) {
+      _selectedCourseId = widget.initialCourseId!;
+    } else {
+      _selectedCourseId = widget.courses.isNotEmpty ? widget.courses.first.id : "";
+    }
     _applyIncomingDraft();
   }
 
   @override
   void didUpdateWidget(IngestionScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_selectedCourseId.isEmpty && widget.courses.isNotEmpty) {
-      _selectedCourseId = widget.courses.first.id;
+    if (widget.courses.isNotEmpty) {
+      final hasSelected = widget.courses.any((c) => c.id == _selectedCourseId);
+      final hasInitial = widget.initialCourseId != null &&
+          widget.courses.any((c) => c.id == widget.initialCourseId);
+
+      if (!hasSelected) {
+        _selectedCourseId = hasInitial ? widget.initialCourseId! : widget.courses.first.id;
+      } else if (widget.initialCourseId != oldWidget.initialCourseId && hasInitial) {
+        _selectedCourseId = widget.initialCourseId!;
+      }
     }
     if (widget.draftRevision != oldWidget.draftRevision) {
       _applyIncomingDraft();
@@ -150,6 +172,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     _titleController.dispose();
     _textController.dispose();
     _urlController.dispose();
+    _transcriptTextController.dispose();
     super.dispose();
   }
 
@@ -195,7 +218,6 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
       final files = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ["pdf", "docx", "txt", "md", "png", "jpg", "jpeg", "webp", "bmp"],
-        withData: true,
       );
 
       if (files.isNotEmpty) {
@@ -494,6 +516,128 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     } finally {
       if (mounted) {
         setState(() => _isExtractingTextToEditor = false);
+      }
+    }
+  }
+
+
+  Future<void> _saveExtractedNotesToNotebook() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No note content to save yet. Type or extract notes first.")),
+      );
+      return;
+    }
+
+    final title = _titleController.text.trim().isNotEmpty
+        ? _titleController.text.trim()
+        : "Lecture Notes (${DateTime.now().month}/${DateTime.now().day})";
+
+    setState(() => _isSavingToNotebook = true);
+
+    try {
+      final success = await widget.apiClient.saveNotebookNote(
+        courseId: _selectedCourseId,
+        title: title,
+        markdown: text,
+      );
+
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text("✓ '$title' saved directly to your Course Notebook!")),
+                ],
+              ),
+              backgroundColor: const Color(0xFF10B981),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Could not save note to server. Please verify connection."),
+              backgroundColor: Color(0xFFEF4444),
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingToNotebook = false);
+      }
+    }
+  }
+
+  Future<void> _generateFromTranscriptOrYouTube() async {
+    final url = _urlController.text.trim();
+    final transcript = _transcriptTextController.text.trim();
+
+    if (url.isEmpty && transcript.isEmpty) {
+      setState(() => _errorMessage = "Please enter a YouTube/Article URL or paste a lecture transcript.");
+      return;
+    }
+
+    setState(() {
+      _isSynthesizingTranscript = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final title = _titleController.text.trim().isNotEmpty ? _titleController.text.trim() : null;
+      final res = await widget.apiClient.transcriptToNotes(
+        courseId: _selectedCourseId,
+        title: title,
+        content: transcript.isNotEmpty ? transcript : null,
+        url: url.isNotEmpty ? url : null,
+        generateFlashcards: true,
+      );
+
+      if (mounted) {
+        if (res != null) {
+          final contentMarkdown = res["contentMarkdown"]?.toString() ?? "";
+          final noteTitle = res["title"]?.toString() ?? "Lecture Notes";
+          final flashcardCount = res["questionCount"] ?? 0;
+
+          setState(() {
+            _textController.text = contentMarkdown;
+            _titleController.text = noteTitle;
+            _tabController.animateTo(0);
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.auto_awesome_rounded, color: Color(0xFFFDE047), size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "✓ Created structured Cornell Notes & $flashcardCount Flashcards saved to Notebook!",
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: const Color(0xFF10B981),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        } else {
+          setState(() => _errorMessage = "Could not process video or transcript. Please verify URL or transcript text.");
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _errorMessage = "Transcript processing error: $e");
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSynthesizingTranscript = false);
       }
     }
   }
@@ -1240,6 +1384,30 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                         ),
                         OutlinedButton.icon(
                           style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF10B981),
+                            side: const BorderSide(color: Color(0xFF10B981)),
+                          ),
+                          icon: const Icon(Icons.bookmark_add_rounded, size: 16),
+                          label: const Text("Save to Notebook"),
+                          onPressed: () async {
+                            final noteTitle = fileName.split('.').first;
+                            final ok = await widget.apiClient.saveNotebookNote(
+                              courseId: _selectedCourseId,
+                              title: noteTitle.isNotEmpty ? noteTitle : "Scanned Notes",
+                              markdown: extractedText,
+                            );
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(ok ? "✓ Scanned notes saved to Course Notebook!" : "Could not save notes. Check connection."),
+                                  backgroundColor: ok ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
                             foregroundColor: const Color(0xFF8B5CF6),
                             side: const BorderSide(color: Color(0xFF8B5CF6)),
                           ),
@@ -1279,67 +1447,6 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           },
         );
       },
-    );
-  }
-
-  void _showGeminiKeyDialog() {
-    final controller = TextEditingController(text: widget.apiClient.sessionService.geminiApiKey ?? "");
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: ctx.surfaceColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            const Icon(Icons.auto_awesome, color: AppColors.accent, size: 22),
-            const SizedBox(width: 8),
-            Text("Gemini Vision OCR Key", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 16, color: ctx.textPrimary)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "To transcribe handwritten notes or text from screenshots, enter a free Google Gemini API Key. (Get one free at aistudio.google.com)",
-              style: TextStyle(color: ctx.textSecondary, fontSize: 13, height: 1.4),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: controller,
-              style: TextStyle(color: ctx.textPrimary, fontFamily: "monospace"),
-              decoration: const InputDecoration(
-                labelText: "Google Gemini API Key",
-                hintText: "AIzaSy...",
-                prefixIcon: Icon(Icons.key_rounded, size: 18),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.accent),
-            onPressed: () async {
-              await widget.apiClient.sessionService.setGeminiApiKey(controller.text.trim());
-              if (mounted) setState(() {});
-              if (ctx.mounted) Navigator.pop(ctx);
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("✨ Gemini API Key saved! Vision OCR enabled for screenshots."),
-                    backgroundColor: AppColors.accent,
-                  ),
-                );
-              }
-            },
-            child: const Text("Save Key"),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1662,59 +1769,123 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                         ),
                       ],
                     ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF06B6D4), Color(0xFF6366F1)],
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            Icons.document_scanner_rounded,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isNarrow = constraints.maxWidth < 420;
+                        if (isNarrow) {
+                          return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                "📷 In-App Camera Text Scanner",
-                                style: GoogleFonts.outfit(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                  color: context.textPrimary,
-                                ),
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      gradient: const LinearGradient(
+                                        colors: [Color(0xFF06B6D4), Color(0xFF6366F1)],
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Icon(
+                                      Icons.document_scanner_rounded,
+                                      color: Colors.white,
+                                      size: 22,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      "📷 In-App Camera Text Scanner",
+                                      style: GoogleFonts.outfit(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15,
+                                        color: context.textPrimary,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 2),
+                              const SizedBox(height: 8),
                               Text(
-                                "Snap physical notes or textbook pages to auto-transcribe text & slowly sculpt multi-kind exams.",
+                                "Snap physical notes or textbook pages to instantly transcribe text and generate smart practice exams.",
                                 style: GoogleFonts.inter(
                                   fontSize: 12,
                                   color: context.textSecondary,
                                 ),
                               ),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF06B6D4),
+                                    foregroundColor: Colors.black,
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                  icon: const Icon(Icons.camera_alt_rounded, size: 16),
+                                  label: const Text("Scan", style: TextStyle(fontWeight: FontWeight.bold)),
+                                  onPressed: _openCameraScanner,
+                                ),
+                              ),
                             ],
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF06B6D4),
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          icon: const Icon(Icons.camera_alt_rounded, size: 16),
-                          label: const Text("Scan", style: TextStyle(fontWeight: FontWeight.bold)),
-                          onPressed: _openCameraScanner,
-                        ),
-                      ],
+                          );
+                        }
+                        return Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFF06B6D4), Color(0xFF6366F1)],
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.document_scanner_rounded,
+                                color: Colors.white,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    "📷 In-App Camera Text Scanner",
+                                    style: GoogleFonts.outfit(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                      color: context.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    "Snap physical notes or textbook pages to instantly transcribe text and generate smart practice exams.",
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      color: context.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF06B6D4),
+                                foregroundColor: Colors.black,
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              icon: const Icon(Icons.camera_alt_rounded, size: 16),
+                              label: const Text("Scan", style: TextStyle(fontWeight: FontWeight.bold)),
+                              onPressed: _openCameraScanner,
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ),
 
@@ -1805,7 +1976,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                               Row(
                                 children: [
                                   Text(
-                                    "⚡ Instant Fast Mode (<100ms)",
+                                    "⚡ Quick local processing",
                                     style: GoogleFonts.outfit(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 14,
@@ -1820,7 +1991,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: const Text(
-                                      "LOW LATENCY",
+                                      "OFFLINE READY",
                                       style: TextStyle(color: AppColors.accent, fontSize: 10, fontWeight: FontWeight.bold),
                                     ),
                                   ),
@@ -1828,7 +1999,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                "Instant local active-recall synthesis. Zero waiting for slow networks.",
+                                "Quick local question generation on-device. Works smoothly offline or on slow networks.",
                                 style: TextStyle(color: context.textSecondary, fontSize: 12),
                               ),
                             ],
@@ -1926,7 +2097,10 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                             );
                           }).toList(),
                           onChanged: (val) {
-                            if (val != null) setState(() => _selectedCourseId = val);
+                            if (val != null) {
+                              setState(() => _selectedCourseId = val);
+                              widget.onCourseSelected?.call(val);
+                            }
                           },
                         ),
                       ),
@@ -2012,6 +2186,36 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                           const Icon(Icons.document_scanner_rounded, size: 14, color: Color(0xFF6366F1)),
                                           const SizedBox(width: 6),
                                           const Text("📷 Extract Clean Text from Image / File", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF6366F1))),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                InkWell(
+                                  onTap: _isSavingToNotebook ? null : _saveExtractedNotesToNotebook,
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.2 : 0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (_isSavingToNotebook) ...[
+                                          const SizedBox(
+                                            width: 12,
+                                            height: 12,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF10B981)),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          const Text("Saving...", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
+                                        ] else ...[
+                                          const Icon(Icons.bookmark_add_rounded, size: 14, color: Color(0xFF10B981)),
+                                          const SizedBox(width: 6),
+                                          const Text("💾 Save to Notebook", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
                                         ],
                                       ],
                                     ),
@@ -2313,127 +2517,117 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                     ),
                                      if (_isImageFile(_selectedFile!.name)) ...[
                                        const SizedBox(height: 10),
-                                       Builder(
-                                         builder: (ctx) {
-                                           final hasGeminiKey = widget.apiClient.sessionService.geminiApiKey?.isNotEmpty ?? false;
-                                           final bannerColor = hasGeminiKey ? const Color(0xFF6366F1) : const Color(0xFF10B981);
-                                           final textColor = isDark
-                                               ? (hasGeminiKey ? const Color(0xFFA5B4FC) : const Color(0xFF6EE7B7))
-                                               : (hasGeminiKey ? const Color(0xFF4338CA) : const Color(0xFF065F46));
-                                           return Container(
-                                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                             decoration: BoxDecoration(
-                                               color: bannerColor.withValues(alpha: isDark ? 0.15 : 0.08),
-                                               borderRadius: BorderRadius.circular(10),
-                                               border: Border.all(
-                                                 color: bannerColor.withValues(alpha: isDark ? 0.4 : 0.3),
+                                       Container(
+                                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                         decoration: BoxDecoration(
+                                           color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.15 : 0.08),
+                                           borderRadius: BorderRadius.circular(10),
+                                           border: Border.all(
+                                             color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.4 : 0.3),
+                                           ),
+                                         ),
+                                         child: Row(
+                                           children: [
+                                             const Icon(
+                                               Icons.auto_awesome,
+                                               color: Color(0xFF10B981),
+                                               size: 16,
+                                             ),
+                                             const SizedBox(width: 8),
+                                             Expanded(
+                                               child: Text(
+                                                 "High-Precision OCR Active: Multimodal and native text transcription enabled.",
+                                                 style: TextStyle(
+                                                   fontSize: 11.5,
+                                                   color: isDark ? const Color(0xFF6EE7B7) : const Color(0xFF065F46),
+                                                   fontWeight: FontWeight.w600,
+                                                 ),
                                                ),
                                              ),
-                                             child: Row(
-                                               children: [
-                                                 Icon(
-                                                   hasGeminiKey ? Icons.auto_awesome : Icons.bolt_rounded,
-                                                   color: bannerColor,
-                                                   size: 16,
-                                                 ),
-                                                 const SizedBox(width: 8),
-                                                 Expanded(
-                                                   child: Text(
-                                                     hasGeminiKey
-                                                         ? "✨ Gemini Vision OCR Ready: Cloud multimodal transcription active."
-                                                         : "⚡ Native Local OCR Active: Offline screenshot transcription enabled.",
-                                                     style: TextStyle(
-                                                       fontSize: 11.5,
-                                                       color: textColor,
-                                                       fontWeight: FontWeight.w600,
-                                                     ),
-                                                   ),
-                                                 ),
-                                                 const SizedBox(width: 6),
-                                                 TextButton(
-                                                   style: TextButton.styleFrom(
-                                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                     minimumSize: Size.zero,
-                                                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                                     backgroundColor: bannerColor.withValues(alpha: isDark ? 0.25 : 0.15),
-                                                   ),
-                                                   onPressed: _showGeminiKeyDialog,
-                                                   child: Text(
-                                                     hasGeminiKey ? "Key Set" : "Gemini Key (Opt.)",
-                                                     style: TextStyle(
-                                                       fontSize: 11,
-                                                       fontWeight: FontWeight.bold,
-                                                       color: textColor,
-                                                     ),
-                                                   ),
-                                                 ),
-                                               ],
-                                             ),
-                                           );
-                                         },
+                                           ],
+                                         ),
                                        ),
                                      ],
                                     ],
                                   ),
                                 ),
 
-                        // Tab 3: URL
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            TextField(
-                              controller: _urlController,
-                              keyboardType: TextInputType.url,
-                              style: TextStyle(color: context.textPrimary),
-                              decoration: InputDecoration(
-                                labelText: "Web Article or Documentation URL",
-                                hintText: "https://en.wikipedia.org/wiki/... or https://alison.com/...",
-                                prefixIcon: Icon(Icons.language_rounded, color: context.textSecondary),
-                                suffixIcon: _urlController.text.isNotEmpty
-                                    ? IconButton(
-                                        icon: const Icon(Icons.clear_rounded, size: 18),
-                                        onPressed: () {
-                                          setState(() => _urlController.clear());
-                                        },
-                                      )
-                                    : null,
-                              ),
-                              onChanged: (v) => setState(() {}),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF6366F1),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  ),
-                                  icon: _isScrapingUrl
-                                      ? const SizedBox(
-                                          width: 14,
-                                          height: 14,
-                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        // Tab 3: YouTube & Lecture Transcript -> Auto-Notes
+                        SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              TextField(
+                                controller: _urlController,
+                                keyboardType: TextInputType.url,
+                                style: TextStyle(color: context.textPrimary),
+                                decoration: InputDecoration(
+                                  labelText: "YouTube Video or Web Article URL",
+                                  hintText: "https://www.youtube.com/watch?v=... or https://en.wikipedia.org/...",
+                                  prefixIcon: const Icon(Icons.smart_display_rounded, color: Color(0xFFEF4444)),
+                                  suffixIcon: _urlController.text.isNotEmpty
+                                      ? IconButton(
+                                          icon: const Icon(Icons.clear_rounded, size: 18),
+                                          onPressed: () {
+                                            setState(() => _urlController.clear());
+                                          },
                                         )
-                                      : const Icon(Icons.download_rounded, size: 16),
-                                  label: Text(
-                                    _isScrapingUrl ? "Scraping Article..." : "🌐 Scrape & Open in Note Editor",
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                                  ),
-                                  onPressed: (_isScrapingUrl || _isLoading) ? null : _scrapeAndLoadUrlToEditor,
+                                      : null,
                                 ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    "Scrapes instructional text & bullet points directly into the editor for review.",
-                                    style: TextStyle(color: context.textSecondary, fontSize: 12),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                                onChanged: (v) => setState(() {}),
+                              ),
+                              const SizedBox(height: 10),
+                              TextField(
+                                controller: _transcriptTextController,
+                                maxLines: 3,
+                                style: TextStyle(color: context.textPrimary, fontSize: 12.5),
+                                decoration: const InputDecoration(
+                                  labelText: "Or Paste Lecture Transcript / Otter.ai / Zoom Audio text",
+                                  hintText: "00:01 Welcome class, today we examine the cellular Krebs cycle...",
+                                  alignLabelWithHint: true,
                                 ),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 10,
+                                runSpacing: 8,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF6366F1),
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                    icon: _isSynthesizingTranscript
+                                        ? const SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                          )
+                                        : const Icon(Icons.auto_stories_rounded, size: 16),
+                                    label: Text(
+                                      _isSynthesizingTranscript ? "Synthesizing Cornell Notes..." : "⚡ Auto-Notes + Flashcards",
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                    ),
+                                    onPressed: (_isSynthesizingTranscript || _isLoading) ? null : _generateFromTranscriptOrYouTube,
+                                  ),
+                                  OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: context.textPrimary,
+                                      side: BorderSide(color: context.cardBorderColor),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                    icon: _isScrapingUrl
+                                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                                        : const Icon(Icons.download_rounded, size: 16),
+                                    label: const Text("Scrape into Editor", style: TextStyle(fontSize: 12)),
+                                    onPressed: (_isScrapingUrl || _isLoading) ? null : _scrapeAndLoadUrlToEditor,
+                                  ),
+                                ],
+                              ),
                             if (_isScrapingUrl) ...[
                               const SizedBox(height: 12),
                               Container(
@@ -2467,438 +2661,516 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                             ],
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // Exam Modes & Quick Preset Selectors
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text("Exam Modes & Question Types", style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary)),
-                      Text("${_selectedModes.length} modes active", style: const TextStyle(color: AppColors.accent, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
+                ),
+
+                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
+
+                  // Smart Defaults & Advanced Options Disclosure
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6366F1).withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.25)),
+                    ),
                     child: Row(
                       children: [
-                        _buildModePresetPill(
-                          icon: Icons.all_inclusive_rounded,
-                          label: "All Types (Simulated Exam)",
-                          isSelected: _selectedModes.length >= 8,
-                          onTap: () {
-                            setState(() {
-                              _selectedModes.addAll([
-                                "Multiple Choice",
-                                "Identification",
-                                "Enumeration",
-                                "Cloze / Fill-in",
-                                "True / False",
-                                "Matching Type",
-                                "Short Answer",
-                                "Scenario Drills",
-                                "Flashcards",
-                                "Summary",
-                              ]);
-                            });
-                          },
+                        const Icon(Icons.auto_awesome_rounded, color: Color(0xFF6366F1), size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    "Recommended Setup Active",
+                                    style: GoogleFonts.outfit(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: context.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text(
+                                      "SMART DEFAULT",
+                                      style: TextStyle(
+                                        color: Color(0xFF10B981),
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                "${_selectedModes.join(' + ')} · $_targetCount Questions",
+                                style: TextStyle(fontSize: 11.5, color: context.textSecondary),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
                         ),
-                        const SizedBox(width: 8),
-                        _buildModePresetPill(
-                          icon: Icons.fact_check_outlined,
-                          label: "Objective (MCQ + T/F)",
-                          isSelected: _selectedModes.length == 2 &&
-                              _selectedModes.contains("Multiple Choice") &&
-                              _selectedModes.contains("True / False"),
-                          onTap: () {
-                            setState(() {
-                              _selectedModes.clear();
-                              _selectedModes.addAll(["Multiple Choice", "True / False"]);
-                            });
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        _buildModePresetPill(
-                          icon: Icons.edit_note_rounded,
-                          label: "Active Recall (ID + Cloze + Enum)",
-                          isSelected: _selectedModes.length == 3 &&
-                              _selectedModes.contains("Identification") &&
-                              _selectedModes.contains("Cloze / Fill-in") &&
-                              _selectedModes.contains("Enumeration"),
-                          onTap: () {
-                            setState(() {
-                              _selectedModes.clear();
-                              _selectedModes.addAll(["Identification", "Cloze / Fill-in", "Enumeration"]);
-                            });
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        _buildModePresetPill(
-                          icon: Icons.extension_outlined,
-                          label: "Drills (Matching + Scenario)",
-                          isSelected: _selectedModes.length == 2 &&
-                              _selectedModes.contains("Matching Type") &&
-                              _selectedModes.contains("Scenario Drills"),
-                          onTap: () {
-                            setState(() {
-                              _selectedModes.clear();
-                              _selectedModes.addAll(["Matching Type", "Scenario Drills"]);
-                            });
-                          },
+                        TextButton.icon(
+                          onPressed: () => setState(() => _showAdvancedExamOptions = !_showAdvancedExamOptions),
+                          style: TextButton.styleFrom(
+                            foregroundColor: const Color(0xFF6366F1),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          ),
+                          icon: Icon(
+                            _showAdvancedExamOptions ? Icons.expand_less_rounded : Icons.tune_rounded,
+                            size: 16,
+                          ),
+                          label: Text(
+                            _showAdvancedExamOptions ? "Close" : "Advanced",
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      "Multiple Choice",
-                      "Identification",
-                      "Enumeration",
-                      "Cloze / Fill-in",
-                      "True / False",
-                      "Matching Type",
-                      "Short Answer",
-                      "Scenario Drills",
-                      "Flashcards",
-                      "Summary",
-                    ].map((mode) {
-                      final isSelected = _selectedModes.contains(mode);
-                      return FilterChip(
-                        selected: isSelected,
-                        label: Text(mode),
-                        labelStyle: TextStyle(
-                          color: isSelected ? Colors.white : context.textSecondary,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          fontSize: 12,
-                        ),
-                        selectedColor: const Color(0xFF6366F1),
-                        backgroundColor: context.surfaceColor,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          side: BorderSide(
-                            color: isSelected ? const Color(0xFF6366F1) : context.cardBorderColor,
-                          ),
-                        ),
-                        onSelected: (selected) {
-                          setState(() {
-                            if (selected) {
-                              _selectedModes.add(mode);
-                            } else if (_selectedModes.length > 1) {
-                              _selectedModes.remove(mode);
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text("At least one exam mode or question type must remain active."),
-                                  duration: Duration(seconds: 1),
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
-                          });
-                        },
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 16),
 
-                  // Question Set & Variety Selector (Anti-Repetition)
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: context.surfaceColor,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: (_questionSetVariants.firstWhere(
-                          (v) => v["index"] == _selectedSetIndex,
-                          orElse: () => _questionSetVariants.first,
-                        )["color"] as Color).withValues(alpha: 0.45),
+                  if (_showAdvancedExamOptions) ...[
+                    const SizedBox(height: 14),
+                    // Exam Modes & Quick Preset Selectors
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text("Exam Modes & Question Types", style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                        Text("${_selectedModes.length} modes active", style: const TextStyle(color: AppColors.accent, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _buildModePresetPill(
+                            icon: Icons.all_inclusive_rounded,
+                            label: "All Types (Simulated Exam)",
+                            isSelected: _selectedModes.length >= 8,
+                            onTap: () {
+                              setState(() {
+                                _selectedModes.addAll([
+                                  "Multiple Choice",
+                                  "Identification",
+                                  "Enumeration",
+                                  "Cloze / Fill-in",
+                                  "True / False",
+                                  "Matching Type",
+                                  "Short Answer",
+                                  "Scenario Drills",
+                                  "Flashcards",
+                                  "Summary",
+                                ]);
+                              });
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          _buildModePresetPill(
+                            icon: Icons.fact_check_outlined,
+                            label: "Objective (MCQ + T/F)",
+                            isSelected: _selectedModes.length == 2 &&
+                                _selectedModes.contains("Multiple Choice") &&
+                                _selectedModes.contains("True / False"),
+                            onTap: () {
+                              setState(() {
+                                _selectedModes.clear();
+                                _selectedModes.addAll(["Multiple Choice", "True / False"]);
+                              });
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          _buildModePresetPill(
+                            icon: Icons.edit_note_rounded,
+                            label: "Active Recall (ID + Cloze + Enum)",
+                            isSelected: _selectedModes.length == 3 &&
+                                _selectedModes.contains("Identification") &&
+                                _selectedModes.contains("Cloze / Fill-in") &&
+                                _selectedModes.contains("Enumeration"),
+                            onTap: () {
+                              setState(() {
+                                _selectedModes.clear();
+                                _selectedModes.addAll(["Identification", "Cloze / Fill-in", "Enumeration"]);
+                              });
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          _buildModePresetPill(
+                            icon: Icons.extension_outlined,
+                            label: "Drills (Matching + Scenario)",
+                            isSelected: _selectedModes.length == 2 &&
+                                _selectedModes.contains("Matching Type") &&
+                                _selectedModes.contains("Scenario Drills"),
+                            onTap: () {
+                              setState(() {
+                                _selectedModes.clear();
+                                _selectedModes.addAll(["Matching Type", "Scenario Drills"]);
+                              });
+                            },
+                          ),
+                        ],
                       ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
+                        "Multiple Choice",
+                        "Identification",
+                        "Enumeration",
+                        "Cloze / Fill-in",
+                        "True / False",
+                        "Matching Type",
+                        "Short Answer",
+                        "Scenario Drills",
+                        "Flashcards",
+                        "Summary",
+                      ].map((mode) {
+                        final isSelected = _selectedModes.contains(mode);
+                        return FilterChip(
+                          selected: isSelected,
+                          label: Text(mode),
+                          labelStyle: TextStyle(
+                            color: isSelected ? Colors.white : context.textSecondary,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            fontSize: 12,
+                          ),
+                          selectedColor: const Color(0xFF6366F1),
+                          backgroundColor: context.surfaceColor,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            side: BorderSide(
+                              color: isSelected ? const Color(0xFF6366F1) : context.cardBorderColor,
+                            ),
+                          ),
+                          onSelected: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedModes.add(mode);
+                              } else if (_selectedModes.length > 1) {
+                                _selectedModes.remove(mode);
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text("At least one exam mode or question type must remain active."),
+                                    duration: Duration(seconds: 1),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              }
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Question Set & Variety Selector (Anti-Repetition)
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: context.surfaceColor,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: (_questionSetVariants.firstWhere(
+                            (v) => v["index"] == _selectedSetIndex,
+                            orElse: () => _questionSetVariants.first,
+                          )["color"] as Color).withValues(alpha: 0.45),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.shuffle_rounded,
+                                    size: 18,
+                                    color: _questionSetVariants.firstWhere(
+                                      (v) => v["index"] == _selectedSetIndex,
+                                      orElse: () => _questionSetVariants.first,
+                                    )["color"] as Color,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    "Question Set & Angle",
+                                    style: GoogleFonts.outfit(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: context.textPrimary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: (_questionSetVariants.firstWhere(
+                                    (v) => v["index"] == _selectedSetIndex,
+                                    orElse: () => _questionSetVariants.first,
+                                  )["color"] as Color).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  _questionSetVariants.firstWhere(
+                                    (v) => v["index"] == _selectedSetIndex,
+                                    orElse: () => _questionSetVariants.first,
+                                  )["badge"] as String,
+                                  style: TextStyle(
+                                    color: _questionSetVariants.firstWhere(
+                                      (v) => v["index"] == _selectedSetIndex,
+                                      orElse: () => _questionSetVariants.first,
+                                    )["color"] as Color,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            "Rotate through question sets to prevent identical questions and answers from repeating:",
+                            style: TextStyle(color: context.textSecondary, fontSize: 12),
+                          ),
+                          const SizedBox(height: 10),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: _questionSetVariants.map((variant) {
+                                final int idx = variant["index"] as int;
+                                final String badge = variant["badge"] as String;
+                                final Color color = variant["color"] as Color;
+                                final isSelected = _selectedSetIndex == idx;
+
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(10),
+                                    onTap: () {
+                                      setState(() => _selectedSetIndex = idx);
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: isSelected ? color.withValues(alpha: 0.15) : context.secondaryBg,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: isSelected ? color : context.cardBorderColor,
+                                          width: isSelected ? 1.8 : 1.0,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Container(
+                                            width: 8,
+                                            height: 8,
+                                            decoration: BoxDecoration(
+                                              color: isSelected ? color : Colors.transparent,
+                                              shape: BoxShape.circle,
+                                              border: Border.all(color: color, width: 1.5),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            badge,
+                                            style: TextStyle(
+                                              color: isSelected ? color : context.textPrimary,
+                                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: context.secondaryBg.withValues(alpha: 0.5),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Icon(
-                                  Icons.shuffle_rounded,
-                                  size: 18,
+                                  Icons.lightbulb_outline_rounded,
+                                  size: 16,
                                   color: _questionSetVariants.firstWhere(
                                     (v) => v["index"] == _selectedSetIndex,
                                     orElse: () => _questionSetVariants.first,
                                   )["color"] as Color,
                                 ),
                                 const SizedBox(width: 8),
-                                Text(
-                                  "Question Set & Angle",
-                                  style: GoogleFonts.outfit(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
-                                    color: context.textPrimary,
+                                Expanded(
+                                  child: Text(
+                                    _questionSetVariants.firstWhere(
+                                      (v) => v["index"] == _selectedSetIndex,
+                                      orElse: () => _questionSetVariants.first,
+                                    )["desc"] as String,
+                                    style: TextStyle(
+                                      color: context.textSecondary,
+                                      fontSize: 11.5,
+                                      height: 1.35,
+                                    ),
                                   ),
                                 ),
                               ],
                             ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: (_questionSetVariants.firstWhere(
-                                  (v) => v["index"] == _selectedSetIndex,
-                                  orElse: () => _questionSetVariants.first,
-                                )["color"] as Color).withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                _questionSetVariants.firstWhere(
-                                  (v) => v["index"] == _selectedSetIndex,
-                                  orElse: () => _questionSetVariants.first,
-                                )["badge"] as String,
-                                style: TextStyle(
-                                  color: _questionSetVariants.firstWhere(
-                                    (v) => v["index"] == _selectedSetIndex,
-                                    orElse: () => _questionSetVariants.first,
-                                  )["color"] as Color,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            key: const Key("extract_text_from_modules_btn"),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF6366F1),
+                              side: const BorderSide(color: Color(0xFF6366F1), width: 1.5),
+                              padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          "Rotate through question sets to prevent identical questions and answers from repeating:",
-                          style: TextStyle(color: context.textSecondary, fontSize: 12),
-                        ),
-                        const SizedBox(height: 10),
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: _questionSetVariants.map((variant) {
-                              final int idx = variant["index"] as int;
-                              final String badge = variant["badge"] as String;
-                              final Color color = variant["color"] as Color;
-                              final isSelected = _selectedSetIndex == idx;
-
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(10),
-                                  onTap: () {
-                                    setState(() => _selectedSetIndex = idx);
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: isSelected ? color.withValues(alpha: 0.15) : context.secondaryBg,
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: isSelected ? color : context.cardBorderColor,
-                                        width: isSelected ? 1.8 : 1.0,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Container(
-                                          width: 8,
-                                          height: 8,
-                                          decoration: BoxDecoration(
-                                            color: isSelected ? color : Colors.transparent,
-                                            shape: BoxShape.circle,
-                                            border: Border.all(color: color, width: 1.5),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          badge,
-                                          style: TextStyle(
-                                            color: isSelected ? color : context.textPrimary,
-                                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: context.secondaryBg.withValues(alpha: 0.5),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                Icons.lightbulb_outline_rounded,
-                                size: 16,
-                                color: _questionSetVariants.firstWhere(
-                                  (v) => v["index"] == _selectedSetIndex,
-                                  orElse: () => _questionSetVariants.first,
-                                )["color"] as Color,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _questionSetVariants.firstWhere(
-                                    (v) => v["index"] == _selectedSetIndex,
-                                    orElse: () => _questionSetVariants.first,
-                                  )["desc"] as String,
-                                  style: TextStyle(
-                                    color: context.textSecondary,
-                                    fontSize: 11.5,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ),
-                            ],
+                            icon: _isExtractingTextToEditor
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1)))
+                                : const Icon(Icons.auto_stories_rounded, size: 18),
+                            label: Text(
+                              _isExtractingTextToEditor
+                                  ? "Extracting Text from Module..."
+                                  : "📖 Extract Text based on Provided Modules",
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            onPressed: _isExtractingTextToEditor ? null : _showExtractFromModulesDialog,
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          key: const Key("extract_text_from_modules_btn"),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF6366F1),
-                            side: const BorderSide(color: Color(0xFF6366F1), width: 1.5),
-                            padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          icon: _isExtractingTextToEditor
-                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1)))
-                              : const Icon(Icons.auto_stories_rounded, size: 18),
-                          label: Text(
-                            _isExtractingTextToEditor
-                                ? "Extracting Text from Module..."
-                                : "📖 Extract Text based on Provided Modules",
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                          ),
-                          onPressed: _isExtractingTextToEditor ? null : _showExtractFromModulesDialog,
-                        ),
-                      ),
-                    ],
-                  ),
 
-                  const SizedBox(height: 20),
+                    const SizedBox(height: 20),
 
-                  // Target questions controls
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        "Target Questions:",
-                        style: TextStyle(
-                          color: context.textSecondary,
-                          fontSize: 13,
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF6366F1).withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          "$_targetCount Questions",
-                          style: const TextStyle(
-                            color: Color(0xFF6366F1),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12.5,
+                    // Target questions controls
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "Target Questions:",
+                          style: TextStyle(
+                            color: context.textSecondary,
+                            fontSize: 13,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 12,
-                    runSpacing: 10,
-                    children: [
-                      // Quick-Select Badges
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [5, 10, 15, 20].map((count) {
-                          final isSelected = _targetCount == count;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: ChoiceChip(
-                              label: Text("$count"),
-                              selected: isSelected,
-                              labelStyle: TextStyle(
-                                fontSize: 12,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                color: isSelected ? Colors.white : context.textPrimary,
-                              ),
-                              selectedColor: const Color(0xFF6366F1),
-                              backgroundColor: context.surfaceColor,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                side: BorderSide(
-                                  color: isSelected ? const Color(0xFF6366F1) : context.cardBorderColor,
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "$_targetCount Questions",
+                            style: const TextStyle(
+                              color: Color(0xFF6366F1),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 12,
+                      runSpacing: 10,
+                      children: [
+                        // Quick-Select Badges
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [5, 10, 15, 20].map((count) {
+                            final isSelected = _targetCount == count;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: ChoiceChip(
+                                label: Text("$count"),
+                                selected: isSelected,
+                                labelStyle: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  color: isSelected ? Colors.white : context.textPrimary,
                                 ),
+                                selectedColor: const Color(0xFF6366F1),
+                                backgroundColor: context.surfaceColor,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  side: BorderSide(
+                                    color: isSelected ? const Color(0xFF6366F1) : context.cardBorderColor,
+                                  ),
+                                ),
+                                onSelected: (_) => setState(() => _targetCount = count),
                               ),
-                              onSelected: (_) => setState(() => _targetCount = count),
+                            );
+                          }).toList(),
+                        ),
+                        // Compact Stepper + Capped Slider
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.remove_circle_outline_rounded, size: 20),
+                              color: context.textSecondary,
+                              tooltip: "Decrease questions",
+                              onPressed: _targetCount > 5
+                                  ? () => setState(() => _targetCount = (_targetCount - 5).clamp(5, 20))
+                                  : null,
                             ),
-                          );
-                        }).toList(),
-                      ),
-                      // Compact Stepper + Capped Slider
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.remove_circle_outline_rounded, size: 20),
-                            color: context.textSecondary,
-                            tooltip: "Decrease questions",
-                            onPressed: _targetCount > 5
-                                ? () => setState(() => _targetCount = (_targetCount - 5).clamp(5, 20))
-                                : null,
-                          ),
-                          SizedBox(
-                            width: 200,
-                            child: Slider(
-                              value: _targetCount.toDouble(),
-                              min: 5,
-                              max: 20,
-                              divisions: 3,
-                              activeColor: const Color(0xFF6366F1),
-                              onChanged: (val) => setState(() => _targetCount = val.toInt()),
+                            SizedBox(
+                              width: 200,
+                              child: Slider(
+                                value: _targetCount.toDouble(),
+                                min: 5,
+                                max: 20,
+                                divisions: 3,
+                                activeColor: const Color(0xFF6366F1),
+                                onChanged: (val) => setState(() => _targetCount = val.toInt()),
+                              ),
                             ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle_outline_rounded, size: 20),
-                            color: context.textSecondary,
-                            tooltip: "Increase questions",
-                            onPressed: _targetCount < 20
-                                ? () => setState(() => _targetCount = (_targetCount + 5).clamp(5, 20))
-                                : null,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                            IconButton(
+                              icon: const Icon(Icons.add_circle_outline_rounded, size: 20),
+                              color: context.textSecondary,
+                              tooltip: "Increase questions",
+                              onPressed: _targetCount < 20
+                                  ? () => setState(() => _targetCount = (_targetCount + 5).clamp(5, 20))
+                                  : null,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
 
                   // Stepped Progress Indicator Card while loading
                   if (_isLoading) ...[
@@ -2960,7 +3232,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                     label: Text(
                       _isLoading
                           ? "Extracting & Synthesizing Study Set..."
-                          : (_fastMode ? "⚡ Instant Extraction (<100ms)" : "Generate Study Set from Notes"),
+                          : (_fastMode ? "⚡ Quick Local Processing" : "Generate Study Set from Notes"),
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                     ),
                     onPressed: _isLoading ? null : _handleGenerate,

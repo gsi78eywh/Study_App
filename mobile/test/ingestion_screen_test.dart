@@ -109,6 +109,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    // Expand Advanced options if collapsed
+    if (find.text("Advanced").evaluate().isNotEmpty) {
+      await tester.ensureVisible(find.text("Advanced"));
+      await tester.tap(find.text("Advanced"));
+      await tester.pumpAndSettle();
+    }
+
     // Verify preset pills are rendered with full text
     expect(find.text("All Types (Simulated Exam)"), findsOneWidget);
     expect(find.text("Objective (MCQ + T/F)"), findsOneWidget);
@@ -168,6 +175,13 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+
+    // Expand Advanced options if collapsed
+    if (find.text("Advanced").evaluate().isNotEmpty) {
+      await tester.ensureVisible(find.text("Advanced"));
+      await tester.tap(find.text("Advanced"));
+      await tester.pumpAndSettle();
+    }
 
     // Verify Question Set selector is rendered
     expect(find.text("Question Set & Angle"), findsOneWidget);

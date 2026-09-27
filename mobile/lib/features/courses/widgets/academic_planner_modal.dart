@@ -8,17 +8,20 @@ import "../../practice/models/adaptive_models.dart";
 class AcademicPlannerModal extends StatefulWidget {
   final ApiClient apiClient;
   final List<CourseModel> courses;
+  final VoidCallback? onNavigateToStudio;
 
   const AcademicPlannerModal({
     super.key,
     required this.apiClient,
     required this.courses,
+    this.onNavigateToStudio,
   });
 
   static Future<void> show(
     BuildContext context, {
     required ApiClient apiClient,
     required List<CourseModel> courses,
+    VoidCallback? onNavigateToStudio,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -27,6 +30,7 @@ class AcademicPlannerModal extends StatefulWidget {
       builder: (ctx) => AcademicPlannerModal(
         apiClient: apiClient,
         courses: courses,
+        onNavigateToStudio: onNavigateToStudio,
       ),
     );
   }
@@ -224,6 +228,82 @@ class _AcademicPlannerModalState extends State<AcademicPlannerModal> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Syllabus Import Nudge
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 14),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF6366F1).withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: const Color(0xFF6366F1).withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.picture_as_pdf_rounded,
+                                  size: 20,
+                                  color: Color(0xFF6366F1),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      "Got a Course Syllabus?",
+                                      style: GoogleFonts.inter(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: context.textPrimary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      "Upload your syllabus PDF in AI Studio to instantly extract assignment dates & course milestones.",
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        color: context.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              ElevatedButton(
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  widget.onNavigateToStudio?.call();
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF6366F1),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
+                                  textStyle: GoogleFonts.inter(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                                child: const Text("Scan PDF"),
+                              ),
+                            ],
+                          ),
+                        ),
+
                         // Create Task Card / Toggle Button
                         if (!_isCreating)
                           SizedBox(

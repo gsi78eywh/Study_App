@@ -56,6 +56,14 @@ class _NotebookScreenState extends State<NotebookScreen> {
     _fetchRemoteNotes();
   }
 
+  @override
+  void didUpdateWidget(covariant NotebookScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.courses.length != widget.courses.length || (_notes.isEmpty && widget.courses.isNotEmpty)) {
+      _fetchRemoteNotes();
+    }
+  }
+
   Future<void> _fetchRemoteNotes() async {
     // loading notes
     try {
@@ -96,7 +104,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
     final tagsController = TextEditingController(text: "#Lecture #KeyConcepts");
     String selectedCourse = widget.courses.isNotEmpty
         ? widget.courses.first.code
-        : "BIO-101";
+        : (widget.courses.isNotEmpty ? widget.courses.first.code : "General");
 
     showDialog(
       context: context,

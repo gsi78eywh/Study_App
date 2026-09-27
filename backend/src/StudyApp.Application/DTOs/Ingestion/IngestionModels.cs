@@ -23,6 +23,15 @@ public record GenerateFromUrlRequest(
 
 public record ScanUrlRequest(string Url);
 
+public record TranscriptToNotesRequest(
+    Guid? CourseId = null,
+    string? Title = null,
+    string? Content = null,
+    string? Url = null,
+    bool GenerateFlashcards = true,
+    string? ApiKey = null
+);
+
 public record GeneratedQuestionDto(
     string Type,
     string Prompt,

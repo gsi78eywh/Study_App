@@ -79,6 +79,58 @@ static string ResolvePreferredUrl(string? configuredUrl)
     return preferred.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? "http://localhost:5000";
 }
 
+static string ResolveDatabaseConnectionString(IConfiguration configuration)
+{
+    var envDatabaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL")
+        ?? Environment.GetEnvironmentVariable("POSTGRESQL_URL");
+
+    if (!string.IsNullOrWhiteSpace(envDatabaseUrl))
+    {
+        if (envDatabaseUrl.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
+            envDatabaseUrl.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var uri = new Uri(envDatabaseUrl);
+                var userInfo = uri.UserInfo.Split(':');
+                var username = userInfo.Length > 0 ? Uri.UnescapeDataString(userInfo[0]) : "";
+                var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
+                var host = uri.Host;
+                var port = uri.Port > 0 ? uri.Port : 5432;
+                var database = uri.AbsolutePath.TrimStart('/');
+
+                return $"Host={host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Prefer;Trust Server Certificate=true;";
+            }
+            catch
+            {
+                return envDatabaseUrl;
+            }
+        }
+        return envDatabaseUrl;
+    }
+
+    return configuration.GetConnectionString("DefaultConnection") ?? "Data Source=studyapp.db";
+}
+
+static (string Host, int Port) ExtractHostAndPort(string npgsqlConnStr)
+{
+    var host = "127.0.0.1";
+    var port = 5432;
+    var parts = npgsqlConnStr.Split(';', StringSplitOptions.RemoveEmptyEntries);
+    foreach (var part in parts)
+    {
+        var kv = part.Split('=', 2);
+        if (kv.Length == 2)
+        {
+            var key = kv[0].Trim().ToLowerInvariant();
+            var val = kv[1].Trim();
+            if (key == "host" || key == "server") host = val;
+            else if (key == "port" && int.TryParse(val, out var p)) port = p;
+        }
+    }
+    return (host, port);
+}
+
 // Keep Data Protection state outside the source tree. It is runtime state, not
 // application source, and should not be accidentally committed with the project.
 var dataProtectionDirectory = Path.Combine(
@@ -101,12 +153,15 @@ else if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCOR
     builder.WebHost.UseUrls(ResolvePreferredUrl(builder.Configuration["Server:Urls"]));
 }
 
-// 1. Add DbContext with SQLite local fallback support
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=studyapp.db";
+// 1. Add DbContext with production PostgreSQL and SQLite local fallback support
+var connectionString = ResolveDatabaseConnectionString(builder.Configuration);
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
 {
-    if (connectionString.Contains("Data Source=", StringComparison.OrdinalIgnoreCase) || connectionString.EndsWith(".db", StringComparison.OrdinalIgnoreCase))
+    var isSqlite = connectionString.Contains("Data Source=", StringComparison.OrdinalIgnoreCase) ||
+                   connectionString.EndsWith(".db", StringComparison.OrdinalIgnoreCase);
+
+    if (isSqlite)
     {
         options.UseSqlite(connectionString, sqliteOptions =>
         {
@@ -115,27 +170,47 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     }
     else
     {
-        // Try PostgreSQL, or fallback to SQLite if PostgreSQL server is not running
-        try
+        if (builder.Environment.IsDevelopment())
         {
-            using var tcpClient = new System.Net.Sockets.TcpClient();
-            var connectTask = tcpClient.ConnectAsync("127.0.0.1", 5432);
-            if (connectTask.Wait(1000) && tcpClient.Connected)
+            var (host, pgPort) = ExtractHostAndPort(connectionString);
+            bool canConnect = false;
+            try
             {
+                using var tcpClient = new System.Net.Sockets.TcpClient();
+                var connectTask = tcpClient.ConnectAsync(host, pgPort);
+                if (connectTask.Wait(1200) && tcpClient.Connected)
+                {
+                    canConnect = true;
+                }
+            }
+            catch { }
+
+            if (canConnect)
+            {
+                Console.WriteLine($"[Database] Connected to PostgreSQL on {host}:{pgPort}.");
                 options.UseNpgsql(connectionString, npgsqlOptions =>
                 {
                     npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+                    npgsqlOptions.EnableRetryOnFailure(3);
                 });
                 return;
             }
-        }
-        catch { }
 
-        Console.WriteLine("[Database] PostgreSQL server on 127.0.0.1:5432 not reachable. Using local SQLite studyapp.db database.");
-        options.UseSqlite("Data Source=studyapp.db", sqliteOptions =>
+            Console.WriteLine($"[Database] PostgreSQL server on {host}:{pgPort} not reachable in dev. Using local SQLite studyapp.db.");
+            options.UseSqlite("Data Source=studyapp.db", sqliteOptions =>
+            {
+                sqliteOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+            });
+        }
+        else
         {
-            sqliteOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
-        });
+            Console.WriteLine("[Database] Production PostgreSQL configured.");
+            options.UseNpgsql(connectionString, npgsqlOptions =>
+            {
+                npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+                npgsqlOptions.EnableRetryOnFailure(5, TimeSpan.FromSeconds(10), null);
+            });
+        }
     }
 });
 
@@ -146,16 +221,22 @@ builder.Services.AddScoped<IApplicationDbContext>(provider =>
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 
-// 3. Add AI & Ingestion Services (Google Gemini AI Engine)
+// 3. Add AI & Ingestion Services (Google Gemini & OpenAI with safe paused wiring)
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient<GeminiAiService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(90);
 });
+builder.Services.AddHttpClient<OpenAiAiService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(90);
+});
 builder.Services.AddScoped<IDocumentExtractor, DocumentExtractor>();
 builder.Services.AddScoped<GeminiAiService>();
-builder.Services.AddScoped<IAiQuestionGenerator>(sp => sp.GetRequiredService<GeminiAiService>());
-builder.Services.AddScoped<IAiTutorService>(sp => sp.GetRequiredService<GeminiAiService>());
+builder.Services.AddScoped<OpenAiAiService>();
+builder.Services.AddScoped<AdaptiveAiService>();
+builder.Services.AddScoped<IAiQuestionGenerator>(sp => sp.GetRequiredService<AdaptiveAiService>());
+builder.Services.AddScoped<IAiTutorService>(sp => sp.GetRequiredService<AdaptiveAiService>());
 
 // 4. Configure JWT Authentication. Production must provide a stable secret
 // through configuration. Development can use an ephemeral key so a known key
@@ -192,24 +273,41 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-// 5. Configure CORS for Flutter Mobile & Web Client
-var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+// 5. Configure Production CORS for Flutter Mobile & Web Clients
+var configCors = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+var envCors = Environment.GetEnvironmentVariable("CORS_ALLOWED_ORIGINS");
+var envCorsList = !string.IsNullOrWhiteSpace(envCors)
+    ? envCors.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    : Array.Empty<string>();
+
+var allCorsOrigins = configCors.Concat(envCorsList).Distinct().ToArray();
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowMobileClient", policy =>
     {
-        if (corsOrigins.Length == 0 || corsOrigins.Contains("*"))
+        if (allCorsOrigins.Length == 0 || allCorsOrigins.Contains("*"))
         {
-            policy.AllowAnyOrigin()
+            policy.SetIsOriginAllowed(_ => true)
                   .AllowAnyHeader()
-                  .AllowAnyMethod();
+                  .AllowAnyMethod()
+                  .AllowCredentials();
         }
         else
         {
-            policy.WithOrigins(corsOrigins)
+            policy.WithOrigins(allCorsOrigins)
+                  .SetIsOriginAllowed(origin =>
+                  {
+                      if (builder.Environment.IsDevelopment())
+                      {
+                          if (origin.StartsWith("http://localhost:") || origin.StartsWith("http://127.0.0.1:"))
+                              return true;
+                      }
+                      return allCorsOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase);
+                  })
                   .AllowAnyHeader()
-                  .AllowAnyMethod();
+                  .AllowAnyMethod()
+                  .AllowCredentials();
         }
     });
 });
@@ -290,16 +388,26 @@ using (var scope = app.Services.CreateScope())
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_UserSettings_UserId" ON "UserSettings" ("UserId");
         """);
 
-        try
+        string[] sqliteCourseGradeCols =
+        [
+            "ALTER TABLE \"Courses\" ADD COLUMN \"ExamDate\" TEXT NULL;",
+            "ALTER TABLE \"Courses\" ADD COLUMN \"ExamTitle\" TEXT NULL;",
+            "ALTER TABLE \"Courses\" ADD COLUMN \"Units\" REAL NOT NULL DEFAULT 3.0;",
+            "ALTER TABLE \"Courses\" ADD COLUMN \"TargetGrade\" REAL NOT NULL DEFAULT 1.5;",
+            "ALTER TABLE \"Courses\" ADD COLUMN \"PrelimGrade\" REAL NULL;",
+            "ALTER TABLE \"Courses\" ADD COLUMN \"MidtermGrade\" REAL NULL;",
+            "ALTER TABLE \"Courses\" ADD COLUMN \"SemiFinalGrade\" REAL NULL;",
+            "ALTER TABLE \"Courses\" ADD COLUMN \"FinalGrade\" REAL NULL;",
+            "ALTER TABLE \"Courses\" ADD COLUMN \"PrelimWeight\" REAL NOT NULL DEFAULT 0.20;",
+            "ALTER TABLE \"Courses\" ADD COLUMN \"MidtermWeight\" REAL NOT NULL DEFAULT 0.20;",
+            "ALTER TABLE \"Courses\" ADD COLUMN \"SemiFinalWeight\" REAL NOT NULL DEFAULT 0.20;",
+            "ALTER TABLE \"Courses\" ADD COLUMN \"FinalWeight\" REAL NOT NULL DEFAULT 0.40;",
+            "ALTER TABLE \"Courses\" ADD COLUMN \"GradingScale\" TEXT NOT NULL DEFAULT 'USJ-R';"
+        ];
+        foreach (var sql in sqliteCourseGradeCols)
         {
-            db.Database.ExecuteSqlRaw("ALTER TABLE \"Courses\" ADD COLUMN \"ExamDate\" TEXT NULL;");
+            try { db.Database.ExecuteSqlRaw(sql); } catch { }
         }
-        catch { }
-        try
-        {
-            db.Database.ExecuteSqlRaw("ALTER TABLE \"Courses\" ADD COLUMN \"ExamTitle\" TEXT NULL;");
-        }
-        catch { }
 
         try
         {
@@ -327,6 +435,49 @@ using (var scope = app.Services.CreateScope())
         }
         catch { }
     }
+    else
+    {
+        try
+        {
+            db.Database.ExecuteSqlRaw("""
+                CREATE TABLE IF NOT EXISTS "AcademicTasks" (
+                    "Id" TEXT PRIMARY KEY,
+                    "UserId" TEXT NOT NULL,
+                    "CourseId" TEXT NULL,
+                    "Title" TEXT NOT NULL,
+                    "Type" TEXT NOT NULL,
+                    "DueDate" TEXT NOT NULL,
+                    "EstimatedDifficulty" TEXT NOT NULL,
+                    "IsCompleted" INTEGER NOT NULL,
+                    "ActionStepsJson" TEXT NOT NULL,
+                    "CreatedAt" TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS "IX_AcademicTasks_UserId" ON "AcademicTasks" ("UserId");
+            """);
+        }
+        catch { }
+        string[] pgCourseGradeCols =
+        [
+            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"ExamDate\" TIMESTAMPTZ NULL;",
+            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"ExamTitle\" TEXT NULL;",
+            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"Units\" DOUBLE PRECISION NOT NULL DEFAULT 3.0;",
+            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"TargetGrade\" DOUBLE PRECISION NOT NULL DEFAULT 1.5;",
+            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"PrelimGrade\" DOUBLE PRECISION NULL;",
+            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"MidtermGrade\" DOUBLE PRECISION NULL;",
+            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"SemiFinalGrade\" DOUBLE PRECISION NULL;",
+            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"FinalGrade\" DOUBLE PRECISION NULL;",
+            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"PrelimWeight\" DOUBLE PRECISION NOT NULL DEFAULT 0.20;",
+            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"MidtermWeight\" DOUBLE PRECISION NOT NULL DEFAULT 0.20;",
+            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"SemiFinalWeight\" DOUBLE PRECISION NOT NULL DEFAULT 0.20;",
+            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"FinalWeight\" DOUBLE PRECISION NOT NULL DEFAULT 0.40;",
+            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"GradingScale\" TEXT NOT NULL DEFAULT 'USJ-R';",
+            "ALTER TABLE \"UserSettings\" ADD COLUMN IF NOT EXISTS \"LowDataMode\" BOOLEAN DEFAULT FALSE;"
+        ];
+        foreach (var sql in pgCourseGradeCols)
+        {
+            try { db.Database.ExecuteSqlRaw(sql); } catch { }
+        }
+    }
     Console.WriteLine("[Database] Database schema verified and ready for student records.");
 }
 
@@ -347,6 +498,13 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
+
+// A safe health check (no stack or database details leaked)
 app.MapGet("/health", async (ApplicationDbContext db, CancellationToken cancellationToken) =>
 {
     var canConnect = await db.Database.CanConnectAsync(cancellationToken);
@@ -355,214 +513,8 @@ app.MapGet("/health", async (ApplicationDbContext db, CancellationToken cancella
         : Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Database unavailable.");
 }).AllowAnonymous();
 
-// Root Welcome & Health Page (so browser visits never 404)
-app.MapGet("/", () => Results.Content("""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StudyApp API - Online</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #0b1120;
-            color: #f8fafc;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 24px;
-        }
-        .container {
-            max-width: 680px;
-            width: 100%;
-            background: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 24px;
-            padding: 40px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-        }
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            background: rgba(16, 185, 129, 0.15);
-            color: #10b981;
-            padding: 6px 14px;
-            border-radius: 9999px;
-            font-size: 13px;
-            font-weight: 600;
-            border: 1px solid rgba(16, 185, 129, 0.4);
-            margin-bottom: 20px;
-        }
-        .pulse {
-            width: 8px;
-            height: 8px;
-            background: #10b981;
-            border-radius: 50%;
-            box-shadow: 0 0 0 rgba(16, 185, 129, 0.7);
-            animation: pulse 1.8s infinite;
-        }
-        @keyframes pulse {
-            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-        }
-        h1 {
-            font-family: 'Outfit', sans-serif;
-            font-size: 32px;
-            font-weight: 700;
-            color: #ffffff;
-            margin-bottom: 8px;
-        }
-        p.subtitle {
-            color: #94a3b8;
-            font-size: 15px;
-            line-height: 1.6;
-            margin-bottom: 28px;
-        }
-        .btn-launch {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            background: #6366f1;
-            color: #ffffff;
-            text-decoration: none;
-            padding: 14px 28px;
-            border-radius: 12px;
-            font-weight: 600;
-            font-size: 16px;
-            transition: all 0.2s;
-            margin-bottom: 32px;
-            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
-        }
-        .btn-launch:hover {
-            background: #4f46e5;
-            transform: translateY(-2px);
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-bottom: 28px;
-        }
-        .card {
-            background: #0f172a;
-            border: 1px solid #334155;
-            border-radius: 14px;
-            padding: 18px;
-        }
-        .card-title {
-            font-size: 12px;
-            color: #94a3b8;
-            text-transform: uppercase;
-            font-weight: 600;
-            letter-spacing: 0.05em;
-            margin-bottom: 6px;
-        }
-        .card-value {
-            font-size: 15px;
-            font-weight: 600;
-            color: #f8fafc;
-        }
-        .endpoints {
-            background: #0f172a;
-            border: 1px solid #334155;
-            border-radius: 14px;
-            padding: 20px;
-        }
-        .endpoint-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #1e293b;
-            font-size: 13px;
-        }
-        .endpoint-item:last-child { border-bottom: none; }
-        .method {
-            padding: 2px 8px;
-            border-radius: 6px;
-            font-weight: 700;
-            font-size: 11px;
-            font-family: monospace;
-        }
-        .post { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
-        .get { background: rgba(16, 185, 129, 0.2); color: #34d399; }
-        .path { font-family: monospace; color: #cbd5e1; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="badge">
-            <span class="pulse"></span>
-            <span>REST API Online &amp; Healthy</span>
-        </div>
-        <h1>StudyApp C# Backend API</h1>
-        <p class="subtitle">ASP.NET Core 10 Clean Architecture engine powering AI document ingestion, active recall quiz sessions, and cross-platform synchronization.</p>
-        
-        <div class="btn-launch" role="status">
-            Flutter client runs separately — API base URL: http://localhost:5000
-        </div>
-
-        <div class="grid">
-            <div class="card">
-                <div class="card-title">Database</div>
-                <div class="card-value">SQLite (studyapp.db)</div>
-            </div>
-            <div class="card">
-                <div class="card-title">Authentication</div>
-                <div class="card-value">Multi-User JWT Auth</div>
-            </div>
-        </div>
-
-        <div class="endpoints">
-            <div class="card-title" style="margin-bottom: 12px;">Active API Endpoints</div>
-            <div class="endpoint-item">
-                <span class="path">/api/v1/auth/login</span>
-                <span class="method post">POST</span>
-            </div>
-            <div class="endpoint-item">
-                <span class="path">/api/v1/auth/register</span>
-                <span class="method post">POST</span>
-            </div>
-            <div class="endpoint-item">
-                <span class="path">/api/v1/notebooks</span>
-                <span class="method get">GET</span>
-            </div>
-            <div class="endpoint-item">
-                <span class="path">/api/v1/ingestion/file</span>
-                <span class="method post">POST</span>
-            </div>
-            <div class="endpoint-item">
-                <span class="path">/api/v1/ingestion/text</span>
-                <span class="method post">POST</span>
-            </div>
-            <div class="endpoint-item">
-                <span class="path">/api/v1/sync</span>
-                <span class="method post">POST</span>
-            </div>
-            <div class="endpoint-item">
-                <span class="path">/api/v1/ai/tutor</span>
-                <span class="method post">POST</span>
-            </div>
-            <div class="endpoint-item">
-                <span class="path">/api/v1/ai/explain</span>
-                <span class="method post">POST</span>
-            </div>
-            <div class="endpoint-item">
-                <span class="path">/api/v1/ai/status</span>
-                <span class="method get">GET</span>
-            </div>
-        </div>
-    </div>
-</body>
-</html>
-""", "text/html"));
+// Minimal, secure root and health routes. Zero architecture, framework version, database, or endpoint roadmap disclosure.
+app.MapGet("/", () => Results.Ok(new { status = "healthy", service = "StudyApp API" })).AllowAnonymous();
 
 app.MapControllers();
 

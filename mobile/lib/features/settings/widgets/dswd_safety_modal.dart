@@ -339,7 +339,7 @@ class DswdSafetyModal extends StatelessWidget {
                           ),
                           Switch.adaptive(
                             value: childSafety.isJuniorMode,
-                            activeColor: const Color(0xFF10B981),
+                            activeTrackColor: const Color(0xFF10B981),
                             onChanged: (val) => childSafety.setJuniorMode(val),
                           ),
                         ],

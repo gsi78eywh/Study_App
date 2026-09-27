@@ -6,17 +6,26 @@ import "../../../core/theme/app_theme.dart";
 class PomodoroTimerSheet extends StatefulWidget {
   final int focusMinutes;
   final int shortBreakMinutes;
+  final String? activeCourseCode;
+  final String? activeCourseName;
+  final VoidCallback? onStartStudySession;
 
   const PomodoroTimerSheet({
     super.key,
     this.focusMinutes = 25,
     this.shortBreakMinutes = 5,
+    this.activeCourseCode,
+    this.activeCourseName,
+    this.onStartStudySession,
   });
 
   static void show(
     BuildContext context, {
     int focusMinutes = 25,
     int shortBreakMinutes = 5,
+    String? activeCourseCode,
+    String? activeCourseName,
+    VoidCallback? onStartStudySession,
   }) {
     showModalBottomSheet(
       context: context,
@@ -25,6 +34,9 @@ class PomodoroTimerSheet extends StatefulWidget {
       builder: (_) => PomodoroTimerSheet(
         focusMinutes: focusMinutes,
         shortBreakMinutes: shortBreakMinutes,
+        activeCourseCode: activeCourseCode,
+        activeCourseName: activeCourseName,
+        onStartStudySession: onStartStudySession,
       ),
     );
   }
@@ -163,6 +175,62 @@ class _PomodoroTimerSheetState extends State<PomodoroTimerSheet> {
                 ),
               ],
             ),
+            if (widget.activeCourseCode != null && widget.activeCourseCode!.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6366F1).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.bolt_rounded, color: Color(0xFF6366F1), size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "QUEUED SMART SESSION TOPIC",
+                            style: GoogleFonts.outfit(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFF6366F1),
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+                          Text(
+                            "${widget.activeCourseCode} · ${widget.activeCourseName ?? 'Current Course'}",
+                            style: GoogleFonts.inter(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.bold,
+                              color: context.textPrimary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (widget.onStartStudySession != null)
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          widget.onStartStudySession!();
+                        },
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text("Open Deck", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF6366F1))),
+                      ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
 
             // Mode Selector

@@ -1219,28 +1219,40 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                           });
                                         },
                                       ),
-                                    ElevatedButton.icon(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: AppColors.accent,
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                                    if (widget.onNavigateToStudio != null)
+                                      ElevatedButton.icon(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppColors.accent,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        ),
+                                        icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                                        label: const Text("Generate Cards in AI Studio", style: TextStyle(fontWeight: FontWeight.bold)),
+                                        onPressed: widget.onNavigateToStudio,
+                                      ),
+                                    OutlinedButton.icon(
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: context.textPrimary,
+                                        side: BorderSide(color: context.cardBorderColor),
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                       ),
                                       icon: const Icon(Icons.cloud_sync_rounded, size: 18),
-                                      label: const Text("Sync Deck from Cloud", style: TextStyle(fontWeight: FontWeight.bold)),
+                                      label: const Text("Sync Existing from Cloud"),
                                       onPressed: () => _refreshDeckFromServer(showToast: true),
                                     ),
-                                    if (widget.onNavigateToStudio != null)
+                                    if (widget.courses.isEmpty && widget.onLoadStarterPack != null)
                                       OutlinedButton.icon(
                                         style: OutlinedButton.styleFrom(
-                                          foregroundColor: context.textPrimary,
-                                          side: BorderSide(color: context.cardBorderColor),
-                                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                                          foregroundColor: const Color(0xFF6366F1),
+                                          side: const BorderSide(color: Color(0xFF6366F1), width: 1.2),
+                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                         ),
-                                        icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
-                                        label: const Text("⚡ Open AI Studio Ingestion"),
-                                        onPressed: widget.onNavigateToStudio,
+                                        icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                                        label: const Text("Load Starter Demo Pack"),
+                                        onPressed: widget.onLoadStarterPack,
                                       ),
                                   ],
                                 ),

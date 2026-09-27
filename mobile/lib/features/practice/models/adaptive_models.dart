@@ -11,6 +11,8 @@ class TodayStudyPlanModel {
   final List<StudyPlanStepModel> steps;
   final String aiRecommendation;
   final ExplainableReadinessModel readiness;
+  final String? gradeRiskLevel;
+  final String? gradeRiskReason;
 
   TodayStudyPlanModel({
     this.courseId,
@@ -23,6 +25,8 @@ class TodayStudyPlanModel {
     required this.steps,
     required this.aiRecommendation,
     required this.readiness,
+    this.gradeRiskLevel,
+    this.gradeRiskReason,
   });
 
   factory TodayStudyPlanModel.fromJson(Map<String, dynamic> json) {
@@ -46,6 +50,8 @@ class TodayStudyPlanModel {
       readiness: json["readiness"] != null
           ? ExplainableReadinessModel.fromJson(json["readiness"] as Map<String, dynamic>)
           : ExplainableReadinessModel.defaultEmpty(),
+      gradeRiskLevel: json["gradeRiskLevel"]?.toString(),
+      gradeRiskReason: json["gradeRiskReason"]?.toString(),
     );
   }
 
@@ -419,10 +425,10 @@ class StudentBrainProfileModel {
       masteredConceptsCount: (json["masteredConceptsCount"] as int?) ?? 0,
       pendingReviewsCount: (json["pendingReviewsCount"] as int?) ?? 0,
       upcomingExamsCount: (json["upcomingExamsCount"] as int?) ?? 0,
-      priorityCourse: json["priorityCourse"]?.toString() ?? "General",
-      priorityCourseCode: json["priorityCourseCode"]?.toString() ?? "COURSE",
-      priorityMasteryPercent: (json["priorityMasteryPercent"] as num?)?.toDouble() ?? 50.0,
-      priorityWhy: json["priorityWhy"]?.toString() ?? "Maintain consistent spacing practice.",
+      priorityCourse: json["priorityCourse"]?.toString() ?? "No Courses Enrolled",
+      priorityCourseCode: json["priorityCourseCode"]?.toString() ?? "",
+      priorityMasteryPercent: (json["priorityMasteryPercent"] as num?)?.toDouble() ?? 0.0,
+      priorityWhy: json["priorityWhy"]?.toString() ?? "Awaiting initial course or study materials.",
       dailyAnswers: json["dailyAnswers"] != null
           ? StudentBrainDailyAnswersModel.fromJson(json["dailyAnswers"] as Map<String, dynamic>)
           : StudentBrainDailyAnswersModel.defaultEmpty(),
@@ -447,21 +453,21 @@ class StudentBrainDailyAnswersModel {
 
   factory StudentBrainDailyAnswersModel.fromJson(Map<String, dynamic> json) {
     return StudentBrainDailyAnswersModel(
-      whatDoINeedToDo: json["whatDoINeedToDo"]?.toString() ?? "Review spaced flashcards.",
-      whatShouldIStudy: json["whatShouldIStudy"]?.toString() ?? "Focus on lowest mastery topics.",
+      whatDoINeedToDo: json["whatDoINeedToDo"]?.toString() ?? "Enroll in your first course or review spaced flashcards.",
+      whatShouldIStudy: json["whatShouldIStudy"]?.toString() ?? "Awaiting study materials to build schedule.",
       whatAmIStrugglingWith: json["whatAmIStrugglingWith"]?.toString() ?? "No severe misconceptions detected.",
       howCanILearnIt: json["howCanILearnIt"]?.toString() ?? "Follow retrieval and spacing practice.",
-      whatShouldIDoNext: json["whatShouldIDoNext"]?.toString() ?? "Start today's Smart Session.",
+      whatShouldIDoNext: json["whatShouldIDoNext"]?.toString() ?? "Add a course or launch today's Smart Session.",
     );
   }
 
   factory StudentBrainDailyAnswersModel.defaultEmpty() {
     return StudentBrainDailyAnswersModel(
-      whatDoINeedToDo: "Organize academic goals and complete daily retrieval practice.",
-      whatShouldIStudy: "Target lowest mastery areas first.",
-      whatAmIStrugglingWith: "Check Mistake Bank for recurring error patterns.",
-      howCanILearnIt: "Active recall -> targeted practice -> Socratic review.",
-      whatShouldIDoNext: "Launch 25-Minute Smart Study Session.",
+      whatDoINeedToDo: "Enroll in your first course or scan lecture notes to begin your personalized learning loop.",
+      whatShouldIStudy: "Awaiting your first course or note materials to build your study schedule.",
+      whatAmIStrugglingWith: "No active misconception patterns detected. Ready for initial diagnostic synthesis.",
+      howCanILearnIt: "Follow the 3-step loop: Spaced Active Recall (5 min) -> Retrieval Practice (10 min) -> Mistake Bank Target Drill (7 min).",
+      whatShouldIDoNext: "Add a course or scan a note in AI Studio to generate your first study deck.",
     );
   }
 }

@@ -10,7 +10,7 @@ class ApiConstants {
     if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
     if (kIsWeb) return "http://localhost:5000";
     return defaultTargetPlatform == TargetPlatform.android
-        ? "http://10.0.2.2:5000"
+        ? "http://127.0.0.1:5000"
         : "http://localhost:5000";
   }
 
@@ -18,6 +18,9 @@ class ApiConstants {
   static const String login = "/api/v1/auth/login";
   static const String register = "/api/v1/auth/register";
   static const String me = "/api/v1/auth/me";
+  static const String forgotPassword = "/api/v1/auth/forgot-password";
+  static const String resetPassword = "/api/v1/auth/reset-password";
+  static const String oauth = "/api/v1/auth/oauth";
 
   // Ingestion endpoints
   static const String ingestText = "/api/v1/ingestion/text";

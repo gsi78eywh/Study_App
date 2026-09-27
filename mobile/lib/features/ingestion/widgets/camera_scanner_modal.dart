@@ -79,6 +79,8 @@ class _CameraScannerModalState extends State<CameraScannerModal>
   Uint8List? _capturedImageBytes;
   String? _capturedImageName;
   bool _isScanning = false;
+  bool _isGeneratingFlashcards = false;
+  bool _isSavingToNotebook = false;
   String? _errorMessage;
 
   // Extracted Result
@@ -335,6 +337,109 @@ Key Concepts:
       _errorMessage = null;
       _isScanning = false;
     });
+  }
+
+
+  Future<void> _autoGenerateFlashcardsFromOcr() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty) return;
+
+    final title = _titleController.text.trim().isNotEmpty
+        ? _titleController.text.trim()
+        : "OCR Flashcards (${DateTime.now().month}/${DateTime.now().day})";
+
+    setState(() => _isGeneratingFlashcards = true);
+
+    try {
+      final geminiKey = widget.apiClient.sessionService.geminiApiKey;
+      await widget.apiClient.dio.post(
+        ApiConstants.ingestText,
+        data: {
+          "courseId": _selectedCourseId.isNotEmpty ? _selectedCourseId : null,
+          "title": title,
+          "content": text,
+          "questionTypes": ["Identification", "MultipleChoice"],
+          "targetCount": 8,
+          "apiKey": geminiKey,
+        },
+      );
+
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.bolt_rounded, color: Color(0xFFFDE047), size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text("⚡ Auto-generated active recall flashcards for '$title'!")),
+              ],
+            ),
+            backgroundColor: const Color(0xFF6366F1),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isGeneratingFlashcards = false;
+          _errorMessage = "Could not generate flashcards: $e";
+        });
+      }
+    }
+  }
+
+  Future<void> _saveScannedNotesToNotebook() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty) return;
+
+    final title = _titleController.text.trim().isNotEmpty
+        ? _titleController.text.trim()
+        : "Scanned Lecture Note (${DateTime.now().month}/${DateTime.now().day})";
+
+    setState(() => _isSavingToNotebook = true);
+
+    try {
+      final success = await widget.apiClient.saveNotebookNote(
+        courseId: _selectedCourseId,
+        title: title,
+        markdown: text,
+      );
+
+      if (mounted) {
+        Navigator.of(context).pop();
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text("✓ '$title' saved directly to Course Notebook!")),
+                ],
+              ),
+              backgroundColor: const Color(0xFF10B981),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Failed to save note to Course Notebook. Please check connection."),
+              backgroundColor: Color(0xFFEF4444),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSavingToNotebook = false;
+          _errorMessage = "Could not save to notebook: $e";
+        });
+      }
+    }
   }
 
   void _triggerAutoExportAndCreateExam() {
@@ -980,22 +1085,46 @@ Key Concepts:
           ),
           const SizedBox(height: 16),
 
-          // Auto-Export Action Buttons
+          // Passive Capture: 1-Tap Auto-Flashcards from OCR
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF10B981),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                elevation: 4,
+              ),
+              icon: _isGeneratingFlashcards
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.bolt_rounded, size: 20, color: Color(0xFFFDE047)),
+              label: Text(
+                _isGeneratingFlashcards ? "Generating Active Recall Decks..." : "⚡ 1-Tap Auto-Flashcards from OCR",
+                style: GoogleFonts.outfit(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              onPressed: _isGeneratingFlashcards ? null : _autoGenerateFlashcardsFromOcr,
+            ),
+          ),
+          const SizedBox(height: 10),
+
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF6366F1),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                elevation: 4,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              icon: const Icon(Icons.auto_awesome, size: 18),
+              icon: const Icon(Icons.auto_awesome, size: 16),
               label: Text(
-                "🚀 Auto-Export & Slowly Create Exam Kinds",
+                "🚀 Create Practice Exam from Scan",
                 style: GoogleFonts.outfit(
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -1009,14 +1138,14 @@ Key Concepts:
               Expanded(
                 child: OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: context.textPrimary,
-                    side: BorderSide(color: context.cardBorderColor),
+                    foregroundColor: const Color(0xFF6366F1),
+                    side: const BorderSide(color: Color(0xFF6366F1)),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  icon: const Icon(Icons.edit_note_rounded, size: 16),
-                  label: const Text("Send to Editor"),
-                  onPressed: _triggerExportToEditor,
+                  icon: const Icon(Icons.bookmark_add_rounded, size: 16),
+                  label: const Text("Save to Notes"),
+                  onPressed: _isSavingToNotebook ? null : _saveScannedNotesToNotebook,
                 ),
               ),
               const SizedBox(width: 8),
@@ -1028,9 +1157,9 @@ Key Concepts:
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  icon: const Icon(Icons.refresh_rounded, size: 16),
-                  label: const Text("Rescan"),
-                  onPressed: _clearScan,
+                  icon: const Icon(Icons.edit_note_rounded, size: 16),
+                  label: const Text("Send to Editor"),
+                  onPressed: _triggerExportToEditor,
                 ),
               ),
             ],

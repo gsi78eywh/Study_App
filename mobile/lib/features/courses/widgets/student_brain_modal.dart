@@ -9,6 +9,8 @@ class StudentBrainModal extends StatefulWidget {
   final VoidCallback onStartSmartSession;
   final VoidCallback onOpenMistakeBank;
   final VoidCallback onOpenAcademicPlanner;
+  final VoidCallback? onLoadStarterPack;
+  final VoidCallback? onAddCourse;
 
   const StudentBrainModal({
     super.key,
@@ -16,6 +18,8 @@ class StudentBrainModal extends StatefulWidget {
     required this.onStartSmartSession,
     required this.onOpenMistakeBank,
     required this.onOpenAcademicPlanner,
+    this.onLoadStarterPack,
+    this.onAddCourse,
   });
 
   static Future<void> show(
@@ -24,6 +28,8 @@ class StudentBrainModal extends StatefulWidget {
     required VoidCallback onStartSmartSession,
     required VoidCallback onOpenMistakeBank,
     required VoidCallback onOpenAcademicPlanner,
+    VoidCallback? onLoadStarterPack,
+    VoidCallback? onAddCourse,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -34,6 +40,8 @@ class StudentBrainModal extends StatefulWidget {
         onStartSmartSession: onStartSmartSession,
         onOpenMistakeBank: onOpenMistakeBank,
         onOpenAcademicPlanner: onOpenAcademicPlanner,
+        onLoadStarterPack: onLoadStarterPack,
+        onAddCourse: onAddCourse,
       ),
     );
   }
@@ -66,6 +74,9 @@ class _StudentBrainModalState extends State<StudentBrainModal> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasEnrolledCourses = _profile != null &&
+        _profile!.coursesCount > 0 &&
+        _profile!.priorityCourseCode.isNotEmpty;
 
     return Container(
       constraints: BoxConstraints(
@@ -208,14 +219,18 @@ class _StudentBrainModalState extends State<StudentBrainModal> {
                             _buildMetricsGrid(context, _profile!),
                             const SizedBox(height: 20),
 
-                            // 3. Priority Recommendation with Explicit WHY
+                            // 3. Priority Recommendation or Getting Started Onboarding
                             Container(
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color: isDark ? const Color(0xFF1E1B4B) : const Color(0xFFEEF2FF),
+                                color: hasEnrolledCourses
+                                    ? (isDark ? const Color(0xFF1E1B4B) : const Color(0xFFEEF2FF))
+                                    : (isDark ? const Color(0xFF18181B) : const Color(0xFFF3F4F6)),
                                 borderRadius: BorderRadius.circular(18),
                                 border: Border.all(
-                                  color: const Color(0xFF6366F1).withValues(alpha: 0.4),
+                                  color: hasEnrolledCourses
+                                      ? const Color(0xFF6366F1).withValues(alpha: 0.4)
+                                      : context.cardBorderColor,
                                   width: 1.5,
                                 ),
                               ),
@@ -227,11 +242,11 @@ class _StudentBrainModalState extends State<StudentBrainModal> {
                                       Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFFEF4444),
+                                          color: hasEnrolledCourses ? const Color(0xFFEF4444) : const Color(0xFF6366F1),
                                           borderRadius: BorderRadius.circular(6),
                                         ),
                                         child: Text(
-                                          "TODAY'S PRIORITY",
+                                          hasEnrolledCourses ? "TODAY'S PRIORITY" : "GETTING STARTED",
                                           style: GoogleFonts.outfit(
                                             color: Colors.white,
                                             fontSize: 9,
@@ -243,7 +258,9 @@ class _StudentBrainModalState extends State<StudentBrainModal> {
                                       const SizedBox(width: 8),
                                       Expanded(
                                         child: Text(
-                                          "${_profile!.priorityCourseCode}: ${_profile!.priorityCourse}",
+                                          hasEnrolledCourses
+                                              ? "${_profile!.priorityCourseCode}: ${_profile!.priorityCourse}"
+                                              : "No Courses Enrolled Yet",
                                           style: GoogleFonts.inter(
                                             fontSize: 14,
                                             fontWeight: FontWeight.bold,
@@ -253,18 +270,22 @@ class _StudentBrainModalState extends State<StudentBrainModal> {
                                         ),
                                       ),
                                       Text(
-                                        "${_profile!.priorityMasteryPercent.round()}% Mastery",
+                                        hasEnrolledCourses
+                                            ? "${_profile!.priorityMasteryPercent.round()}% Mastery"
+                                            : "Awaiting Input",
                                         style: GoogleFonts.outfit(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w700,
-                                          color: const Color(0xFF6366F1),
+                                          color: hasEnrolledCourses ? const Color(0xFF6366F1) : context.textSecondary,
                                         ),
                                       ),
                                     ],
                                   ),
                                   const SizedBox(height: 10),
                                   Text(
-                                    "Why is the Student Brain recommending this?",
+                                    hasEnrolledCourses
+                                        ? "Why is the Student Brain recommending this?"
+                                        : "How does the Student Brain work?",
                                     style: GoogleFonts.inter(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w600,
@@ -345,10 +366,23 @@ class _StudentBrainModalState extends State<StudentBrainModal> {
                                   child: ElevatedButton.icon(
                                     onPressed: () {
                                       Navigator.pop(context);
-                                      widget.onStartSmartSession();
+                                      if (hasEnrolledCourses) {
+                                        widget.onStartSmartSession();
+                                      } else if (widget.onLoadStarterPack != null) {
+                                        widget.onLoadStarterPack!();
+                                      } else if (widget.onAddCourse != null) {
+                                        widget.onAddCourse!();
+                                      }
                                     },
-                                    icon: const Icon(Icons.bolt_rounded, color: Colors.yellow),
-                                    label: const Text("Launch Smart Session"),
+                                    icon: Icon(
+                                      hasEnrolledCourses ? Icons.bolt_rounded : Icons.auto_awesome_rounded,
+                                      color: Colors.yellow,
+                                    ),
+                                    label: Text(
+                                      hasEnrolledCourses
+                                          ? "Launch Smart Session"
+                                          : "Load Starter Demo Pack (Course + Notes + Cards)",
+                                    ),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: const Color(0xFF6366F1),
                                       foregroundColor: Colors.white,

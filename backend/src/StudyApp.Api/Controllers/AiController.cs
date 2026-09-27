@@ -27,7 +27,10 @@ public class AiController : ControllerBase
             return BadRequest(new { message = "Question or message cannot be empty." });
         }
 
-        var headerKey = Request.Headers["X-Gemini-ApiKey"].FirstOrDefault()?.Trim();
+        var headerKey = Request.Headers["X-OpenAI-ApiKey"].FirstOrDefault()?.Trim()
+            ?? Request.Headers["X-Gemini-ApiKey"].FirstOrDefault()?.Trim()
+            ?? Request.Headers["X-Api-Key"].FirstOrDefault()?.Trim();
+
         var effectiveApiKey = !string.IsNullOrWhiteSpace(request.ApiKey)
             ? request.ApiKey.Trim()
             : (!string.IsNullOrWhiteSpace(headerKey) ? headerKey : null);
@@ -45,7 +48,10 @@ public class AiController : ControllerBase
             return BadRequest(new { message = "Question prompt and correct answer are required." });
         }
 
-        var headerKey = Request.Headers["X-Gemini-ApiKey"].FirstOrDefault()?.Trim();
+        var headerKey = Request.Headers["X-OpenAI-ApiKey"].FirstOrDefault()?.Trim()
+            ?? Request.Headers["X-Gemini-ApiKey"].FirstOrDefault()?.Trim()
+            ?? Request.Headers["X-Api-Key"].FirstOrDefault()?.Trim();
+
         var effectiveApiKey = !string.IsNullOrWhiteSpace(request.ApiKey)
             ? request.ApiKey.Trim()
             : (!string.IsNullOrWhiteSpace(headerKey) ? headerKey : null);
@@ -59,15 +65,24 @@ public class AiController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> GetStatus(CancellationToken cancellationToken)
     {
-        var model = _configuration["AiSettings:ModelId"] ?? "gemini-3.6-flash";
+        var provider = _configuration["AiSettings:Provider"] ?? "GoogleGemini";
+        var isOpenAi = string.Equals(provider, "OpenAI", StringComparison.OrdinalIgnoreCase);
+        var model = isOpenAi
+            ? (_configuration["AiSettings:OpenAi:ModelId"] ?? _configuration["AiSettings:ModelId"] ?? "gpt-4o-mini")
+            : (_configuration["AiSettings:ModelId"] ?? "gemini-3.6-flash");
+
+        var openAiKey = _configuration["AiSettings:OpenAi:ApiKey"] ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        var isWiringPaused = isOpenAi && !StudyApp.Infrastructure.AiServices.OpenAiAiService.IsValidProjectKey(openAiKey);
+
         var isHealthy = await _aiTutorService.IsHealthyAsync(cancellationToken);
 
         return Ok(new
         {
             status = isHealthy ? "online" : "offline_fallback",
-            provider = "Google Gemini AI",
+            provider = provider,
             model = model,
             healthy = isHealthy,
+            wiringStatus = isOpenAi ? (isWiringPaused ? "paused_pending_key" : "active_live_target") : "ready",
             timestamp = DateTime.UtcNow
         });
     }

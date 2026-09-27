@@ -10,7 +10,9 @@ public record TodayStudyPlanDto(
     List<CoursePriorityDto> Priorities,
     List<StudyPlanStepDto> Steps,
     string AiRecommendation,
-    ExplainableReadinessDto Readiness
+    ExplainableReadinessDto Readiness,
+    string? GradeRiskLevel = null,
+    string? GradeRiskReason = null
 );
 
 public record CoursePriorityDto(

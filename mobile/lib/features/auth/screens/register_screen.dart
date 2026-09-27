@@ -6,6 +6,7 @@ import "../../../core/network/api_client.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../models/auth_models.dart";
+import "../widgets/terms_and_privacy_modal.dart";
 import "../../courses/screens/dashboard_screen.dart";
 
 class RegisterScreen extends StatefulWidget {
@@ -255,6 +256,47 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                   )
                                 : const Text("Create Account"),
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Terms of Service & Privacy Policy Consent
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                "By registering, you agree to our ",
+                                style: TextStyle(color: context.textSecondary, fontSize: 11.5),
+                              ),
+                              InkWell(
+                                onTap: () => TermsAndPrivacyModal.showTerms(context),
+                                child: Text(
+                                  "Terms of Service",
+                                  style: TextStyle(
+                                    color: AppColors.primary,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.bold,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                " and ",
+                                style: TextStyle(color: context.textSecondary, fontSize: 11.5),
+                              ),
+                              InkWell(
+                                onTap: () => TermsAndPrivacyModal.showPrivacy(context),
+                                child: Text(
+                                  "Privacy Policy",
+                                  style: TextStyle(
+                                    color: AppColors.primary,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.bold,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),

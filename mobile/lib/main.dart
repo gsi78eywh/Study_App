@@ -1,6 +1,7 @@
 import "package:flutter/material.dart";
 import "core/network/api_client.dart";
 import "core/services/child_safety_service.dart";
+import "core/services/notification_service.dart";
 import "core/services/session_service.dart";
 import "core/theme/app_theme.dart";
 import "core/theme/theme_controller.dart";
@@ -12,6 +13,7 @@ void main() async {
 
   final sessionService = await SessionService.init();
   await ChildSafetyService.init(sessionService.prefs);
+  await NotificationService.instance.init();
   final themeController = ThemeController.init(sessionService);
   final apiClient = ApiClient(sessionService);
 

@@ -1,0 +1,6 @@
+# Android Release Signing Configuration Example
+# Copy this file to key.properties and configure your release credentials
+storePassword=studyapp2026
+keyPassword=studyapp2026
+keyAlias=upload
+storeFile=app/upload-keystore.jks

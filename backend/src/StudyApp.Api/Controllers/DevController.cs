@@ -44,6 +44,10 @@ public class DevController : ControllerBase
 
         var geminiKey = _configuration["AiSettings:ApiKey"];
         var hasGeminiKey = !string.IsNullOrWhiteSpace(geminiKey) && geminiKey != "YOUR_GEMINI_API_KEY_HERE";
+        var openAiKey = _configuration["AiSettings:OpenAi:ApiKey"] ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        var hasOpenAiKey = StudyApp.Infrastructure.AiServices.OpenAiAiService.IsValidProjectKey(openAiKey);
+        var activeProvider = _configuration["AiSettings:Provider"] ?? "GoogleGemini";
+        var isOpenAi = string.Equals(activeProvider, "OpenAI", StringComparison.OrdinalIgnoreCase);
 
         return Ok(new
         {
@@ -63,9 +67,14 @@ public class DevController : ControllerBase
             },
             aiService = new
             {
-                provider = _configuration["AiSettings:Provider"] ?? "GoogleGemini",
-                model = _configuration["AiSettings:ModelId"] ?? "gemini-3.6-flash",
-                hasApiKey = hasGeminiKey
+                provider = activeProvider,
+                model = isOpenAi
+                    ? (_configuration["AiSettings:OpenAi:ModelId"] ?? "gpt-4o-mini")
+                    : (_configuration["AiSettings:ModelId"] ?? "gemini-3.6-flash"),
+                hasApiKey = isOpenAi ? hasOpenAiKey : hasGeminiKey,
+                openAiWiringStatus = hasOpenAiKey ? "active_live_target" : "paused_pending_key",
+                geminiAvailable = hasGeminiKey,
+                openAiAvailable = hasOpenAiKey
             },
             supportedQuestionSets = new[]
             {

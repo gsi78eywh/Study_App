@@ -5,7 +5,7 @@ namespace StudyApp.Infrastructure.AiServices;
 
 public static class AcademicTutorSynthesizer
 {
-    private const string OfflineNotice = "\n\n> 💡 **Tutor Note:** *Answered using the built-in educational tutor knowledge engine. To connect live to Google Gemini cloud AI, tap the 🔑 key icon in the top bar to set your Gemini API key.*";
+    private const string OfflineNotice = "\n\n*(Synthesized by built-in educational tutor knowledge engine)*";
 
     public static string SynthesizeResponse(string message, string? contextTopic, List<ChatMessageDto>? history = null)
     {
@@ -14,10 +14,16 @@ public static class AcademicTutorSynthesizer
         var topic = (contextTopic ?? string.Empty).Trim();
         var lowerTopic = topic.ToLowerInvariant();
 
-        // 1. Code Documentation, Docstrings & Technical Specifications
+        // 1. PHP Setup, CLI, Server, Composer & Frameworks
+        if (Regex.IsMatch(lowerPrompt, @"\bphp\b"))
+        {
+            return BuildPhpSetupResponse(rawPrompt);
+        }
+
+        // 2. Code Documentation, Docstrings & Technical Specifications
         if (Regex.IsMatch(lowerPrompt, @"\b(code documentation|document(?:ing)? code|docstrings?|xml doc(?:umentation)?|jsdoc|tsdoc|dartdoc|swagger|openapi doc|function documentation|api doc(?:umentation)?)\b"))
         {
-            return BuildCodeDocumentationResponse(rawPrompt, topic) + OfflineNotice;
+            return BuildCodeDocumentationResponse(rawPrompt, topic);
         }
 
         // 2. Flutter Setup & Getting Started
@@ -120,6 +126,145 @@ public static class AcademicTutorSynthesizer
 
         // 15. General Structured Academic Response
         return BuildGeneralAcademicResponse(rawPrompt, topic) + OfflineNotice;
+    }
+
+    private static string BuildPhpSetupResponse(string prompt)
+    {
+        return """
+        ### 🐘 Complete PHP Development Setup Guide (PHP 8.2+ & Modern Tooling)
+
+        PHP is a widely-used, open-source general-purpose scripting language especially suited for web development, REST APIs, and backend server microservices.
+
+        ---
+
+        #### 1. Installation by Operating System
+
+        ##### 🪟 Windows Setup
+        **Option A (Recommended via Scoop or Chocolatey):**
+        ```powershell
+        # Using Scoop:
+        scoop install php composer
+
+        # Or using Chocolatey:
+        choco install php composer
+        ```
+
+        **Option B (Manual Zip Archive):**
+        1. Download **VS16 x64 Non Thread Safe** or **Thread Safe** from [windows.php.net/download](https://windows.php.net/download).
+        2. Extract to `C:\php`.
+        3. Copy `C:\php\php.ini-development` to `C:\php\php.ini`.
+        4. Open `php.ini` and uncomment essential extensions:
+           ```ini
+           extension_dir = "ext"
+           extension=curl
+           extension=fileinfo
+           extension=mbstring
+           extension=openssl
+           extension=pdo_mysql
+           extension=pdo_sqlite
+           ```
+        5. Add `C:\php` to your System Environment `PATH` variable.
+
+        ---
+
+        ##### 🐧 Linux (Ubuntu / Debian)
+        ```bash
+        # Update packages and install PHP 8.x CLI and common extensions
+        sudo apt update
+        sudo apt install -y php php-cli php-fpm php-mysql php-sqlite3 php-curl php-mbstring php-xml php-zip unzip
+
+        # Verify installation
+        php -v
+        ```
+
+        ##### 🍎 macOS
+        ```bash
+        # Install via Homebrew
+        brew install php composer
+
+        # Check version
+        php -v
+        ```
+
+        ---
+
+        #### 2. Verify Your Installation & CLI
+        Run the following in your terminal:
+        ```bash
+        # Check PHP binary version:
+        php -v
+
+        # Interactive Shell (REPL for quick tests):
+        php -a
+        ```
+
+        ---
+
+        #### 3. Install Composer (PHP Dependency Manager)
+        Composer is essential for modern PHP packages, autoloading, and frameworks (like Laravel, Symfony, Slim):
+        - **Windows:** Download and run `Composer-Setup.exe` from [getcomposer.org](https://getcomposer.org).
+        - **Linux / macOS:**
+          ```bash
+          curl -sS https://getcomposer.org/installer | php
+          sudo mv composer.phar /usr/local/bin/composer
+          composer --version
+          ```
+
+        ---
+
+        #### 4. Run the Built-In Local Development Server
+        You do **not** need Apache or Nginx to develop locally! PHP includes a high-speed built-in development server:
+        ```bash
+        # 1. Create a project directory
+        mkdir my_php_app && cd my_php_app
+        mkdir public
+
+        # 2. Create public/index.php
+        echo "<?php phpinfo(); ?>" > public/index.php
+
+        # 3. Launch local dev server on port 8000
+        php -S localhost:8000 -t public
+        ```
+        Open your browser to `http://localhost:8000` to see your running PHP application!
+
+        ---
+
+        #### 5. Modern PHP 8.x Sample Code (`public/index.php`)
+        ```php
+        <?php
+        declare(strict_types=1);
+
+        header('Content-Type: application/json; charset=utf-8');
+
+        // Modern Typed Class with Constructor Promotion
+        readonly class StudentTask {
+            public function __construct(
+                public int $id,
+                public string $title,
+                public bool $isCompleted = false
+            ) {}
+        }
+
+        $task = new StudentTask(1, "Master PHP 8 Architecture", false);
+
+        echo json_encode([
+            "status" => "success",
+            "runtime" => PHP_VERSION,
+            "data" => [
+                "id" => $task->id,
+                "title" => $task->title,
+                "completed" => $task->isCompleted
+            ]
+        ], JSON_PRETTY_PRINT);
+        ```
+
+        ---
+
+        #### 6. Common Pitfalls & Solutions
+        - **"php is not recognized as an internal or external command" (Windows):** Ensure `C:\php` (or scoop path) is in your User or System `PATH` variable, then restart your terminal.
+        - **Missing `mbstring` or `curl` during Composer install:** Open `php.ini` and remove the leading `;` semicolon from `extension=mbstring` and `extension=curl`.
+        - **Database connection error:** Ensure `extension=pdo_mysql` or `extension=pdo_sqlite` is uncommented in `php.ini`.
+        """;
     }
 
     private static string BuildFlutterSetupResponse()

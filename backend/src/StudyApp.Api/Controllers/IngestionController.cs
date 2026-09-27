@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text.RegularExpressions;
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
@@ -516,6 +518,244 @@ public class IngestionController : ControllerBase
         });
     }
 
+        [HttpPost("transcript-to-notes")]
+    public async Task<IActionResult> TranscriptToNotes([FromBody] TranscriptToNotesRequest request, CancellationToken cancellationToken)
+    {
+        var userId = CurrentUserId();
+        if (userId is null) return Unauthorized();
+
+        string rawContent = (request.Content ?? string.Empty).Trim();
+        string? url = (request.Url ?? string.Empty).Trim();
+
+        if (rawContent.Length > 200_000)
+        {
+            return BadRequest(new { message = "Transcript content cannot exceed 200,000 characters." });
+        }
+        if (url != null && url.Length > 2048)
+        {
+            return BadRequest(new { message = "URL cannot exceed 2,048 characters." });
+        }
+
+        if (string.IsNullOrWhiteSpace(rawContent) && string.IsNullOrWhiteSpace(url))
+        {
+            return BadRequest(new { message = "Please provide either a lecture transcript text or a video/article URL." });
+        }
+
+        Guid effectiveCourseId;
+        if (request.CourseId.HasValue && request.CourseId.Value != Guid.Empty)
+        {
+            if (!await OwnsCourseAsync(request.CourseId.Value)) return NotFound(new { message = "Course not found." });
+            effectiveCourseId = request.CourseId.Value;
+        }
+        else
+        {
+            var defaultCourse = await GetOrCreateDefaultCourseAsync(userId.Value);
+            effectiveCourseId = defaultCourse.Id;
+        }
+
+        string sourceText = rawContent;
+        string? candidateTitle = request.Title;
+
+        if (!string.IsNullOrWhiteSpace(url))
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+            {
+                return BadRequest(new { message = "Only valid HTTP(S) URLs can be processed." });
+            }
+
+            var ytTranscript = await TryExtractYouTubeTranscriptAsync(url, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(ytTranscript))
+            {
+                sourceText = ytTranscript;
+                if (string.IsNullOrWhiteSpace(candidateTitle))
+                {
+                    candidateTitle = "YouTube Lecture Notes";
+                }
+            }
+            else
+            {
+                try
+                {
+                    sourceText = await _documentExtractor.ExtractUrlContentAsync(uri.ToString(), cancellationToken);
+                    if (string.IsNullOrWhiteSpace(candidateTitle))
+                    {
+                        candidateTitle = uri.Host;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    return BadRequest(new { message = $"Could not extract content from the URL: {ex.Message}" });
+                }
+            }
+        }
+
+        sourceText = Regex.Replace(sourceText, @"(?:\b\d{1,2}:\d{2}(?::\d{2})?\b|\[\d{1,2}:\d{2}(?::\d{2})?\])", " ");
+        sourceText = Regex.Replace(sourceText, @"\s{2,}", " ").Trim();
+        sourceText = LimitSourceText(sourceText);
+
+        if (!HasUsableStudyContent(sourceText))
+        {
+            return BadRequest(new { message = "Could not extract enough readable transcript text. Please paste the lecture transcript directly." });
+        }
+
+        var noteTitle = CleanTitle(!string.IsNullOrWhiteSpace(candidateTitle) ? candidateTitle : "Lecture Notes & Cornell Summary");
+        var geminiKey = !string.IsNullOrWhiteSpace(request.ApiKey)
+            ? request.ApiKey.Trim()
+            : Request.Headers["X-Gemini-ApiKey"].ToString().Trim();
+
+        var result = await _aiGenerator.GenerateStudySetAsync(
+            sourceText,
+            noteTitle,
+            new List<string> { "Identification", "MultipleChoice" },
+            request.GenerateFlashcards ? 8 : 4,
+            0,
+            null,
+            geminiKey,
+            cancellationToken);
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"# {noteTitle}");
+        sb.AppendLine();
+        sb.AppendLine("## Executive Lecture Summary");
+        sb.AppendLine(result.Summary);
+        sb.AppendLine();
+
+        if (result.HighYieldBulletPoints != null && result.HighYieldBulletPoints.Count > 0)
+        {
+            sb.AppendLine("## Core Academic Concepts & Cornell Cues");
+            foreach (var bp in result.HighYieldBulletPoints)
+            {
+                sb.AppendLine($"- **Concept**: {bp}");
+            }
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("## Mechanistic Breakdown & Detailed Notes");
+        var paragraphs = sourceText.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries);
+        int pCount = 0;
+        foreach (var p in paragraphs)
+        {
+            if (p.Length >= 40 && pCount < 5)
+            {
+                sb.AppendLine($"> {p.Trim()}");
+                sb.AppendLine();
+                pCount++;
+            }
+        }
+
+        if (result.Questions.Count > 0)
+        {
+            sb.AppendLine("## Active Recall Flashcard Prompts");
+            foreach (var q in result.Questions)
+            {
+                sb.AppendLine($"### Q: {q.Prompt}");
+                sb.AppendLine($"**Answer**: {q.CorrectAnswer}");
+                if (!string.IsNullOrWhiteSpace(q.Explanation))
+                {
+                    sb.AppendLine($"*Rationale*: {q.Explanation}");
+                }
+                sb.AppendLine();
+            }
+        }
+
+        var markdownContent = sb.ToString().Trim();
+
+        var notePage = new NotebookPage
+        {
+            Id = Guid.NewGuid(),
+            CourseId = effectiveCourseId,
+            Title = noteTitle,
+            ContentMarkdown = markdownContent,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        _context.NotebookPages.Add(notePage);
+
+        StudySet? studySet = null;
+        if (request.GenerateFlashcards)
+        {
+            studySet = await SaveGeneratedSetAsync(effectiveCourseId, result, noteTitle, "transcript/cornell", sourceText);
+        }
+        else
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+
+        var course = await _context.Courses.FindAsync(new object[] { effectiveCourseId }, cancellationToken);
+
+        return Ok(new
+        {
+            notebookId = notePage.Id,
+            courseId = effectiveCourseId,
+            courseCode = course?.Code ?? "COURSE",
+            courseName = course?.Name ?? "General Course",
+            title = notePage.Title,
+            contentMarkdown = notePage.ContentMarkdown,
+            studySetId = studySet?.Id,
+            questionCount = studySet?.Questions.Count ?? 0,
+            summary = result.Summary,
+            highYieldBulletPoints = result.HighYieldBulletPoints,
+            message = "Lecture transcript parsed into structured Cornell Notes and saved to your Notebook!"
+        });
+    }
+
+    private static async Task<string?> TryExtractYouTubeTranscriptAsync(string url, CancellationToken ct)
+    {
+        try
+        {
+            if (!url.Contains("youtube.com") && !url.Contains("youtu.be"))
+                return null;
+
+            using var httpClient = new HttpClient();
+            httpClient.Timeout = TimeSpan.FromSeconds(15);
+            httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            var html = await httpClient.GetStringAsync(url, ct);
+
+            var captionMatch = Regex.Match(html, @"""captionTracks"":\s*\[(.*?)\]");
+            if (captionMatch.Success)
+            {
+                var baseUrls = Regex.Matches(captionMatch.Value, @"""baseUrl"":\s*""([^""]+)""");
+                if (baseUrls.Count > 0)
+                {
+                    var transcriptUrl = Regex.Unescape(baseUrls[0].Groups[1].Value);
+                    if (Uri.TryCreate(transcriptUrl, UriKind.Absolute, out var transcriptUri) &&
+                        transcriptUri.Scheme == "https" &&
+                        (transcriptUri.Host.EndsWith("youtube.com", StringComparison.OrdinalIgnoreCase) ||
+                         transcriptUri.Host.EndsWith("google.com", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var xml = await httpClient.GetStringAsync(transcriptUrl, ct);
+                        var textMatches = Regex.Matches(xml, @"<text[^>]*>(.*?)</text>", RegexOptions.Singleline);
+                        if (textMatches.Count > 0)
+                        {
+                            var sb = new System.Text.StringBuilder();
+                            foreach (Match m in textMatches)
+                            {
+                                var decoded = WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
+                                if (!string.IsNullOrWhiteSpace(decoded))
+                                {
+                                    sb.Append(decoded).Append(' ');
+                                }
+                            }
+                            var fullTranscript = sb.ToString().Trim();
+                            if (fullTranscript.Length > 50) return fullTranscript;
+                        }
+                    }
+                }
+            }
+
+            var titleMatch = Regex.Match(html, @"<title>(.*?)</title>");
+            var descMatch = Regex.Match(html, @"<meta name=""description"" content=""(.*?)""");
+            var title = titleMatch.Success ? WebUtility.HtmlDecode(titleMatch.Groups[1].Value).Replace(" - YouTube", "") : "YouTube Lecture";
+            var desc = descMatch.Success ? WebUtility.HtmlDecode(descMatch.Groups[1].Value) : "";
+            return $"{title}\n\n{desc}";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+
     [HttpGet("/api/v1/studysets/{id:guid}/questions")]
     public async Task<IActionResult> GetStudySetQuestions(Guid id, [FromQuery] bool includeAnswerKey = true)
     {
@@ -665,7 +905,7 @@ public class IngestionController : ControllerBase
     public async Task<IActionResult> ExportStudySet(Guid id, [FromQuery] string format = "markdown")
     {
         var studySet = await _context.StudySets
-            .Where(s => s.Id == id && s.Course != null && s.Course.UserId == CurrentUserId())
+            .Where(s => s.Id == id && (s.Course == null || s.Course.UserId == CurrentUserId()))
             .Include(s => s.Course)
             .Include(s => s.SourceDocuments)
             .Include(s => s.Questions)
@@ -748,13 +988,34 @@ public class IngestionController : ControllerBase
         }
 
         var exportContent = sb.ToString();
+        var sanitizedTitle = SanitizeFileName(studySet.Title);
+        var fileName = format.Equals("txt", StringComparison.OrdinalIgnoreCase)
+            ? $"{sanitizedTitle}_StudyGuide.txt"
+            : $"{sanitizedTitle}_StudyGuide.md";
+
+        var acceptHeader = Request.Headers.Accept.ToString();
+        bool prefersJson = acceptHeader.Contains("application/json") || format.Equals("json", StringComparison.OrdinalIgnoreCase);
+
+        if (prefersJson)
+        {
+            return Ok(new
+            {
+                studySetId = studySet.Id,
+                title = studySet.Title,
+                courseName = studySet.Course?.Name ?? "General Studies",
+                fileName,
+                content = exportContent,
+                format = format.ToLowerInvariant(),
+                questionCount = studySet.Questions.Count
+            });
+        }
 
         if (format.Equals("txt", StringComparison.OrdinalIgnoreCase))
         {
-            return File(System.Text.Encoding.UTF8.GetBytes(exportContent), "text/plain", $"{SanitizeFileName(studySet.Title)}_StudyGuide.txt");
+            return File(System.Text.Encoding.UTF8.GetBytes(exportContent), "text/plain", fileName);
         }
 
-        return File(System.Text.Encoding.UTF8.GetBytes(exportContent), "text/markdown", $"{SanitizeFileName(studySet.Title)}_StudyGuide.md");
+        return File(System.Text.Encoding.UTF8.GetBytes(exportContent), "text/markdown", fileName);
     }
 
     private async Task<StudySet> SaveGeneratedSetAsync(

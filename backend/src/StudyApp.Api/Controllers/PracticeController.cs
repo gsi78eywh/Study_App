@@ -1,3 +1,4 @@
+using StudyApp.Domain.Common;
 using System.Data.Common;
 using System.Globalization;
 using System.Security.Claims;
@@ -285,15 +286,92 @@ public sealed class PracticeController : ControllerBase
             .Where(a => a.Question != null && a.Question.StudySet != null && a.Question.StudySet.Course != null && a.Question.StudySet.Course.UserId == userId.Value)
             .ToListAsync(cancellationToken);
 
-        var primaryCourse = courses
-            .OrderBy(c => c.ExamDate.HasValue && c.ExamDate.Value > DateTime.UtcNow ? 0 : 1)
-            .ThenBy(c => c.ExamDate ?? DateTime.MaxValue)
-            .ThenBy(c =>
+        // Grade-Risk-Aware Priority Engine: Combines Grade Risk + Exam Deadlines + Concept Mastery Gaps
+        var courseScores = new List<(Course Course, double PriorityScore, string RiskReason)>();
+
+        foreach (var c in courses)
+        {
+            double priorityScore = 0.0;
+            var reasons = new List<string>();
+
+            // 1. Grade Risk Component (0 - 40 points)
+            var (computedGrade, _, _) = GwaCalculator.ComputeSubjectGrade(
+                c.PrelimGrade, c.MidtermGrade, c.SemiFinalGrade, c.FinalGrade,
+                c.PrelimWeight, c.MidtermWeight, c.SemiFinalWeight, c.FinalWeight);
+
+            if (computedGrade.HasValue)
             {
-                var cAttempts = attempts.Where(a => a.Question?.StudySet?.CourseId == c.Id).ToList();
-                return cAttempts.Count == 0 ? 0 : cAttempts.Average(a => a.PartialScore);
-            })
-            .First();
+                if (computedGrade.Value < 75.0)
+                {
+                    priorityScore += 40.0;
+                    reasons.Add($"Grade in critical failure zone ({computedGrade.Value}%, cutoff 75.0%)");
+                }
+                else if (computedGrade.Value < 78.0)
+                {
+                    priorityScore += 30.0;
+                    reasons.Add($"Grade in danger borderline ({computedGrade.Value}%)");
+                }
+                else if (computedGrade.Value < 83.0)
+                {
+                    priorityScore += 15.0;
+                    reasons.Add($"Below target grade ({computedGrade.Value}%)");
+                }
+            }
+
+            // 2. Exam Deadline Proximity (0 - 35 points)
+            if (c.ExamDate.HasValue && c.ExamDate.Value > DateTime.UtcNow)
+            {
+                var daysLeft = (c.ExamDate.Value - DateTime.UtcNow).TotalDays;
+                if (daysLeft <= 2.0)
+                {
+                    priorityScore += 35.0;
+                    reasons.Add($"Exam in {(int)Math.Ceiling(daysLeft)} days");
+                }
+                else if (daysLeft <= 5.0)
+                {
+                    priorityScore += 25.0;
+                    reasons.Add($"Exam in {(int)Math.Ceiling(daysLeft)} days");
+                }
+                else if (daysLeft <= 10.0)
+                {
+                    priorityScore += 15.0;
+                    reasons.Add($"Upcoming exam in {(int)Math.Ceiling(daysLeft)} days");
+                }
+                else
+                {
+                    priorityScore += 5.0;
+                }
+            }
+
+            // 3. Mastery Gap & Mistake Bank (0 - 25 points)
+            var cAttempts = attempts.Where(a => a.Question?.StudySet?.CourseId == c.Id).ToList();
+            if (cAttempts.Count > 0)
+            {
+                var accuracy = (double)cAttempts.Average(a => a.PartialScore);
+                var unres = cAttempts.Count(a => !a.IsCorrect);
+                if (accuracy < 0.60)
+                {
+                    priorityScore += 20.0;
+                    reasons.Add($"Low retrieval accuracy ({Math.Round(accuracy * 100)}%)");
+                }
+                else if (accuracy < 0.75)
+                {
+                    priorityScore += 10.0;
+                }
+                priorityScore += Math.Min(unres, 5.0);
+            }
+            else
+            {
+                priorityScore += 10.0; // Needs diagnostic practice
+            }
+
+            var reasonSummary = reasons.Count > 0 ? string.Join(" • ", reasons) : "Routine spaced retrieval reinforcement";
+            courseScores.Add((c, priorityScore, reasonSummary));
+        }
+
+        var topScored = courseScores.OrderByDescending(cs => cs.PriorityScore).First();
+        var primaryCourse = topScored.Course;
+        var primaryRiskReason = topScored.RiskReason;
 
         var daysUntilExam = primaryCourse.ExamDate.HasValue
             ? Math.Max(0, (int)Math.Ceiling((primaryCourse.ExamDate.Value - DateTime.UtcNow).TotalDays))
@@ -376,9 +454,23 @@ public sealed class PracticeController : ControllerBase
             lowestSet?.Title
         ));
 
-        var aiRec = unresolvedMistakes > 0
-            ? $"⚠️ Priority focus on {priorities.FirstOrDefault()?.TopicName ?? "core concepts"}. You have {unresolvedMistakes} mistake patterns flagged for review."
-            : $"🚀 High exam momentum! Maintain consistency with quick spaced flashcard drills.";
+        string gradeRiskLevel = "Normal";
+        var (pCompGrade, _, _) = GwaCalculator.ComputeSubjectGrade(
+            primaryCourse.PrelimGrade, primaryCourse.MidtermGrade, primaryCourse.SemiFinalGrade, primaryCourse.FinalGrade,
+            primaryCourse.PrelimWeight, primaryCourse.MidtermWeight, primaryCourse.SemiFinalWeight, primaryCourse.FinalWeight);
+
+        if (pCompGrade.HasValue)
+        {
+            if (pCompGrade.Value < 75.0) gradeRiskLevel = "Critical Risk";
+            else if (pCompGrade.Value < 78.0) gradeRiskLevel = "Danger";
+            else if (pCompGrade.Value < 83.0) gradeRiskLevel = "Warning";
+            else gradeRiskLevel = "Good Standing";
+        }
+
+        var aiRec = $"Focus on {primaryCourse.Code}: {primaryRiskReason}. " +
+            (unresolvedMistakes > 0
+                ? $"{unresolvedMistakes} active misconception patterns flagged for review."
+                : "Maintain study momentum with targeted active recall.");
 
         return Ok(new TodayStudyPlanDto(
             primaryCourse.Id,
@@ -390,7 +482,9 @@ public sealed class PracticeController : ControllerBase
             priorities,
             steps,
             aiRec,
-            new ExplainableReadinessDto(overallReadiness, qAccuracy, fRetention, Math.Max(1, activeDays), unresolvedMistakes, readinessExplanation)
+            new ExplainableReadinessDto(overallReadiness, qAccuracy, fRetention, Math.Max(1, activeDays), unresolvedMistakes, readinessExplanation),
+            gradeRiskLevel,
+            primaryRiskReason
         ));
     }
 
@@ -691,13 +785,13 @@ public sealed class PracticeController : ControllerBase
             .ThenBy(c => c.ExamDate ?? DateTime.MaxValue)
             .FirstOrDefault();
 
-        var priorityCourseName = topCourse?.Name ?? "General Studies";
-        var priorityCourseCode = topCourse?.Code ?? "GEN101";
+        var priorityCourseName = topCourse?.Name ?? "No Courses Enrolled";
+        var priorityCourseCode = topCourse?.Code ?? "";
         var daysUntilExam = topCourse?.ExamDate.HasValue == true
             ? Math.Max(0, (int)Math.Ceiling((topCourse.ExamDate.Value - DateTime.UtcNow).TotalDays))
             : (int?)null;
 
-        var priorityMastery = 55.0m;
+        var priorityMastery = 0.0m;
         if (topCourse != null)
         {
             var topQIds = topCourse.StudySets.SelectMany(s => s.Questions.Select(q => q.Id)).ToList();
@@ -708,20 +802,28 @@ public sealed class PracticeController : ControllerBase
             }
         }
 
-        var priorityWhy = daysUntilExam.HasValue && daysUntilExam.Value <= 7
-            ? $"You have an upcoming assessment in {daysUntilExam.Value} days, your recent accuracy is {priorityMastery}%, and {Math.Min(pendingReviews, 8)} flashcards are due for review."
-            : $"Current mastery is {priorityMastery}% with {weakConcepts} concepts flagged for active recall reinforcement.";
+        var priorityWhy = topCourse == null
+            ? "No courses enrolled yet. Add your first course or load the starter demo pack to activate AI insights and personalized recommendations."
+            : daysUntilExam.HasValue && daysUntilExam.Value <= 7
+                ? $"You have an upcoming assessment in {daysUntilExam.Value} days, your recent accuracy is {priorityMastery}%, and {Math.Min(pendingReviews, 8)} flashcards are due for review."
+                : $"Current mastery is {priorityMastery}% with {weakConcepts} concepts flagged for active recall reinforcement.";
 
         var dailyAnswers = new StudentBrainDailyAnswersDto(
-            WhatDoINeedToDo: upcomingDeadlinesCount > 0
-                ? $"Complete {upcomingDeadlinesCount} pending academic deadlines and review {Math.Min(pendingReviews, 8)} spaced flashcards."
-                : $"Review {Math.Min(pendingReviews, 8)} spaced flashcards and complete today's retrieval practice session.",
-            WhatShouldIStudy: $"{priorityCourseCode}: {priorityCourseName} ({priorityMastery}% mastery) — {priorityWhy}",
+            WhatDoINeedToDo: topCourse == null
+                ? "Enroll in your first course or scan your lecture notes to begin your personalized learning loop."
+                : upcomingDeadlinesCount > 0
+                    ? $"Complete {upcomingDeadlinesCount} pending academic deadlines and review {Math.Min(pendingReviews, 8)} spaced flashcards."
+                    : $"Review {Math.Min(pendingReviews, 8)} spaced flashcards and complete today's retrieval practice session.",
+            WhatShouldIStudy: topCourse == null
+                ? "Awaiting your first course or note materials to build your study schedule."
+                : $"{priorityCourseCode}: {priorityCourseName} ({priorityMastery}% mastery) — {priorityWhy}",
             WhatAmIStrugglingWith: weakConcepts > 0
                 ? $"{weakConcepts} concepts identified with recurring misconception patterns in active retrieval sessions."
-                : "No active misconception patterns detected. Ready for advanced difficulty synthesis.",
+                : "No active misconception patterns detected. Ready for initial diagnostic synthesis.",
             HowCanILearnIt: "Follow the 3-step loop: Spaced Active Recall (5 min) -> Retrieval Practice (10 min) -> Mistake Bank Target Drill (7 min).",
-            WhatShouldIDoNext: "Launch today's 25-Minute Smart Study Session to address weak areas immediately."
+            WhatShouldIDoNext: topCourse == null
+                ? "Add a course or scan a note in AI Studio to generate your first study deck."
+                : "Launch today's 25-Minute Smart Study Session to address weak areas immediately."
         );
 
         return Ok(new StudentBrainProfileDto(

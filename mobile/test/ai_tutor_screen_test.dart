@@ -65,14 +65,14 @@ void main() {
     expect(find.text("Gemini Study Tutor"), findsOneWidget);
     expect(find.text("Google Gemini Multimodal AI Engine"), findsOneWidget);
 
-    // Verify key indicator shows "API Key" when no key configured
-    expect(find.text("API Key"), findsOneWidget);
+    // Verify status indicator shows "AI Tutor Online" securely without exposing API keys
+    expect(find.text("AI Tutor Online"), findsOneWidget);
 
     // Verify default initial greeting shows "Built-In Academic Engine"
     expect(find.text("Built-In Academic Engine"), findsOneWidget);
   });
 
-  testWidgets("AiTutorScreen allows opening Gemini Key dialog and saving key", (WidgetTester tester) async {
+  testWidgets("AiTutorScreen displays AI Tutor Online badge and secures client from exposing keys", (WidgetTester tester) async {
     final sessionService = await SessionService.init();
     final apiClient = ApiClient(sessionService);
     final mockAdapter = MockAiTutorHttpAdapter();
@@ -86,24 +86,10 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    // Tap on API Key button
-    await tester.tap(find.text("API Key"));
-    await tester.pumpAndSettle();
-
-    // Dialog should be open
-    expect(find.text("Google Gemini API Key"), findsOneWidget);
-    expect(find.text("Save Key"), findsOneWidget);
-
-    // Enter a mock Gemini Key into the dialog TextField
-    await tester.enterText(find.widgetWithText(TextField, "Gemini API Key"), "AIzaSyLiveTestKey123");
-    await tester.tap(find.text("Save Key"));
-    await tester.pumpAndSettle();
-
-    // Verify key is saved in SessionService
-    expect(sessionService.geminiApiKey, equals("AIzaSyLiveTestKey123"));
-
-    // Key badge should now say "Cloud AI"
-    expect(find.text("Cloud AI"), findsOneWidget);
+    // Verify AI Tutor Online badge is displayed
+    expect(find.text("AI Tutor Online"), findsOneWidget);
+    // Verify client API Key button is removed to prevent hacking and key exposure
+    expect(find.text("API Key"), findsNothing);
   });
 
   testWidgets("AiTutorScreen sends question with apiKey and receives synthesized reply", (WidgetTester tester) async {

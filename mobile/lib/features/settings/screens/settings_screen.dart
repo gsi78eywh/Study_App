@@ -11,6 +11,7 @@ import "../../quiz/models/quiz_models.dart";
 import "../models/study_settings_model.dart";
 import "../services/settings_service.dart";
 import "../widgets/dswd_safety_modal.dart";
+import "../../courses/widgets/user_manual_sheet.dart";
 
 class SettingsScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -34,7 +35,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late StudySettingsModel _current;
   late final TextEditingController _geminiApiKeyController;
   late final TextEditingController _serverUrlController;
-  bool _obscureApiKey = true;
   bool _isSaving = false;
   bool _isTestingConnection = false;
   String? _connectionTestResult;
@@ -767,7 +767,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 20),
 
             // Section: Google Gemini AI & Vision OCR
-            _buildSectionHeader("🤖 Google Gemini AI & Vision OCR"),
+            _buildSectionHeader("🤖 AI & Vision OCR Cloud Engine"),
             _buildCard([
               Padding(
                 padding: const EdgeInsets.all(16),
@@ -779,10 +779,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: AppColors.accent.withValues(alpha: 0.15),
+                            color: const Color(0xFF10B981).withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Icon(Icons.auto_awesome, color: AppColors.accent, size: 20),
+                          child: const Icon(Icons.verified_user_rounded, color: Color(0xFF10B981), size: 20),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -790,7 +790,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                "Google Gemini API Key",
+                                "Server-Side AI Gateway",
                                 style: GoogleFonts.outfit(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 14,
@@ -798,28 +798,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                               ),
                               Text(
-                                "Enables OCR text extraction from screenshots & photos (Free at aistudio.google.com)",
+                                "AI queries and OCR extraction are processed securely via the backend server. No client-side API keys exposed.",
                                 style: TextStyle(color: context.textSecondary, fontSize: 12),
                               ),
                             ],
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: _geminiApiKeyController,
-                      obscureText: _obscureApiKey,
-                      style: TextStyle(color: context.textPrimary, fontFamily: "monospace"),
-                      decoration: InputDecoration(
-                        labelText: "Gemini API Key",
-                        hintText: "AIzaSy...",
-                        prefixIcon: const Icon(Icons.key_rounded, size: 18),
-                        suffixIcon: IconButton(
-                          icon: Icon(_obscureApiKey ? Icons.visibility_off : Icons.visibility, size: 18),
-                          onPressed: () => setState(() => _obscureApiKey = !_obscureApiKey),
-                        ),
-                      ),
                     ),
                   ],
                 ),
@@ -1182,6 +1167,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               Divider(color: context.cardBorderColor, height: 1),
               // DSWD Child Safeguard Policy & Hotline Hub Card
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.menu_book_rounded, color: Color(0xFF10B981), size: 20),
+                ),
+                title: Text(
+                  "User Manual & Feature Guide",
+                  style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                subtitle: const Text(
+                  "Explore Passive Capture, USJ-R Grade Tracker, Study Priority Engine, and study workflows",
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                onTap: () => UserManualSheet.show(context),
+              ),
+              const Divider(height: 1),
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 leading: Container(

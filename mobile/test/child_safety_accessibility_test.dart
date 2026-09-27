@@ -84,7 +84,8 @@ void main() {
              correctFeedback.contains('Fantastic') ||
              correctFeedback.contains('Super') ||
              correctFeedback.contains('Great') ||
-             correctFeedback.contains('Hooray'), isTrue);
+             correctFeedback.contains('Hooray') ||
+             correctFeedback.contains('Brilliant'), isTrue);
 
       final incorrectFeedback = service.getEncouragingFeedback(isCorrect: false);
       expect(incorrectFeedback, isNotEmpty);

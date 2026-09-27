@@ -95,10 +95,10 @@ void main() {
     // Verify text inspector displays extracted content
     expect(find.text("Cellular Respiration & Energy Notes"), findsOneWidget);
     expect(find.textContaining("Glycolysis"), findsOneWidget);
-    expect(find.text("🚀 Auto-Export & Slowly Create Exam Kinds"), findsOneWidget);
+    expect(find.text("🚀 Create Practice Exam from Scan"), findsOneWidget);
 
     // Scroll to & tap Auto-Export
-    final autoExportButton = find.text("🚀 Auto-Export & Slowly Create Exam Kinds");
+    final autoExportButton = find.text("🚀 Create Practice Exam from Scan");
     await tester.ensureVisible(autoExportButton);
     await tester.pump(const Duration(milliseconds: 100));
     await tester.tap(autoExportButton);

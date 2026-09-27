@@ -126,10 +126,16 @@ class TodayStudyPlanWidget extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Header Row: Badge, Date, and Exam Countdown
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 6,
             children: [
-              Row(
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -156,7 +162,6 @@ class TodayStudyPlanWidget extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
                   Text(
                     "Today — ${_formatDate()}",
                     style: GoogleFonts.inter(
@@ -167,32 +172,63 @@ class TodayStudyPlanWidget extends StatelessWidget {
                   ),
                 ],
               ),
-              if (p.daysUntilExam != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEF4444).withValues(alpha: 0.15),
-                    border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.4)),
-                    borderRadius: BorderRadius.circular(9999),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.timer_outlined, color: Color(0xFFEF4444), size: 13),
-                      const SizedBox(width: 4),
-                      Text(
-                        p.daysUntilExam == 0
-                            ? "EXAM TODAY"
-                            : "${p.daysUntilExam}d until Exam",
-                        style: GoogleFonts.outfit(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFFEF4444),
-                        ),
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  if (p.gradeRiskLevel != null && p.gradeRiskLevel != "Normal" && p.gradeRiskLevel != "Good Standing")
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: (p.gradeRiskLevel == "Critical Risk" ? const Color(0xFFEF4444) : const Color(0xFFF59E0B)).withValues(alpha: 0.15),
+                        border: Border.all(color: (p.gradeRiskLevel == "Critical Risk" ? const Color(0xFFEF4444) : const Color(0xFFF59E0B)).withValues(alpha: 0.4)),
+                        borderRadius: BorderRadius.circular(9999),
                       ),
-                    ],
-                  ),
-                ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.warning_amber_rounded, color: p.gradeRiskLevel == "Critical Risk" ? const Color(0xFFEF4444) : const Color(0xFFF59E0B), size: 12),
+                          const SizedBox(width: 3),
+                          Text(
+                            p.gradeRiskLevel!.toUpperCase(),
+                            style: GoogleFonts.outfit(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                              color: p.gradeRiskLevel == "Critical Risk" ? const Color(0xFFEF4444) : const Color(0xFFF59E0B),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (p.daysUntilExam != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                        border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.4)),
+                        borderRadius: BorderRadius.circular(9999),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.timer_outlined, color: Color(0xFFEF4444), size: 13),
+                          const SizedBox(width: 4),
+                          Text(
+                            p.daysUntilExam == 0
+                                ? "EXAM TODAY"
+                                : "${p.daysUntilExam}d until Exam",
+                            style: GoogleFonts.outfit(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFFEF4444),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 14),
@@ -308,6 +344,9 @@ class TodayStudyPlanWidget extends StatelessWidget {
                         : Icons.check_circle_outline_rounded;
 
                 return Container(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width - 64,
+                  ),
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: color.withValues(alpha: 0.12),
@@ -319,12 +358,16 @@ class TodayStudyPlanWidget extends StatelessWidget {
                     children: [
                       Icon(icon, size: 13, color: color),
                       const SizedBox(width: 6),
-                      Text(
-                        item.topicName,
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: context.textPrimary,
+                      Flexible(
+                        child: Text(
+                          item.topicName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: context.textPrimary,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 6),
@@ -357,9 +400,50 @@ class TodayStudyPlanWidget extends StatelessWidget {
           const SizedBox(height: 8),
           ...p.steps.map((step) => _buildStepTile(context, step)),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
 
-          // Primary CTA Button: Start Smart Session (25 min)
+          // Mistake Bank Active Recall Feedback Banner
+          if (p.readiness.unresolvedMistakesCount > 0)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEC4899).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFFEC4899).withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.auto_fix_high_rounded, size: 16, color: Color(0xFFEC4899)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "${p.readiness.unresolvedMistakesCount} error concepts flagged in Mistake Bank → auto-added to your retrieval drills.",
+                      style: GoogleFonts.inter(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: context.textPrimary,
+                      ),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: onOpenMistakeBank,
+                    child: Text(
+                      "Review",
+                      style: GoogleFonts.inter(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFFEC4899),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // Primary CTA Hero Button: Start Smart Session (25 min)
           SizedBox(
             width: double.infinity,
             height: 52,
@@ -384,17 +468,22 @@ class TodayStudyPlanWidget extends StatelessWidget {
                 ),
                 child: Container(
                   alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Icon(Icons.bolt_rounded, size: 22, color: Color(0xFFFDE047)),
                       const SizedBox(width: 8),
-                      Text(
-                        "Start Smart Session (${p.totalEstimatedMinutes} min)",
-                        style: GoogleFonts.outfit(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.2,
+                      Flexible(
+                        child: Text(
+                          "Start Priority Session: ${p.courseCode} (${p.totalEstimatedMinutes} min)",
+                          style: GoogleFonts.outfit(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
                         ),
                       ),
                     ],
@@ -405,151 +494,90 @@ class TodayStudyPlanWidget extends StatelessWidget {
           ),
           const SizedBox(height: 10),
 
-          // Row of Human-Centered Actions: Mistake Bank + "I'm Overwhelmed" + Wellbeing Check-in
-          Row(
-            children: [
-              Expanded(
-                child: InkWell(
-                  onTap: onOpenMistakeBank,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: context.surfaceColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: context.cardBorderColor),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.psychology_alt_rounded, size: 16, color: Color(0xFFEC4899)),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            "Mistakes (${p.readiness.unresolvedMistakesCount})",
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: context.textPrimary,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
+          // Unified Secondary Utility Bar (Visually receded to highlight Start Smart Session)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+            decoration: BoxDecoration(
+              color: context.surfaceColor.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: context.cardBorderColor.withValues(alpha: 0.6)),
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildSubtleAction(
+                    icon: Icons.psychology_alt_rounded,
+                    color: const Color(0xFFEC4899),
+                    label: "Mistakes (${p.readiness.unresolvedMistakesCount})",
+                    onTap: onOpenMistakeBank,
                   ),
-                ),
+                  Container(width: 1, height: 16, color: context.cardBorderColor),
+                  _buildSubtleAction(
+                    icon: Icons.psychology_rounded,
+                    color: const Color(0xFF6366F1),
+                    label: "Student Brain",
+                    onTap: onOpenStudentBrain,
+                  ),
+                  Container(width: 1, height: 16, color: context.cardBorderColor),
+                  _buildSubtleAction(
+                    icon: Icons.calendar_month_rounded,
+                    color: const Color(0xFF3B82F6),
+                    label: "Tasks",
+                    onTap: onOpenAcademicPlanner,
+                  ),
+                  Container(width: 1, height: 16, color: context.cardBorderColor),
+                  _buildSubtleAction(
+                    icon: Icons.sentiment_neutral_rounded,
+                    color: const Color(0xFFF59E0B),
+                    label: "Overwhelmed?",
+                    onTap: () => _showOverwhelmedSheet(context, p),
+                  ),
+                ],
               ),
-              const SizedBox(width: 6),
-              InkWell(
-                onTap: () => _showOverwhelmedSheet(context, p),
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFEF3C7),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.3)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text("😵", style: TextStyle(fontSize: 13)),
-                      const SizedBox(width: 4),
-                      Text(
-                        "I'm Overwhelmed",
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFFB45309),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              InkWell(
-                onTap: () => _showWellbeingSheet(context),
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: context.surfaceColor,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: context.cardBorderColor),
-                  ),
-                  child: const Text("🧘", style: TextStyle(fontSize: 14)),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-
-          // Secondary Row: Student Brain OS + Academic Tasks
-          Row(
-            children: [
-              Expanded(
-                child: InkWell(
-                  onTap: onOpenStudentBrain,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF6366F1).withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.25)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.psychology_rounded, size: 15, color: Color(0xFF6366F1)),
-                        const SizedBox(width: 6),
-                        Text(
-                          "My Student Brain",
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: const Color(0xFF6366F1),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: InkWell(
-                  onTap: onOpenAcademicPlanner,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: context.surfaceColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: context.cardBorderColor),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.calendar_month_rounded, size: 15, color: Color(0xFF3B82F6)),
-                        const SizedBox(width: 6),
-                        Text(
-                          "Academic Tasks",
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: context.textPrimary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSubtleAction({
+    required IconData icon,
+    required Color color,
+    required String label,
+    required VoidCallback? onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withValues(alpha: 0.25)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -670,111 +698,6 @@ class TodayStudyPlanWidget extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-
-  void _showWellbeingSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Container(
-          decoration: BoxDecoration(
-            color: ctx.surfaceColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: ctx.cardBorderColor,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  const Text("🧘", style: TextStyle(fontSize: 22)),
-                  const SizedBox(width: 8),
-                  Text(
-                    "Student Wellbeing Check-In",
-                    style: GoogleFonts.outfit(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: ctx.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                "How are you feeling as a learner today?",
-                style: GoogleFonts.inter(fontSize: 13, color: ctx.textSecondary),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildMoodItem(ctx, "😊", "Good", "Full session", () {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Energized! Today's full 25-minute smart session is ready.")),
-                    );
-                  }),
-                  _buildMoodItem(ctx, "😐", "Okay", "Standard", () {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Steady pace. Stick to your 4-step daily plan.")),
-                    );
-                  }),
-                  _buildMoodItem(ctx, "😓", "Overloaded", "10 min plan", () {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Plan scaled down! Focus on just 1 weak topic today.")),
-                    );
-                  }),
-                  _buildMoodItem(ctx, "😴", "Tired", "5 min cards", () {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Rest is essential for memory consolidation. Do 5 cards and rest.")),
-                    );
-                  }),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildMoodItem(BuildContext ctx, String emoji, String label, String sub, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: ctx.cardBorderColor.withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(emoji, style: const TextStyle(fontSize: 24)),
-            const SizedBox(height: 4),
-            Text(label, style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: ctx.textPrimary)),
-            Text(sub, style: GoogleFonts.inter(fontSize: 9, color: ctx.textSecondary)),
-          ],
-        ),
-      ),
     );
   }
 

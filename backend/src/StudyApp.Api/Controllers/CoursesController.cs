@@ -117,6 +117,29 @@ public sealed class CoursesController : ControllerBase
         bioSet.Questions.Add(q4);
         bioCourse.StudySets.Add(bioSet);
 
+        var bioNote = new NotebookPage
+        {
+            Id = Guid.NewGuid(),
+            CourseId = bioCourse.Id,
+            Title = "Lecture 1: Photosynthesis & Cellular Energetics",
+            ContentMarkdown = @"# Photosynthesis & Cellular Energetics
+
+## 1. Overview
+Photosynthesis transforms solar photon energy into stable chemical bonds (glucose), which cellular respiration subsequently metabolizes to generate ATP.
+
+## 2. Key Stages
+- **Light Reactions**: Occur in thylakoid membranes. Photolysis of H2O supplies electrons to photosystem II, releasing O2 and generating ATP + NADPH.
+- **Calvin Cycle (Dark Reactions)**: Occurs in the stroma. RuBisCO fixes atmospheric CO2 into G3P (3-carbon sugar).
+- **Cellular Respiration**: Glycolysis (cytosol, anaerobic) -> Krebs Cycle (mitochondrial matrix) -> Oxidative Phosphorylation (inner membrane via ATP Synthase).
+
+## 3. High-Yield Retention Rules
+1. *Glycolysis is anaerobic* and produces a net of 2 ATP and 2 NADH per glucose.
+2. *ATP Synthase* utilizes the proton motive force (chemiosmosis) across the inner mitochondrial membrane.",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        bioCourse.NotebookPages.Add(bioNote);
+
         _context.Courses.Add(bioCourse);
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -124,14 +147,30 @@ public sealed class CoursesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetCourses(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetCourses(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken cancellationToken = default)
     {
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
-        var courses = await _context.Courses
-            .Where(course => course.UserId == userId.Value)
+        var query = _context.Courses.Where(course => course.UserId == userId.Value);
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var effectivePage = Math.Max(1, page);
+        var effectivePageSize = Math.Clamp(pageSize, 1, 100);
+        var totalPages = (int)Math.Ceiling(totalCount / (double)effectivePageSize);
+
+        Response.Headers["X-Pagination-Total-Count"] = totalCount.ToString();
+        Response.Headers["X-Pagination-Page"] = effectivePage.ToString();
+        Response.Headers["X-Pagination-Page-Size"] = effectivePageSize.ToString();
+        Response.Headers["X-Pagination-Total-Pages"] = totalPages.ToString();
+
+        var courses = await query
             .OrderBy(course => course.Name)
+            .Skip((effectivePage - 1) * effectivePageSize)
+            .Take(effectivePageSize)
             .Select(course => new
             {
                 course.Id,

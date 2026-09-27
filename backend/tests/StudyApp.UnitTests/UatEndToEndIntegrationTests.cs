@@ -55,12 +55,19 @@ public class UatEndToEndIntegrationTests : IClassFixture<CustomWebApplicationFac
         var healthJson = await healthResp.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("healthy", healthJson.GetProperty("status").GetString());
 
-        // 2. Web portal root
+        // 2. Web portal root (Must be minimal, zero stack/architecture disclosure)
         var portalResp = await _client.GetAsync("/");
         Assert.Equal(HttpStatusCode.OK, portalResp.StatusCode);
-        var portalHtml = await portalResp.Content.ReadAsStringAsync();
-        Assert.Contains("StudyApp C# Backend API", portalHtml);
-        Assert.Contains("REST API Online", portalHtml);
+        var portalJson = await portalResp.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("healthy", portalJson.GetProperty("status").GetString());
+        Assert.Equal("StudyApp API", portalJson.GetProperty("service").GetString());
+
+        // Verify zero architecture/stack details leaked on root
+        var portalContent = await portalResp.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("SQLite", portalContent);
+        Assert.DoesNotContain("ASP.NET Core", portalContent);
+        Assert.DoesNotContain("/api/v1/auth/login", portalContent);
+        Assert.DoesNotContain("Active API Endpoints", portalContent);
     }
 
     [Fact]
@@ -115,6 +122,86 @@ public class UatEndToEndIntegrationTests : IClassFixture<CustomWebApplicationFac
         invalidReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "invalid.jwt.token");
         var unauthResp = await _client.SendAsync(invalidReq);
         Assert.Equal(HttpStatusCode.Unauthorized, unauthResp.StatusCode);
+    }
+
+    [Fact]
+    public async Task UAT_02B_ForgotPasswordAndResetFlow_EndToEnd()
+    {
+        var email = $"reset_student_{Guid.NewGuid():N}@studyapp.test";
+        var originalPassword = "InitialPassword123!";
+        var newPassword = "UpdatedPassword456!";
+
+        // 1. Register user
+        await _client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            fullName = "Reset Test Student",
+            email = email,
+            password = originalPassword
+        });
+
+        // 2. Request forgot-password token
+        var forgotResp = await _client.PostAsJsonAsync("/api/v1/auth/forgot-password", new
+        {
+            email = email
+        });
+        Assert.Equal(HttpStatusCode.OK, forgotResp.StatusCode);
+        var forgotJson = await forgotResp.Content.ReadFromJsonAsync<JsonElement>();
+        var resetToken = forgotJson.GetProperty("resetToken").GetString();
+        Assert.NotNull(resetToken);
+
+        // 3. Reset password with token
+        var resetResp = await _client.PostAsJsonAsync("/api/v1/auth/reset-password", new
+        {
+            email = email,
+            token = resetToken,
+            newPassword = newPassword
+        });
+        Assert.Equal(HttpStatusCode.OK, resetResp.StatusCode);
+
+        // 4. Verify old password fails
+        var failResp = await _client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            email = email,
+            password = originalPassword
+        });
+        Assert.Equal(HttpStatusCode.Unauthorized, failResp.StatusCode);
+
+        // 5. Verify new password succeeds and grants valid JWT
+        var successResp = await _client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            email = email,
+            password = newPassword
+        });
+        Assert.Equal(HttpStatusCode.OK, successResp.StatusCode);
+        var loginJson = await successResp.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.NotNull(loginJson.GetProperty("token").GetString());
+    }
+
+    [Fact]
+    public async Task UAT_02C_OAuthSSO_TokenExchangeAndSessionCreation()
+    {
+        var googleEmail = $"google_student_{Guid.NewGuid():N}@university.edu";
+
+        // 1. Authenticate with Google SSO
+        var oauthResp = await _client.PostAsJsonAsync("/api/v1/auth/oauth", new
+        {
+            provider = "google",
+            idToken = "mock_google_id_token",
+            email = googleEmail,
+            fullName = "Google University Student"
+        });
+        Assert.Equal(HttpStatusCode.OK, oauthResp.StatusCode);
+        var oauthJson = await oauthResp.Content.ReadFromJsonAsync<JsonElement>();
+        var token = oauthJson.GetProperty("token").GetString();
+        Assert.NotNull(token);
+        Assert.Equal(googleEmail, oauthJson.GetProperty("email").GetString());
+        Assert.Equal("Google University Student", oauthJson.GetProperty("fullName").GetString());
+
+        // 2. Verify token allows accessing authenticated /api/v1/auth/me
+        using var authReq = new HttpRequestMessage(HttpMethod.Get, "/api/v1/auth/me");
+        authReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var meResp = await _client.SendAsync(authReq);
+        Assert.Equal(HttpStatusCode.OK, meResp.StatusCode);
     }
 
     [Fact]

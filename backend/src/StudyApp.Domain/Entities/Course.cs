@@ -9,6 +9,17 @@ public class Course
     public string ColorHex { get; set; } = "#4F46E5";
     public DateTime? ExamDate { get; set; }
     public string? ExamTitle { get; set; }
+    public double Units { get; set; } = 3.0;
+    public double TargetGrade { get; set; } = 1.5;
+    public double? PrelimGrade { get; set; }
+    public double? MidtermGrade { get; set; }
+    public double? SemiFinalGrade { get; set; }
+    public double? FinalGrade { get; set; }
+    public double PrelimWeight { get; set; } = 0.20;
+    public double MidtermWeight { get; set; } = 0.20;
+    public double SemiFinalWeight { get; set; } = 0.20;
+    public double FinalWeight { get; set; } = 0.40;
+    public string GradingScale { get; set; } = "USJ-R";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 

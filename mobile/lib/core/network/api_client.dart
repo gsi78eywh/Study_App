@@ -1,7 +1,9 @@
+import "package:flutter/foundation.dart";
 import "package:dio/dio.dart";
 import "../constants/api_constants.dart";
 import "../services/session_service.dart";
 import "../../features/practice/models/adaptive_models.dart";
+import "../../features/courses/models/grade_models.dart";
 
 class ApiClient {
   final SessionService sessionService;
@@ -42,7 +44,49 @@ class ApiClient {
           }
           return handler.next(options);
         },
-        onError: (DioException e, handler) {
+        onError: (DioException e, handler) async {
+          // Automatic retry with backoff for transient delays and HTTP 429 rate limits on idempotent GETs
+          final isGet = e.requestOptions.method.toUpperCase() == "GET";
+          final isTimeout = e.type == DioExceptionType.connectionTimeout ||
+                            e.type == DioExceptionType.receiveTimeout;
+          final isRateLimited = e.response?.statusCode == 429;
+          final retryCount = (e.requestOptions.extra["retry_count"] as int?) ?? 0;
+
+          if ((isTimeout || isRateLimited) && isGet && retryCount < 2) {
+            e.requestOptions.extra["retry_count"] = retryCount + 1;
+            final waitMs = isRateLimited ? 1500 : 750 * (retryCount + 1);
+            await Future.delayed(Duration(milliseconds: waitMs));
+            try {
+              final retryResponse = await dio.fetch(e.requestOptions);
+              return handler.resolve(retryResponse);
+            } catch (_) {}
+          }
+
+          // Automatic host fallback across USB reverse port (127.0.0.1), local Wi-Fi (192.168.1.11), and emulator (10.0.2.2)
+          if (e.type == DioExceptionType.connectionError &&
+              defaultTargetPlatform == TargetPlatform.android &&
+              e.requestOptions.extra["tried_alternate_host"] != true) {
+            e.requestOptions.extra["tried_alternate_host"] = true;
+            final currentUrl = dio.options.baseUrl;
+            final candidates = [
+              "http://127.0.0.1:5000",
+              "http://192.168.1.11:5000",
+              "http://10.0.2.2:5000",
+            ];
+
+            for (final candidate in candidates) {
+              if (candidate == currentUrl) continue;
+              dio.options.baseUrl = candidate;
+              e.requestOptions.baseUrl = candidate;
+              try {
+                final fallbackResponse = await dio.fetch(e.requestOptions);
+                await sessionService.setBaseUrl(candidate);
+                return handler.resolve(fallbackResponse);
+              } catch (_) {}
+            }
+            dio.options.baseUrl = currentUrl;
+          }
+
           String errorMessage = "A network error occurred.";
           if (e.response?.statusCode == 401) {
             errorMessage = "Session expired (401 Unauthorized). Please sign in again.";
@@ -90,17 +134,42 @@ class ApiClient {
     );
   }
 
+  TodayStudyPlanModel? _cachedTodayStudyPlan;
+  GradeSummaryModel? _cachedGradeSummary;
+
   void updateBaseUrl(String newUrl) {
     dio.options.baseUrl = newUrl;
+  }
+
+  Future<bool> checkBackendHealth() async {
+    try {
+      final res = await dio.get(
+        "/api/v1/auth/health",
+        options: Options(
+          sendTimeout: const Duration(seconds: 3),
+          receiveTimeout: const Duration(seconds: 3),
+        ),
+      );
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<TodayStudyPlanModel?> getTodayStudyPlan() async {
     try {
       final res = await dio.get("/api/v1/practice/today-plan");
       if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
-        return TodayStudyPlanModel.fromJson(res.data as Map<String, dynamic>);
+        final plan = TodayStudyPlanModel.fromJson(res.data as Map<String, dynamic>);
+        _cachedTodayStudyPlan = plan;
+        return plan;
       }
-    } catch (_) {}
+    } catch (_) {
+      // Graceful offline degradation: return cached plan on network delay
+      if (_cachedTodayStudyPlan != null) {
+        return _cachedTodayStudyPlan;
+      }
+    }
     return null;
   }
 
@@ -268,5 +337,113 @@ class ApiClient {
     } catch (_) {}
     return null;
   }
-}
 
+  Future<GradeSummaryModel?> getGradesSummary() async {
+    try {
+      final res = await dio.get("/api/v1/grades/summary");
+      if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
+        final summary = GradeSummaryModel.fromJson(res.data as Map<String, dynamic>);
+        _cachedGradeSummary = summary;
+        return summary;
+      }
+    } catch (_) {
+      if (_cachedGradeSummary != null) {
+        return _cachedGradeSummary;
+      }
+    }
+    return null;
+  }
+
+  Future<bool> updateCourseGrades(String courseId, Map<String, dynamic> data) async {
+    try {
+      final res = await dio.put("/api/v1/grades/courses/$courseId", data: data);
+      if (res.statusCode == 200) {
+        _cachedGradeSummary = null;
+        return true;
+      }
+    } catch (_) {
+      return false;
+    }
+    return false;
+  }
+
+  Future<WhatIfResultModel?> calculateWhatIf({
+    required String courseId,
+    required double targetGwa,
+    double? prelimGrade,
+    double? midtermGrade,
+    double? semiFinalGrade,
+    double prelimWeight = 0.20,
+    double midtermWeight = 0.20,
+    double semiFinalWeight = 0.20,
+    double finalWeight = 0.40,
+  }) async {
+    try {
+      final res = await dio.post(
+        "/api/v1/grades/calculator/what-if",
+        data: {
+          "courseId": courseId,
+          "targetGwa": targetGwa,
+          "prelimGrade": prelimGrade,
+          "midtermGrade": midtermGrade,
+          "semiFinalGrade": semiFinalGrade,
+          "prelimWeight": prelimWeight,
+          "midtermWeight": midtermWeight,
+          "semiFinalWeight": semiFinalWeight,
+          "finalWeight": finalWeight,
+        },
+      );
+      if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
+        return WhatIfResultModel.fromJson(res.data as Map<String, dynamic>);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<bool> saveNotebookNote({
+    required String courseId,
+    required String title,
+    required String markdown,
+    String? tags,
+  }) async {
+    try {
+      final res = await dio.post(
+        "/api/v1/notebooks",
+        data: {
+          "courseId": courseId,
+          "title": title,
+          "contentMarkdown": markdown,
+          "tags": tags ?? "#Notes",
+        },
+      );
+      return res.statusCode == 200 || res.statusCode == 201;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> transcriptToNotes({
+    String? courseId,
+    String? title,
+    String? content,
+    String? url,
+    bool generateFlashcards = true,
+  }) async {
+    try {
+      final res = await dio.post(
+        "/api/v1/ingestion/transcript-to-notes",
+        data: {
+          "courseId": courseId,
+          "title": title,
+          "content": content,
+          "url": url,
+          "generateFlashcards": generateFlashcards,
+        },
+      );
+      if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
+        return res.data as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+}
