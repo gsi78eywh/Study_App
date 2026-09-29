@@ -3348,180 +3348,179 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: context.secondaryBg,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                "${course.studySets.length} sets",
+                                style: TextStyle(
+                                  color: context.textSecondary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            // Exam Countdown Chip
+                            InkWell(
+                              onTap: () => _showEditExamDialog(course),
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: course.hasUpcomingExam
+                                      ? const Color(0xFFEF4444).withValues(alpha: 0.15)
+                                      : context.secondaryBg,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: course.hasUpcomingExam
+                                        ? const Color(0xFFEF4444).withValues(alpha: 0.4)
+                                        : context.cardBorderColor,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.event_rounded,
+                                      size: 13,
+                                      color: course.hasUpcomingExam
+                                          ? const Color(0xFFEF4444)
+                                          : context.textSecondary,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      course.hasUpcomingExam
+                                          ? "${course.daysUntilExam}d: ${course.examTitle ?? 'Exam'}"
+                                          : "+ Exam Date",
+                                      style: TextStyle(
+                                        color: course.hasUpcomingExam
+                                            ? const Color(0xFFEF4444)
+                                            : context.textSecondary,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            if (course.studySets.isNotEmpty) ...[
+                              InkWell(
+                                onTap: () => _showReadinessBreakdown(course.id),
+                                borderRadius: BorderRadius.circular(6),
+                                child: Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 8,
                                     vertical: 3,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: context.secondaryBg,
+                                    color: const Color(0xFF10B981).withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
-                                  child: Text(
-                                    "${course.studySets.length} sets",
-                                    style: TextStyle(
-                                      color: context.textSecondary,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.analytics_outlined,
+                                        size: 13,
+                                        color: Color(0xFF10B981),
+                                      ),
+                                      SizedBox(width: 3),
+                                      Text(
+                                        "Readiness",
+                                        style: TextStyle(
+                                          color: Color(0xFF10B981),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                const SizedBox(width: 6),
-                                // Exam Countdown Chip
-                                InkWell(
-                                  onTap: () => _showEditExamDialog(course),
+                              ),
+                            ],
+                            InkWell(
+                              onTap: () => _openCameraScanner(course.id),
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF06B6D4).withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(6),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 3,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: course.hasUpcomingExam
-                                          ? const Color(0xFFEF4444).withValues(alpha: 0.15)
-                                          : context.secondaryBg,
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(
-                                        color: course.hasUpcomingExam
-                                            ? const Color(0xFFEF4444).withValues(alpha: 0.4)
-                                            : context.cardBorderColor,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.event_rounded,
-                                          size: 13,
-                                          color: course.hasUpcomingExam
-                                              ? const Color(0xFFEF4444)
-                                              : context.textSecondary,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          course.hasUpcomingExam
-                                              ? "${course.daysUntilExam}d: ${course.examTitle ?? 'Exam'}"
-                                              : "+ Exam Date",
-                                          style: TextStyle(
-                                            color: course.hasUpcomingExam
-                                                ? const Color(0xFFEF4444)
-                                                : context.textSecondary,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
                                 ),
-                                const SizedBox(width: 6),
-                                if (course.studySets.isNotEmpty) ...[
-                                  InkWell(
-                                    onTap: () => _showReadinessBreakdown(course.id),
-                                    borderRadius: BorderRadius.circular(6),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 3,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: const Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.analytics_outlined,
-                                            size: 13,
-                                            color: Color(0xFF10B981),
-                                          ),
-                                          SizedBox(width: 3),
-                                          Text(
-                                            "Readiness",
-                                            style: TextStyle(
-                                              color: Color(0xFF10B981),
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ],
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.document_scanner_rounded,
+                                      size: 13,
+                                      color: Color(0xFF06B6D4),
+                                    ),
+                                    SizedBox(width: 3),
+                                    Text(
+                                      "Scan",
+                                      style: TextStyle(
+                                        color: Color(0xFF06B6D4),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                ],
-                                InkWell(
-                                  onTap: () => _openCameraScanner(course.id),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            InkWell(
+                              onTap: () => setState(() => _currentTabIndex = 3),
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: courseColor.withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(6),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 3,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF06B6D4).withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: const Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.document_scanner_rounded,
-                                          size: 13,
-                                          color: Color(0xFF06B6D4),
-                                        ),
-                                        SizedBox(width: 3),
-                                        Text(
-                                          "Scan",
-                                          style: TextStyle(
-                                            color: Color(0xFF06B6D4),
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
                                 ),
-                                const SizedBox(width: 6),
-                                InkWell(
-                                  onTap: () => setState(() => _currentTabIndex = 3),
-                                  borderRadius: BorderRadius.circular(6),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 3,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.add_rounded,
+                                      size: 13,
+                                      color: courseColor,
                                     ),
-                                    decoration: BoxDecoration(
-                                      color: courseColor.withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(6),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      "Add Set",
+                                      style: TextStyle(
+                                        color: courseColor,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.add_rounded,
-                                          size: 13,
-                                          color: courseColor,
-                                        ),
-                                        const SizedBox(width: 3),
-                                        Text(
-                                          "Add Set",
-                                          style: TextStyle(
-                                            color: courseColor,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
                           ],
                         ),
@@ -3611,56 +3610,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           ],
                                         ),
                                       ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 3,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                                          borderRadius: BorderRadius.circular(6),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Icon(
-                                              Icons.verified_rounded,
-                                              size: 12,
-                                              color: Color(0xFF10B981),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              "${((set.questionCount * 13) % 20 + 80)}% Ready",
-                                              style: const TextStyle(
-                                                color: Color(0xFF10B981),
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 3,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.primary.withValues(alpha: 0.15),
-                                          borderRadius: BorderRadius.circular(6),
-                                        ),
-                                        child: Text(
-                                          "${set.questionCount} Questions",
-                                          style: TextStyle(
-                                            color: isDark
-                                                ? AppColors.primaryLight
-                                                : AppColors.primaryDark,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
                                       const SizedBox(width: 4),
                                       PopupMenuButton<String>(
                                         icon: Icon(
@@ -3710,6 +3659,62 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             ),
                                           ),
                                         ],
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                              Icons.verified_rounded,
+                                              size: 12,
+                                              color: Color(0xFF10B981),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              "${((set.questionCount * 13) % 20 + 80)}% Ready",
+                                              style: const TextStyle(
+                                                color: Color(0xFF10B981),
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primary.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          "${set.questionCount} Questions",
+                                          style: TextStyle(
+                                            color: isDark
+                                                ? AppColors.primaryLight
+                                                : AppColors.primaryDark,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
                                       ),
                                     ],
                                   ),

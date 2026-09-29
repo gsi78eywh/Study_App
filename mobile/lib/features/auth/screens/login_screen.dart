@@ -646,7 +646,7 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                "Backend Server Connection",
+                "Developer Endpoint",
                 style: GoogleFonts.outfit(color: ctx.textPrimary, fontWeight: FontWeight.bold, fontSize: 17),
               ),
             ),
@@ -683,7 +683,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 controller: urlController,
                 style: TextStyle(color: ctx.textPrimary),
                 decoration: InputDecoration(
-                  labelText: "Server Base URL",
+                  labelText: "Base URL",
                   hintText: "http://172.23.249.209:5000",
                   prefixIcon: Icon(Icons.link_rounded, color: ctx.textSecondary),
                 ),
