@@ -105,7 +105,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
             ? "👋 Hello friend! I'm your **Study Buddy**, powered by Gemini AI!\n\n"
                 "I can explain lessons simply, tell fun learning stories, give gentle hints, and help you practice without stress! 🌟\n\n"
                 "What topic would you like to explore today?"
-            : "👋 Hi! I'm your **Gemini Study Tutor**, powered by Google Gemini AI.\n\n"
+            : "👋 Hi! I'm your **Study Tutor**, powered by Gemini.\n\n"
                 "I can help you master complex coursework, explain tricky equations, break down practice problems, and give you conceptual clarity.\n\n"
                 "What topic or question are we tackling today?",
         modelUsed: hasGeminiKey ? "gemini-3.6-flash" : "Built-In Academic Engine",
@@ -212,7 +212,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
             ChatMessage(
               role: "assistant",
               text:
-                  "⚠️ Gemini Tutor connection error: $e\n\nPlease check your network or try again shortly.",
+                  "📡 **Tutor is currently offline.**\n\nPlease ensure your backend API is running and reachable, then try again.",
               modelUsed: "offline-fallback",
               timestamp: DateTime.now(),
             ),
@@ -321,7 +321,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Gemini Study Tutor",
+                  "Study Tutor, powered by Gemini",
                   style: GoogleFonts.outfit(
                     fontWeight: FontWeight.bold,
                     fontSize: 17,
@@ -329,7 +329,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                   ),
                 ),
                 Text(
-                  "Google Gemini Multimodal AI Engine",
+                  "Grounded in course notes & active study sets",
                   style: GoogleFonts.inter(
                     fontSize: 11,
                     color: context.textSecondary,
@@ -535,7 +535,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
 
             // Quick Prompt Chips
             Container(
-              height: 44,
+              height: 48,
               margin: const EdgeInsets.only(top: 8, bottom: 4),
               child: Center(
                 child: ConstrainedBox(
@@ -548,6 +548,8 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                     itemBuilder: (context, index) {
                       final prompt = _currentQuickPrompts[index];
                       return ActionChip(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
                         label: Text(
                           prompt,
                           style: TextStyle(
@@ -653,15 +655,10 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    SelectableText(
+                                    _buildFormattedMarkdownText(
                                       msg.text,
-                                      style: GoogleFonts.inter(
-                                        fontSize: 14,
-                                        height: 1.5,
-                                        color: isUser
-                                            ? Colors.white
-                                            : context.textPrimary,
-                                      ),
+                                      isUser,
+                                      context,
                                     ),
                                     const SizedBox(height: 6),
                                     Row(
@@ -882,4 +879,113 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
       ),
     );
   }
+
+  Widget _buildFormattedMarkdownText(String rawText, bool isUser, BuildContext context) {
+    final baseColor = isUser ? Colors.white : context.textPrimary;
+    final lines = rawText.split('\n');
+    final List<InlineSpan> spans = [];
+
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      if (i > 0) spans.add(const TextSpan(text: '\n'));
+
+      if (line.startsWith('### ')) {
+        spans.add(TextSpan(
+          text: line.substring(4),
+          style: GoogleFonts.outfit(
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+            color: baseColor,
+          ),
+        ));
+      } else if (line.startsWith('## ')) {
+        spans.add(TextSpan(
+          text: line.substring(3),
+          style: GoogleFonts.outfit(
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+            color: baseColor,
+          ),
+        ));
+      } else if (line.startsWith('# ')) {
+        spans.add(TextSpan(
+          text: line.substring(2),
+          style: GoogleFonts.outfit(
+            fontWeight: FontWeight.bold,
+            fontSize: 17,
+            color: baseColor,
+          ),
+        ));
+      } else {
+        spans.addAll(_parseInlineMarkdown(line, baseColor));
+      }
+    }
+
+    return SelectableText.rich(
+      TextSpan(children: spans),
+      style: GoogleFonts.inter(
+        fontSize: 14,
+        height: 1.5,
+        color: baseColor,
+      ),
+    );
+  }
+
+  List<InlineSpan> _parseInlineMarkdown(String line, Color baseColor) {
+    final List<InlineSpan> spans = [];
+    final regex = RegExp(r'(\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`)');
+    int lastIndex = 0;
+
+    for (final match in regex.allMatches(line)) {
+      if (match.start > lastIndex) {
+        spans.add(TextSpan(
+          text: line.substring(lastIndex, match.start),
+          style: TextStyle(color: baseColor),
+        ));
+      }
+
+      final boldGroup = match.group(2);
+      final italicGroup = match.group(3);
+      final codeGroup = match.group(4);
+
+      if (boldGroup != null) {
+        spans.add(TextSpan(
+          text: boldGroup,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: baseColor,
+          ),
+        ));
+      } else if (italicGroup != null) {
+        spans.add(TextSpan(
+          text: italicGroup,
+          style: TextStyle(
+            fontStyle: FontStyle.italic,
+            color: baseColor,
+          ),
+        ));
+      } else if (codeGroup != null) {
+        spans.add(TextSpan(
+          text: codeGroup,
+          style: TextStyle(
+            fontFamily: 'monospace',
+            backgroundColor: baseColor.withValues(alpha: 0.15),
+            color: baseColor,
+          ),
+        ));
+      }
+
+      lastIndex = match.end;
+    }
+
+    if (lastIndex < line.length) {
+      spans.add(TextSpan(
+        text: line.substring(lastIndex),
+        style: TextStyle(color: baseColor),
+      ));
+    }
+
+    return spans;
+  }
+
 }

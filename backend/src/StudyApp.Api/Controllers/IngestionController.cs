@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.RateLimiting;
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Security.Claims;
@@ -15,6 +16,7 @@ namespace StudyApp.Api.Controllers;
 [ApiController]
 [Route("api/v1/ingestion")]
 [Authorize]
+[EnableRateLimiting("ingestion")]
 public class IngestionController : ControllerBase
 {
     private readonly IAiQuestionGenerator _aiGenerator;
@@ -50,7 +52,7 @@ public class IngestionController : ControllerBase
 
         var effectiveCourseId = await ResolveCourseIdAsync(request.CourseId, userId.Value);
 
-        var sourceText = LimitSourceText(request.Content);
+        var sourceText = LimitSourceText(CleanInputText(request.Content));
         if (!HasUsableStudyContent(sourceText))
         {
             return BadRequest(new { message = "Please provide a little more readable study content (at least a few words or sentences)." });
@@ -59,14 +61,28 @@ public class IngestionController : ControllerBase
             ? request.ApiKey.Trim()
             : Request.Headers["X-Gemini-ApiKey"].ToString().Trim();
 
+        var resolvedTitle = CleanTitle(request.Title);
         var result = await _aiGenerator.GenerateStudySetAsync(
             sourceText,
-            CleanTitle(request.Title),
+            resolvedTitle,
             request.QuestionTypes ?? new List<string>(),
             ClampTargetCount(request.TargetCount),
             request.SetIndex,
             request.Variant,
             geminiKey);
+
+        var totalQuestions = result.Questions.Count;
+        if (totalQuestions == 0)
+        {
+            return BadRequest(new { message = "Couldn't build a good set from this source." });
+        }
+        var validQuestions = result.Questions.Where(q => ValidateQuestionQuality(q, resolvedTitle, sourceText)).ToList();
+        var failedCount = totalQuestions - validQuestions.Count;
+        if ((double)failedCount / totalQuestions > 0.20)
+        {
+            return BadRequest(new { message = "Couldn't build a good set from this source." });
+        }
+        result = new GeneratedStudySetResult(result.StudySetId, result.Title, result.Summary, result.HighYieldBulletPoints, validQuestions, result.ExtractedText);
 
         var studySet = await SaveGeneratedSetAsync(effectiveCourseId, result, "Manual note input", "text/markdown", sourceText);
         return Ok(new
@@ -205,6 +221,7 @@ public class IngestionController : ControllerBase
             });
         }
 
+        extractedSourceText = CleanInputText(extractedSourceText);
         result = await _aiGenerator.GenerateStudySetAsync(
             extractedSourceText,
             setHeader,
@@ -213,6 +230,19 @@ public class IngestionController : ControllerBase
             chosenSetIndex,
             variant,
             geminiKey);
+
+        var totalQuestions = result.Questions.Count;
+        if (totalQuestions == 0)
+        {
+            return BadRequest(new { message = "Couldn't build a good set from this source." });
+        }
+        var validQuestions = result.Questions.Where(q => ValidateQuestionQuality(q, setHeader, extractedSourceText)).ToList();
+        var failedCount = totalQuestions - validQuestions.Count;
+        if ((double)failedCount / totalQuestions > 0.20)
+        {
+            return BadRequest(new { message = "Couldn't build a good set from this source." });
+        }
+        result = new GeneratedStudySetResult(result.StudySetId, result.Title, result.Summary, result.HighYieldBulletPoints, validQuestions, result.ExtractedText);
 
         var studySet = await SaveGeneratedSetAsync(effectiveCourseId, result, file.FileName, ext, extractedSourceText);
         return Ok(new
@@ -340,7 +370,7 @@ public class IngestionController : ControllerBase
         var words = extractedText.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
         var candidateTitle = lines.Length > 0 && lines[0].Length >= 3 && lines[0].Length <= 60 && !lines[0].Contains(":")
-            ? lines[0].Trim('#', '*', ' ', '_')
+            ? lines[0].TrimStart('#', ' ', '*').Trim(' ', '*', '_')
             : Path.GetFileNameWithoutExtension(file.FileName);
 
         return Ok(new
@@ -379,21 +409,23 @@ public class IngestionController : ControllerBase
         string extractedText = "";
         string candidateTitle = string.IsNullOrWhiteSpace(request.Title) ? uri.Host : request.Title;
 
-        if (request.Url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || 
-            request.Url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase))
+        bool isYouTube = request.Url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || 
+                         request.Url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase);
+
+        if (isYouTube)
         {
             var (ytText, ytTitle) = await TryExtractYouTubeContentAsync(request.Url, HttpContext.RequestAborted);
-            if (!string.IsNullOrWhiteSpace(ytText))
+            if (string.IsNullOrWhiteSpace(ytText))
             {
-                extractedText = ytText;
-                if (string.IsNullOrWhiteSpace(request.Title) && !string.IsNullOrWhiteSpace(ytTitle))
-                {
-                    candidateTitle = ytTitle;
-                }
+                return BadRequest(new { message = "No transcript found for this video. Please ensure the video has closed captions enabled, or paste the transcript directly." });
+            }
+            extractedText = ytText;
+            if (string.IsNullOrWhiteSpace(request.Title) && !string.IsNullOrWhiteSpace(ytTitle))
+            {
+                candidateTitle = ytTitle;
             }
         }
-
-        if (string.IsNullOrWhiteSpace(extractedText))
+        else
         {
             try
             {
@@ -416,16 +448,31 @@ public class IngestionController : ControllerBase
         var geminiKey = Request.Headers.TryGetValue("X-Gemini-ApiKey", out var headerKey) && !string.IsNullOrWhiteSpace(headerKey)
             ? headerKey.ToString().Trim()
             : null;
+        var cleanedUrlText = CleanInputText(extractedText);
+        var noteTitle = ResolveUsableTitle(candidateTitle, uri.ToString(), cleanedUrlText);
         var result = await _aiGenerator.GenerateStudySetAsync(
-            extractedText,
-            ResolveUsableTitle(candidateTitle, uri.ToString(), extractedText),
+            cleanedUrlText,
+            noteTitle,
             request.QuestionTypes ?? new List<string>(),
             ClampTargetCount(request.TargetCount),
             request.SetIndex,
             request.Variant,
             geminiKey);
 
-        var studySet = await SaveGeneratedSetAsync(effectiveCourseId, result, uri.ToString(), "text/html", extractedText);
+        var totalQuestions = result.Questions.Count;
+        if (totalQuestions == 0)
+        {
+            return BadRequest(new { message = "Couldn't build a good set from this source." });
+        }
+        var validQuestions = result.Questions.Where(q => ValidateQuestionQuality(q, noteTitle, cleanedUrlText)).ToList();
+        var failedCount = totalQuestions - validQuestions.Count;
+        if ((double)failedCount / totalQuestions > 0.20)
+        {
+            return BadRequest(new { message = "Couldn't build a good set from this source." });
+        }
+        result = new GeneratedStudySetResult(result.StudySetId, result.Title, result.Summary, result.HighYieldBulletPoints, validQuestions, result.ExtractedText);
+
+        var studySet = await SaveGeneratedSetAsync(effectiveCourseId, result, uri.ToString(), "text/html", cleanedUrlText);
         return Ok(new
         {
             studySet.Id,
@@ -454,21 +501,23 @@ public class IngestionController : ControllerBase
         string extractedText = "";
         string candidateTitle = uri.Host;
 
-        if (request.Url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || 
-            request.Url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase))
+        bool isYouTubeScan = request.Url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || 
+                             request.Url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase);
+
+        if (isYouTubeScan)
         {
             var (ytText, ytTitle) = await TryExtractYouTubeContentAsync(request.Url, HttpContext.RequestAborted);
-            if (!string.IsNullOrWhiteSpace(ytText))
+            if (string.IsNullOrWhiteSpace(ytText))
             {
-                extractedText = ytText;
-                if (!string.IsNullOrWhiteSpace(ytTitle))
-                {
-                    candidateTitle = ytTitle;
-                }
+                return BadRequest(new { message = "No transcript found for this video. Please ensure the video has closed captions enabled, or paste the transcript directly." });
+            }
+            extractedText = ytText;
+            if (!string.IsNullOrWhiteSpace(ytTitle))
+            {
+                candidateTitle = ytTitle;
             }
         }
-
-        if (string.IsNullOrWhiteSpace(extractedText))
+        else
         {
             try
             {
@@ -562,9 +611,16 @@ public class IngestionController : ControllerBase
                 return BadRequest(new { message = "Only valid HTTP(S) URLs can be processed." });
             }
 
-            var (ytTranscript, ytTitle) = await TryExtractYouTubeContentAsync(url, cancellationToken);
-            if (!string.IsNullOrWhiteSpace(ytTranscript))
+            bool isYouTubeT2n = url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || 
+                               url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase);
+
+            if (isYouTubeT2n)
             {
+                var (ytTranscript, ytTitle) = await TryExtractYouTubeContentAsync(url, cancellationToken);
+                if (string.IsNullOrWhiteSpace(ytTranscript))
+                {
+                    return BadRequest(new { message = "No transcript found for this video. Please ensure the video has closed captions enabled, or paste the transcript directly." });
+                }
                 sourceText = ytTranscript;
                 if (string.IsNullOrWhiteSpace(candidateTitle))
                 {
@@ -601,7 +657,8 @@ public class IngestionController : ControllerBase
             return BadRequest(new { message = "Could not extract enough readable transcript text. Please paste the lecture transcript directly." });
         }
 
-        var noteTitle = ResolveUsableTitle(candidateTitle, url, sourceText);
+        var cleanedSourceText = CleanInputText(sourceText);
+        var noteTitle = ResolveUsableTitle(candidateTitle, url, cleanedSourceText);
         var geminiKey = !string.IsNullOrWhiteSpace(request.ApiKey)
             ? request.ApiKey.Trim()
             : Request.Headers["X-Gemini-ApiKey"].ToString().Trim();
@@ -611,7 +668,7 @@ public class IngestionController : ControllerBase
             : new List<string> { "identification", "multiple_choice" };
 
         var result = await _aiGenerator.GenerateStudySetAsync(
-            sourceText,
+            cleanedSourceText,
             noteTitle,
             requestedTypes,
             request.GenerateFlashcards ? 8 : 4,
@@ -619,6 +676,17 @@ public class IngestionController : ControllerBase
             null,
             geminiKey,
             cancellationToken);
+
+        if (request.GenerateFlashcards && result.Questions.Count > 0)
+        {
+            var validQuestions = result.Questions.Where(q => ValidateQuestionQuality(q, noteTitle, cleanedSourceText)).ToList();
+            var failedCount = result.Questions.Count - validQuestions.Count;
+            if ((double)failedCount / result.Questions.Count > 0.20)
+            {
+                return BadRequest(new { message = "Couldn't build a good set from this source." });
+            }
+            result = new GeneratedStudySetResult(result.StudySetId, result.Title, result.Summary, result.HighYieldBulletPoints, validQuestions, result.ExtractedText);
+        }
 
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"# {noteTitle}");
@@ -650,33 +718,33 @@ public class IngestionController : ControllerBase
             }
         }
 
-        if (result.Questions.Count > 0)
-        {
-            sb.AppendLine("## Active Recall Flashcard Prompts");
-            foreach (var q in result.Questions)
-            {
-                sb.AppendLine($"### Q: {q.Prompt}");
-                sb.AppendLine($"**Answer**: {q.CorrectAnswer}");
-                if (!string.IsNullOrWhiteSpace(q.Explanation))
-                {
-                    sb.AppendLine($"*Rationale*: {q.Explanation}");
-                }
-                sb.AppendLine();
-            }
-        }
-
         var markdownContent = sb.ToString().Trim();
 
-        var notePage = new NotebookPage
+        var existingPage = await _context.NotebookPages
+            .Where(p => p.CourseId == effectiveCourseId && (p.Title == noteTitle || (!string.IsNullOrEmpty(url) && p.ContentMarkdown.Contains(url))))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        NotebookPage notePage;
+        if (existingPage != null)
         {
-            Id = Guid.NewGuid(),
-            CourseId = effectiveCourseId,
-            Title = noteTitle,
-            ContentMarkdown = markdownContent,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-        _context.NotebookPages.Add(notePage);
+            existingPage.Title = noteTitle;
+            existingPage.ContentMarkdown = markdownContent;
+            existingPage.UpdatedAt = DateTime.UtcNow;
+            notePage = existingPage;
+        }
+        else
+        {
+            notePage = new NotebookPage
+            {
+                Id = Guid.NewGuid(),
+                CourseId = effectiveCourseId,
+                Title = noteTitle,
+                ContentMarkdown = markdownContent,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            _context.NotebookPages.Add(notePage);
+        }
 
         StudySet? studySet = null;
         if (request.GenerateFlashcards)
@@ -859,18 +927,15 @@ public class IngestionController : ControllerBase
                 contentBuilder.AppendLine();
             }
 
-            if (!string.IsNullOrWhiteSpace(captionTranscript))
+            if (string.IsNullOrWhiteSpace(captionTranscript))
             {
-                contentBuilder.AppendLine("## Lecture Transcript:");
-                contentBuilder.AppendLine(captionTranscript);
-                contentBuilder.AppendLine();
+                // Strict: only closed caption transcripts are accepted; do not fall back to description noise
+                return (null, videoTitle);
             }
 
-            if (!string.IsNullOrWhiteSpace(description))
-            {
-                contentBuilder.AppendLine("## Video Overview & Syllabus Notes:");
-                contentBuilder.AppendLine(description.Trim());
-            }
+            contentBuilder.AppendLine("## Lecture Transcript:");
+            contentBuilder.AppendLine(captionTranscript.Trim());
+            contentBuilder.AppendLine();
 
             var finalContent = contentBuilder.ToString().Trim();
             if (HasUsableStudyContent(finalContent))
@@ -1614,4 +1679,121 @@ public class IngestionController : ControllerBase
         var invalid = Path.GetInvalidFileNameChars();
         return string.Join("_", name.Split(invalid, StringSplitOptions.RemoveEmptyEntries)).Trim();
     }
+    private static string CleanInputText(string sourceText)
+    {
+        if (string.IsNullOrWhiteSpace(sourceText)) return string.Empty;
+
+        // 1. Strip raw URLs
+        var text = Regex.Replace(sourceText, @"https?:\/\/[^\s]+", " ");
+        text = Regex.Replace(text, @"www\.[^\s]+", " ");
+
+        // 2. Strip social media links / mentions (LinkedIn, Twitter/X, Instagram, Facebook, TikTok)
+        text = Regex.Replace(text, @"(?:https?:\/\/)?(?:www\.)?(?:linkedin\.com|twitter\.com|x\.com|facebook\.com|instagram\.com|tiktok\.com|youtube\.com|youtu\.be)[^\s]*", " ", RegexOptions.IgnoreCase);
+
+        // 3. Strip hashtags (#tag) but preserve C# and markdown headers (# Header)
+        text = Regex.Replace(text, @"(?<![a-zA-Z0-9])#([a-zA-Z0-9_]{2,})(?![a-zA-Z0-9_#])", " ");
+
+        // 4. Strip timestamps [01:23] or 1:23:45 or 01:23 but preserve clock times (e.g. 7:00 AM, 8:00 PM, 9:00 - 5:00)
+        text = Regex.Replace(text, @"\[\d{1,2}:\d{2}(?::\d{2})?\]", " ");
+        text = Regex.Replace(text, @"(?m)^\s*\d{1,2}:\d{2}(?::\d{2})?\s+", " ");
+        text = Regex.Replace(text, @"\d{1,2}:\d{2}(?::\d{2})?(?!\s*(?:[AaPp][Mm]|to|-|–))", " ");
+
+        // 5. Normalize whitespace and newlines
+        text = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        text = Regex.Replace(text, @"[^\S\n]{2,}", " ");
+        text = Regex.Replace(text, @"\n{3,}", "\n\n").Trim();
+
+        return text;
+    }
+
+    private static (bool IsValid, string? Reason) CheckQuestionQuality(GeneratedQuestionDto q, string title, string sourceText)
+    {
+        if (string.IsNullOrWhiteSpace(q.Prompt) || string.IsNullOrWhiteSpace(q.CorrectAnswer))
+            return (false, "Empty prompt or correct answer");
+
+        var cleanPrompt = q.Prompt.Trim();
+        var cleanAns = q.CorrectAnswer.Trim();
+        var cleanTitle = (title ?? string.Empty).Trim();
+
+        // 1. Answer equals title
+        if (!string.IsNullOrEmpty(cleanTitle) && string.Equals(cleanAns, cleanTitle, StringComparison.OrdinalIgnoreCase))
+            return (false, $"Answer equals title: '{cleanAns}'");
+
+        // 2. Generic wording
+        string[] genericPhrases = ["characterized by", "omitted or fails to apply", "Core academic principles", "Foundational study material"];
+        foreach (var phrase in genericPhrases)
+        {
+            if (cleanPrompt.Contains(phrase, StringComparison.OrdinalIgnoreCase) ||
+                cleanAns.Contains(phrase, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(q.Explanation) && q.Explanation.Contains(phrase, StringComparison.OrdinalIgnoreCase)))
+            {
+                return (false, $"Contains generic phrase '{phrase}'");
+            }
+        }
+
+        // 3. Option checks
+        if (q.Options != null && q.Options.Count > 0)
+        {
+            var distinctTexts = q.Options.Select(o => o.Text?.Trim().ToLowerInvariant() ?? "").Distinct().ToList();
+            if (distinctTexts.Count < q.Options.Count)
+                return (false, "Duplicate options found");
+
+            foreach (var opt in q.Options)
+            {
+                var optText = (opt.Text ?? string.Empty).Trim();
+                if (!string.IsNullOrEmpty(cleanTitle) && string.Equals(optText, cleanTitle, StringComparison.OrdinalIgnoreCase))
+                    return (false, $"Option equals title: '{optText}'");
+
+                if (optText.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
+                    optText.Contains("https://", StringComparison.OrdinalIgnoreCase) ||
+                    Regex.IsMatch(optText, @"\b\d{1,2}:\d{2}(?::\d{2})?\b(?!\s*(?:[AaPp][Mm]|to|-|–))"))
+                {
+                    return (false, $"Option contains URL or timestamp: '{optText}'");
+                }
+
+                foreach (var phrase in genericPhrases)
+                {
+                    if (optText.Contains(phrase, StringComparison.OrdinalIgnoreCase))
+                        return (false, $"Option contains generic phrase: '{optText}'");
+                }
+
+                var words = optText.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                if (words.Length < 3)
+                {
+                    bool isGrammarFragment = Regex.IsMatch(optText, @"^(?:and|or|but|is|are|was|were|the|of|in|to|with|for|by|at|from|that|which|it|as)\b", RegexOptions.IgnoreCase) ||
+                                            Regex.IsMatch(optText, @"\b(?:and|or|of|in|to|with|for|by|at|from|that|which|is|are)$", RegexOptions.IgnoreCase);
+
+                    bool isAllowedShort = !isGrammarFragment && (
+                        optText.Equals("True", StringComparison.OrdinalIgnoreCase) ||
+                        optText.Equals("False", StringComparison.OrdinalIgnoreCase) ||
+                        Regex.IsMatch(optText, @"^[\p{Sc}\$\€\£\¥\₱]?\s*[-+]?\d+(?:\.\d+)?(?:\s*[a-zA-Z%]+)?$") ||
+                        (words.Length <= 2 && words.All(w => w.Length >= 2 && !Regex.IsMatch(w, @"^(?:and|or|the|of|in|to|with|for|by)$", RegexOptions.IgnoreCase)))
+                    );
+                    if (!isAllowedShort)
+                        return (false, $"Option is invalid short fragment: '{optText}'");
+                }
+            }
+        }
+
+        // 4. Source quote exists in source text
+        if (!string.IsNullOrWhiteSpace(q.SourceReference) && !string.IsNullOrWhiteSpace(sourceText))
+        {
+            var quote = q.SourceReference.Trim();
+            quote = Regex.Replace(quote, @"^(?:(?:Source|Notes)\s*(?:passage|quote|reference|excerpt)?|Quote|Excerpt|Extracted\s+from\s+[^:]*)\s*:\s*", "", RegexOptions.IgnoreCase).Trim();
+            quote = quote.Trim('"', '\'', '`', ' ', '\t');
+            if (quote.Length >= 15 && !quote.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                var sample = quote.Length > 30 ? quote[..30] : quote;
+                if (!sourceText.Contains(sample, StringComparison.OrdinalIgnoreCase))
+                {
+                    return (false, $"Source quote not found in source text: '{sample}'");
+                }
+            }
+        }
+
+        return (true, null);
+    }
+
+    private static bool ValidateQuestionQuality(GeneratedQuestionDto q, string title, string sourceText) =>
+        CheckQuestionQuality(q, title, sourceText).IsValid;
 }

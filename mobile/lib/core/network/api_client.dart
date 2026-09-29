@@ -127,6 +127,7 @@ class ApiClient {
               response: e.response,
               type: e.type,
               error: errorMessage,
+              message: errorMessage,
             ),
           );
         },

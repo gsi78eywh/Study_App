@@ -10,11 +10,7 @@ using StudyApp.Application.DTOs.Ingestion;
 
 using StudyApp.Infrastructure.DocumentParsers;
 
-
-
 namespace StudyApp.Infrastructure.AiServices;
-
-
 
 public static class NoteScriptSynthesizer
 
@@ -28,11 +24,7 @@ public static class NoteScriptSynthesizer
 
     };
 
-
-
     public sealed record ListCluster(string Title, List<string> Items, bool IsOrdered);
-
-
 
     public enum PropositionKind
 
@@ -52,8 +44,6 @@ public static class NoteScriptSynthesizer
 
     }
 
-
-
     public sealed record SubstantiveProposition(
 
         string Subject,
@@ -70,8 +60,6 @@ public static class NoteScriptSynthesizer
 
     );
 
-
-
     public static string NormalizeMarkdownLine(string rawLine)
 
     {
@@ -80,19 +68,13 @@ public static class NoteScriptSynthesizer
 
         var s = rawLine.Trim();
 
-
-
         // 1. Strip markdown headings (#, ##, ###, etc.)
 
         s = Regex.Replace(s, @"^#{1,6}\s*", "");
 
-
-
         // 2. Strip bullet markers (*, -, +, •, ◦, ▪, etc.)
 
         s = Regex.Replace(s, @"^[\*\-\+•◦▪]\s+", "");
-
-
 
         // 3. Strip bold/italic wrappers (**text**, *text*, __text__, _text_)
 
@@ -104,23 +86,15 @@ public static class NoteScriptSynthesizer
 
         s = Regex.Replace(s, @"_([^_]+)_", "$1");
 
-
-
         // 4. Clean any leftover boundary asterisks or underscores e.g. **Answer:** B -> Answer: B
 
         s = Regex.Replace(s, @"^\*+\s*", "");
 
         s = Regex.Replace(s, @"\s*\*+$", "");
 
-
-
-        return s.Trim(' ', '*', '_', '#', '`');
+        return s.Trim(' ', '*', '_', '`');
 
     }
-
-
-
-
 
     public static string SanitizeDirectPrompt(string? prompt)
 
@@ -129,8 +103,6 @@ public static class NoteScriptSynthesizer
         if (string.IsNullOrWhiteSpace(prompt)) return string.Empty;
 
         var p = prompt.Trim();
-
-
 
         // 1. Remove leading meta qualifiers
 
@@ -143,8 +115,6 @@ public static class NoteScriptSynthesizer
         p = Regex.Replace(p, @"^During an analytical review of [^,:]+[,:\s-]+the following operational condition is observed:\s*", "When ", RegexOptions.IgnoreCase);
 
         p = Regex.Replace(p, @"^In an applied analysis of [^,:]+[,:\s-]+how should the principle of\s*", "How should ", RegexOptions.IgnoreCase);
-
-
 
         // 2. Remove inline meta phrases
 
@@ -160,8 +130,6 @@ public static class NoteScriptSynthesizer
 
         p = Regex.Replace(p, @"\baccording to the study material\b", "", RegexOptions.IgnoreCase);
 
-
-
         // 3. Normalize question starters
 
         p = Regex.Replace(p, @"^True or False:\s*According to [^,:]+[,:\s-]+", "True or False: ", RegexOptions.IgnoreCase);
@@ -170,15 +138,11 @@ public static class NoteScriptSynthesizer
 
         p = Regex.Replace(p, @"^Fill in the missing word:\s*", "Fill in the blank: ", RegexOptions.IgnoreCase);
 
-
-
         // Clean extra spacing and leading punctuation
 
         p = Regex.Replace(p, @"\s+", " ").Trim();
 
         p = Regex.Replace(p, @"^[,:\s-]+", "").Trim();
-
-
 
         if (p.Length > 0 && char.IsLower(p[0]))
 
@@ -188,13 +152,9 @@ public static class NoteScriptSynthesizer
 
         }
 
-
-
         return p;
 
     }
-
-
 
     public static GeneratedStudySetResult SynthesizeFromNotes(
 
@@ -215,8 +175,6 @@ public static class NoteScriptSynthesizer
         var cleanTitle = string.IsNullOrWhiteSpace(title) ? "Study Notes" : title.Trim();
 
         var safeText = rawText ?? string.Empty;
-
-
 
         var rawLinesInitial = safeText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
             .Select(l => l.Trim())
@@ -250,8 +208,6 @@ public static class NoteScriptSynthesizer
             rawLines = rawLinesInitial;
         }
 
-
-
         var cleanLines = rawLines
 
             .Select(NormalizeMarkdownLine)
@@ -259,8 +215,6 @@ public static class NoteScriptSynthesizer
             .Where(l => l.Length > 0)
 
             .ToList();
-
-
 
         // 1. Extract Overview & High-Yield Bullet Points directly from the notes
 
@@ -284,8 +238,6 @@ public static class NoteScriptSynthesizer
 
             .ToList();
 
-
-
         if (bulletPoints.Count == 0)
 
         {
@@ -308,8 +260,6 @@ public static class NoteScriptSynthesizer
 
         }
 
-
-
         if (bulletPoints.Count == 0)
 
         {
@@ -319,8 +269,6 @@ public static class NoteScriptSynthesizer
             bulletPoints.Add("Active recall practice material synthesized from notes.");
 
         }
-
-
 
         var summaryParagraphs = cleanLines
 
@@ -334,15 +282,11 @@ public static class NoteScriptSynthesizer
 
             .ToList();
 
-
-
         var summary = summaryParagraphs.Count > 0
 
             ? string.Join(" ", summaryParagraphs)
 
             : $"Comprehensive study notes and active recall practice synthesized from source material for {cleanTitle}.";
-
-
 
         var questions = new List<GeneratedQuestionDto>();
 
@@ -355,8 +299,6 @@ public static class NoteScriptSynthesizer
             .ToList();
 
         var poolOfAnswersAndTerms = new List<string>();
-
-
 
         // Collect terms from propositions
 
@@ -377,8 +319,6 @@ public static class NoteScriptSynthesizer
             }
 
         }
-
-
 
         // Apply concept rotation and shuffling based on setIndex and variant to eliminate continuous repetition
 
@@ -414,8 +354,6 @@ public static class NoteScriptSynthesizer
 
         }
 
-
-
         // 2. Stage 1: Parse pre-formatted multiple-choice questions already present in notes
 
         var mcqQuestions = ParseFormattedMultipleChoice(cleanLines, cleanTitle);
@@ -423,8 +361,6 @@ public static class NoteScriptSynthesizer
         // 3. Stage 2: Parse Q&A pairs (e.g. Q: ... A: ...)
 
         var qaQuestions = ParseQuestionAnswerPairs(cleanLines, cleanTitle, poolOfAnswersAndTerms);
-
-
 
         // If user is generating subsequent sets (setIndex > 0) and the notes have rich definitions,
 
@@ -474,8 +410,6 @@ public static class NoteScriptSynthesizer
 
             }
 
-
-
             foreach (var q in qaQuestions)
 
             {
@@ -501,8 +435,6 @@ public static class NoteScriptSynthesizer
             }
 
         }
-
-
 
         // 4. Extract List Clusters (headings with 2-8 bulleted or numbered items)
 
@@ -534,8 +466,6 @@ public static class NoteScriptSynthesizer
 
         }
 
-
-
         // 5. Stage 3: Multi-Type Exam Generation based on requestedTypes
 
         var rawTypes = requestedTypes ?? new List<string>();
@@ -566,8 +496,6 @@ public static class NoteScriptSynthesizer
 
         };
 
-
-
         var filteredRequested = rawTypes
 
             .Select(t => t.ToLowerInvariant().Trim())
@@ -578,15 +506,11 @@ public static class NoteScriptSynthesizer
 
             .ToList();
 
-
-
         bool isSimulatedExam = filteredRequested.Count == 0 ||
 
                                filteredRequested.Contains("simulated_exam") ||
 
                                filteredRequested.Contains("all");
-
-
 
         List<string> targetTypes;
 
@@ -632,8 +556,6 @@ public static class NoteScriptSynthesizer
 
         }
 
-
-
         // Pre-allocate quota per active question type
 
         int remainingNeeded = Math.Max(0, targetCount - questions.Count);
@@ -658,8 +580,6 @@ public static class NoteScriptSynthesizer
 
             }
 
-
-
             // Generate for each requested type directly grounded in the notes
 
             foreach (var type in targetTypes)
@@ -671,8 +591,6 @@ public static class NoteScriptSynthesizer
                 int quota = quotaPerType.TryGetValue(type, out var qVal) ? qVal : 1;
 
                 int neededNow = Math.Min(quota, targetCount - questions.Count);
-
-
 
                 List<GeneratedQuestionDto> generatedForType = type switch
 
@@ -700,8 +618,6 @@ public static class NoteScriptSynthesizer
 
                 };
 
-
-
                 foreach (var q in generatedForType)
 
                 {
@@ -722,8 +638,6 @@ public static class NoteScriptSynthesizer
 
         }
 
-
-
         // 6. Stage 4: Fallback to definitions & factual sentences if below targetCount
 
         if (questions.Count < targetCount && parsedDefinitions.Count > 0)
@@ -732,7 +646,9 @@ public static class NoteScriptSynthesizer
 
             int needed = targetCount - questions.Count;
 
-            var defQuestions = GenerateQuestionsFromDefinitions(parsedDefinitions, cleanTitle, poolOfAnswersAndTerms, countNeeded: needed, setIndex: setIndex, variant: variant);
+            var defQuestions = (targetTypes.Count > 0 && targetTypes.All(t => t == "flashcard" || t == "flashcards"))
+                ? GenerateFlashcardQuestions(propositions, cleanTitle, needed, setIndex, variant)
+                : GenerateQuestionsFromDefinitions(parsedDefinitions, cleanTitle, poolOfAnswersAndTerms, countNeeded: needed, setIndex: setIndex, variant: variant);
 
             foreach (var q in defQuestions)
 
@@ -752,13 +668,13 @@ public static class NoteScriptSynthesizer
 
         }
 
-
-
         if (questions.Count < targetCount)
 
         {
 
-            var sentenceQuestions = GenerateFromSentences(cleanLines, cleanTitle, poolOfAnswersAndTerms, targetCount - questions.Count);
+            var sentenceQuestions = (targetTypes.Count > 0 && targetTypes.All(t => t == "flashcard" || t == "flashcards"))
+                ? GenerateFlashcardQuestions(propositions, cleanTitle, targetCount - questions.Count, setIndex, variant)
+                : GenerateFromSentences(cleanLines, cleanTitle, poolOfAnswersAndTerms, targetCount - questions.Count);
 
             foreach (var q in sentenceQuestions)
 
@@ -777,8 +693,6 @@ public static class NoteScriptSynthesizer
             }
 
         }
-
-
 
         // 6. Stage 5: Final Validation & Deduplication on ALL options across all multiple-choice questions
 
@@ -810,8 +724,6 @@ public static class NoteScriptSynthesizer
 
         }
 
-
-
         // Final filter to ensure no circular or invalid questions leaked through
         normalizedQuestions = normalizedQuestions
             .Where(q => !IsCircularOrInvalid(q.Prompt, q.CorrectAnswer, cleanTitle))
@@ -835,8 +747,6 @@ public static class NoteScriptSynthesizer
         );
 
     }
-
-
 
     private static List<GeneratedQuestionDto> ParseFormattedMultipleChoice(List<string> lines, string title)
 
@@ -864,8 +774,6 @@ public static class NoteScriptSynthesizer
 
         var explanationPattern = new Regex(@"^\s*(?:[\*\-\+•◦▪]\s*)?(?:[\*_]{1,3})?(?:Explanation|Rationale|Note)\s*[:\-]?\s*(?:[\*_]{1,3})?\s*(.+)$", RegexOptions.IgnoreCase);
 
-
-
         int i = 0;
 
         while (i < lines.Count)
@@ -881,8 +789,6 @@ public static class NoteScriptSynthesizer
             bool isPrompt = promptMatch.Success;
 
             string candidatePrompt = isPrompt ? promptMatch.Groups[1].Value.Trim() : line.Trim();
-
-
 
             // Also detect unnumbered question if next line is Option A
 
@@ -914,8 +820,6 @@ public static class NoteScriptSynthesizer
 
             }
 
-
-
             if (isPrompt)
 
             {
@@ -924,15 +828,13 @@ public static class NoteScriptSynthesizer
 
                 candidatePrompt = Regex.Replace(candidatePrompt, @"^(?:Q(?:uestion)?\s*[:.-]?\s*)", "", RegexOptions.IgnoreCase).Trim();
 
-                candidatePrompt = candidatePrompt.Trim(' ', '*', '_', '#', '`');
+                candidatePrompt = candidatePrompt.Trim(' ', '*', '_', '`');
 
                 var options = new List<(string Letter, string Text, bool IsInlineCorrect)>();
 
                 string? answerLineValue = null;
 
                 string? explanation = null;
-
-
 
                 int j = i + 1;
 
@@ -944,8 +846,6 @@ public static class NoteScriptSynthesizer
 
                     var subLine = NormalizeMarkdownLine(subLineRaw);
 
-
-
                     if (string.IsNullOrWhiteSpace(subLine))
 
                     {
@@ -955,8 +855,6 @@ public static class NoteScriptSynthesizer
                         continue;
 
                     }
-
-
 
                     // Check if a new question starts
 
@@ -990,8 +888,6 @@ public static class NoteScriptSynthesizer
 
                     }
 
-
-
                     if (isNextQuestion && options.Count > 0)
 
                     {
@@ -999,8 +895,6 @@ public static class NoteScriptSynthesizer
                         break;
 
                     }
-
-
 
                     var optMatch = optionPattern.Match(subLine);
 
@@ -1018,8 +912,6 @@ public static class NoteScriptSynthesizer
 
                         bool isInline = false;
 
-
-
                         if (optText.Contains("(correct)", StringComparison.OrdinalIgnoreCase) ||
 
                             optText.Contains("[correct]", StringComparison.OrdinalIgnoreCase) ||
@@ -1034,8 +926,6 @@ public static class NoteScriptSynthesizer
 
                         }
 
-
-
                         options.Add((letter, optText, isInline));
 
                         j++;
@@ -1043,8 +933,6 @@ public static class NoteScriptSynthesizer
                         continue;
 
                     }
-
-
 
                     var ansMatch = answerPattern.Match(subLine);
 
@@ -1060,8 +948,6 @@ public static class NoteScriptSynthesizer
 
                     }
 
-
-
                     var expMatch = explanationPattern.Match(subLine);
 
                     if (expMatch.Success)
@@ -1075,8 +961,6 @@ public static class NoteScriptSynthesizer
                         continue;
 
                     }
-
-
 
                     // Check horizontal separator line
 
@@ -1092,8 +976,6 @@ public static class NoteScriptSynthesizer
 
                     }
 
-
-
                     // If we haven't seen any options yet, line is continuation of multi-line prompt
 
                     if (options.Count == 0 && candidatePrompt.Length < 300)
@@ -1107,8 +989,6 @@ public static class NoteScriptSynthesizer
                         continue;
 
                     }
-
-
 
                     // If we have options but no answer yet, line could be continuation of previous option
 
@@ -1126,8 +1006,6 @@ public static class NoteScriptSynthesizer
 
                     }
 
-
-
                     // If we already have options and an answer, line could be explanation
 
                     if (!string.IsNullOrWhiteSpace(answerLineValue) && string.IsNullOrWhiteSpace(explanation))
@@ -1142,13 +1020,9 @@ public static class NoteScriptSynthesizer
 
                     }
 
-
-
                     break;
 
                 }
-
-
 
                 if (options.Count >= 2)
 
@@ -1159,8 +1033,6 @@ public static class NoteScriptSynthesizer
                     string? correctText = null;
 
                     var generatedOptions = new List<GeneratedOptionDto>();
-
-
 
                     string? answerLetter = null;
 
@@ -1179,8 +1051,6 @@ public static class NoteScriptSynthesizer
                             RegexOptions.IgnoreCase
 
                         );
-
-
 
                         if (explicitMatch.Success)
 
@@ -1206,8 +1076,6 @@ public static class NoteScriptSynthesizer
 
                             );
 
-
-
                             if (letterDelimMatch.Success)
 
                             {
@@ -1217,8 +1085,6 @@ public static class NoteScriptSynthesizer
                                                 letterDelimMatch.Groups[2].Success ? letterDelimMatch.Groups[2].Value :
 
                                                 letterDelimMatch.Groups[3].Value).ToUpperInvariant();
-
-
 
                                 var trailing = letterDelimMatch.Groups[4].Value.Trim();
 
@@ -1247,8 +1113,6 @@ public static class NoteScriptSynthesizer
                                     RegexOptions.IgnoreCase
 
                                 );
-
-
 
                                 if (nonVowelMatch.Success)
 
@@ -1284,8 +1148,6 @@ public static class NoteScriptSynthesizer
 
                                     );
 
-
-
                                     if (letterAMatch.Success)
 
                                     {
@@ -1312,8 +1174,6 @@ public static class NoteScriptSynthesizer
 
                     }
 
-
-
                     // If answerLetter wasn't matched yet, check for direct match against option text
 
                     if (answerLetter == null && !string.IsNullOrWhiteSpace(answerLineValue))
@@ -1328,8 +1188,6 @@ public static class NoteScriptSynthesizer
 
                             (o.Text.Length >= 5 && answerLineValue.StartsWith(o.Text, StringComparison.OrdinalIgnoreCase)));
 
-
-
                         if (directOpt != default)
 
                         {
@@ -1339,8 +1197,6 @@ public static class NoteScriptSynthesizer
                         }
 
                     }
-
-
 
                     foreach (var opt in options)
 
@@ -1378,8 +1234,6 @@ public static class NoteScriptSynthesizer
 
                         }
 
-
-
                         if (isCorrect)
 
                         {
@@ -1387,8 +1241,6 @@ public static class NoteScriptSynthesizer
                             correctText = opt.Text;
 
                         }
-
-
 
                         generatedOptions.Add(new GeneratedOptionDto(
 
@@ -1401,8 +1253,6 @@ public static class NoteScriptSynthesizer
                         ));
 
                     }
-
-
 
                     // If no correct option was matched yet, default to text containing match or first option
 
@@ -1419,8 +1269,6 @@ public static class NoteScriptSynthesizer
                                 (answerLineValue.Length >= 3 && o.Text.Contains(answerLineValue, StringComparison.OrdinalIgnoreCase)) ||
 
                                 (o.Text.Length >= 3 && answerLineValue.Contains(o.Text, StringComparison.OrdinalIgnoreCase)));
-
-
 
                             if (matchingOpt != null)
 
@@ -1458,8 +1306,6 @@ public static class NoteScriptSynthesizer
 
                     }
 
-
-
                     result.Add(new GeneratedQuestionDto(
 
                         "multiple_choice",
@@ -1478,11 +1324,9 @@ public static class NoteScriptSynthesizer
 
                         null,
 
-                        $"Extracted from note script: {candidatePrompt}"
+                        candidatePrompt
 
                     ));
-
-
 
                     i = j;
 
@@ -1492,19 +1336,13 @@ public static class NoteScriptSynthesizer
 
             }
 
-
-
             i++;
 
         }
 
-
-
         return result;
 
     }
-
-
 
     private static List<GeneratedQuestionDto> ParseQuestionAnswerPairs(List<string> lines, string title, List<string> pool)
 
@@ -1515,8 +1353,6 @@ public static class NoteScriptSynthesizer
         var qaPattern = new Regex(@"^(?:Q(?:uestion)?\s*\d*[:.]?|\d+[\.\)]\s*Question[:.]?)\s*(.+)$", RegexOptions.IgnoreCase);
 
         var answerPattern = new Regex(@"^(?:A(?:nswer)?|Ans)[:.]?\s*(.+)$", RegexOptions.IgnoreCase);
-
-
 
         int i = 0;
 
@@ -1537,8 +1373,6 @@ public static class NoteScriptSynthesizer
                 // Ensure it ends with question mark or is a valid question
 
                 if (!prompt.EndsWith("?")) prompt += "?";
-
-
 
                 // Look ahead for the answer
 
@@ -1568,8 +1402,6 @@ public static class NoteScriptSynthesizer
 
                 }
 
-
-
                 if (!string.IsNullOrWhiteSpace(answer) && answer.Length > 1 && !answer.StartsWith("http", StringComparison.OrdinalIgnoreCase))
 
                 {
@@ -1584,8 +1416,6 @@ public static class NoteScriptSynthesizer
 
                         .ToList();
 
-
-
                     int dIdx = 1;
 
                     while (distractors.Count < 3)
@@ -1595,8 +1425,6 @@ public static class NoteScriptSynthesizer
                         distractors.Add($"Alternative concept {dIdx++} from {title}");
 
                     }
-
-
 
                     var options = new List<GeneratedOptionDto>
 
@@ -1612,13 +1440,9 @@ public static class NoteScriptSynthesizer
 
                     };
 
-
-
                     var rand = new Random(prompt.GetHashCode());
 
                     options = options.OrderBy(_ => rand.Next()).ToList();
-
-
 
                     result.Add(new GeneratedQuestionDto(
 
@@ -1650,13 +1474,9 @@ public static class NoteScriptSynthesizer
 
         }
 
-
-
         return result;
 
     }
-
-
 
     public static bool IsMcqOptionOrAnswerKeyLine(string line)
 
@@ -1668,8 +1488,6 @@ public static class NoteScriptSynthesizer
 
         var stripped = Regex.Replace(trimmed, @"^[\*\-\+•◦▪\>]+\s*", "").Trim('*', '_', ' ', '\t');
 
-
-
         // Option letters with optional markdown bullets: e.g. "* A)", "- B.", "• C)", "A)", "D."
 
         if (Regex.IsMatch(trimmed, @"^(?:[\*\-\+•◦▪\>]+\s*)?[\(\[]?[A-Fa-f][\)\]]?[\.:\s\-]") ||
@@ -1678,15 +1496,11 @@ public static class NoteScriptSynthesizer
 
             return true;
 
-
-
         // Answer key markers like "Answer: B", "Ans: True", "Answer Key: C", "Key: A", "Solution: ..."
 
         if (Regex.IsMatch(stripped, @"^(?:(?:Answer|Ans)(?:\s+Key)?|Key|Solution)\s*[:=]", RegexOptions.IgnoreCase))
 
             return true;
-
-
 
         // Inline answer/option indicators: e.g. "Answer: B", "Option A"
 
@@ -1696,13 +1510,9 @@ public static class NoteScriptSynthesizer
 
             return true;
 
-
-
         return false;
 
     }
-
-
 
     public static List<SubstantiveProposition> ExtractSubstantivePropositions(List<string> cleanLines, string title)
 
@@ -1711,8 +1521,6 @@ public static class NoteScriptSynthesizer
         var propositions = new List<SubstantiveProposition>();
 
         var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-
 
         var colonPattern = new Regex(@"^(?:[-*•]\s*)?([A-Z][a-zA-Z0-9\s-]{1,50}):\s*(.+)$");
 
@@ -1733,8 +1541,6 @@ public static class NoteScriptSynthesizer
         var contrastPattern = new Regex(@"^(.{3,50})\s+differs from\s+(.{3,40})\s+(?:in that|because|by)\s+(.+)$", RegexOptions.IgnoreCase);
 
         var quantPattern = new Regex(@"^(.{3,60})\s+(?:contains|requires|consists of|has|includes)\s+(at least|maximum of|more than|approximately|\d+[\w\s%]+)\s+(.+)$", RegexOptions.IgnoreCase);
-
-
 
         var pricePattern = new Regex(@"^(?:[-*•]\s*)?([A-Za-z0-9\s&'/\-]{2,45}?)\s*(?:costs?|is priced at|priced at|is|:|-|–)\s*([₱$€¥£]\s*\d+(?:\.\d{2})?|\d+(?:\.\d{2})?\s*(?:pesos|php|dollars|usd|eur))\b(.*)$", RegexOptions.IgnoreCase);
         var reversePricePattern = new Regex(@"^(?:[-*•]\s*)?([₱$€¥£]\s*\d+(?:\.\d{2})?|\d+(?:\.\d{2})?\s*(?:pesos|php|dollars|usd|eur))\s*[-–:]\s*([A-Za-z0-9\s&'/\-]{2,45})$", RegexOptions.IgnoreCase);
@@ -1769,8 +1575,6 @@ foreach (var rawLine in cleanLines)
 
             }
 
-
-
             // 1. Explicit definitions
 
             var colMatch = colonPattern.Match(line);
@@ -1803,8 +1607,6 @@ foreach (var rawLine in cleanLines)
 
             }
 
-
-
             var isMatch = isPattern.Match(line);
 
             if (isMatch.Success)
@@ -1827,8 +1629,6 @@ foreach (var rawLine in cleanLines)
 
             }
 
-
-
             var dashMatch = dashPattern.Match(line);
 
             if (dashMatch.Success)
@@ -1850,8 +1650,6 @@ foreach (var rawLine in cleanLines)
                 }
 
             }
-
-
 
             // 2. Cause & Effect
 
@@ -1877,8 +1675,6 @@ foreach (var rawLine in cleanLines)
 
             }
 
-
-
             var conseqMatch = consequencePattern.Match(line);
 
             if (conseqMatch.Success)
@@ -1900,8 +1696,6 @@ foreach (var rawLine in cleanLines)
                 }
 
             }
-
-
 
             // 3. Mechanism or Functional Process
 
@@ -1927,8 +1721,6 @@ foreach (var rawLine in cleanLines)
 
             }
 
-
-
             var fnMatch = functionRolePattern.Match(line);
 
             if (fnMatch.Success)
@@ -1950,8 +1742,6 @@ foreach (var rawLine in cleanLines)
                 }
 
             }
-
-
 
             // 4. Comparison & Distinction
 
@@ -1979,8 +1769,6 @@ foreach (var rawLine in cleanLines)
 
             }
 
-
-
             var contMatch = contrastPattern.Match(line);
 
             if (contMatch.Success)
@@ -2005,8 +1793,6 @@ foreach (var rawLine in cleanLines)
 
             }
 
-
-
             // 5. Quantitative Fact
 
             var quantMatch = quantPattern.Match(line);
@@ -2030,8 +1816,6 @@ foreach (var rawLine in cleanLines)
                 }
 
             }
-
-
 
             
             // 5a. Pricing & Menu Items
@@ -2162,8 +1946,6 @@ foreach (var rawLine in cleanLines)
 
                 }
 
-
-
                 // Fallback: use first 3-4 words as subject
 
                 var words = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -2191,8 +1973,6 @@ foreach (var rawLine in cleanLines)
             }
 
         }
-
-
 
         // Guarantee at least foundational propositions if note was concise or structured unusually
         if (propositions.Count == 0)
@@ -2223,13 +2003,9 @@ foreach (var rawLine in cleanLines)
             propositions.Add(new SubstantiveProposition(safeSubject, firstLine, firstLine, PropositionKind.CoreConcept));
         }
 
-
-
         return propositions;
 
     }
-
-
 
     private static List<(string Term, string Definition, string FullSentence)> ExtractDefinitions(List<string> cleanLines)
 
@@ -2242,8 +2018,6 @@ foreach (var rawLine in cleanLines)
         var colonPattern = new Regex(@"^(?:[-*•]\s*)?([A-Z][a-zA-Z0-9\s-]{2,40}):\s*(.+)$");
 
         var dashPattern = new Regex(@"^(?:[-*•]\s*)?([A-Z][a-zA-Z0-9\s-]{2,40})\s+[-–—]\s+(.+)$");
-
-
 
         foreach (var line in cleanLines)
 
@@ -2266,8 +2040,6 @@ foreach (var rawLine in cleanLines)
                 continue;
 
             }
-
-
 
             var colMatch = colonPattern.Match(line);
 
@@ -2299,8 +2071,6 @@ foreach (var rawLine in cleanLines)
 
             }
 
-
-
             var isMatch = isPattern.Match(line);
 
             if (isMatch.Success)
@@ -2322,8 +2092,6 @@ foreach (var rawLine in cleanLines)
                 }
 
             }
-
-
 
             var dashMatch = dashPattern.Match(line);
 
@@ -2347,13 +2115,9 @@ foreach (var rawLine in cleanLines)
 
         }
 
-
-
         return definitions;
 
     }
-
-
 
     public static List<ListCluster> ExtractListClusters(List<string> rawLines)
 
@@ -2375,8 +2139,6 @@ foreach (var rawLine in cleanLines)
 
                                      Regex.IsMatch(line, @"^(?:Types|Stages|Steps|Components|Characteristics|Features|Principles|Examples|Categories|Elements|Phases|Functions)\b", RegexOptions.IgnoreCase);
 
-
-
             if (isHeaderCandidate &&
 
                 !Regex.IsMatch(line, @"^(?:Q(?:uestion)?\s*\d*[:.]?|(?:Answer|Ans|Solution)\s*[:.]?|Key\s*[:.]|(?:Option|Choice)\s+[A-Fa-f])", RegexOptions.IgnoreCase) &&
@@ -2392,8 +2154,6 @@ foreach (var rawLine in cleanLines)
                 bool isOrdered = false;
 
                 int j = i + 1;
-
-
 
                 while (j < rawLines.Count)
 
@@ -2411,8 +2171,6 @@ foreach (var rawLine in cleanLines)
 
                     }
 
-
-
                     if (IsMcqOptionOrAnswerKeyLine(candidate))
 
                     {
@@ -2421,13 +2179,9 @@ foreach (var rawLine in cleanLines)
 
                     }
 
-
-
                     var numMatch = Regex.Match(candidate, @"^\s*(\d+)[\.\)]\s+(.+)$");
 
                     var bulletMatch = Regex.Match(candidate, @"^\s*[\*\-\+•◦▪]\s+(.+)$");
-
-
 
                     if (numMatch.Success)
 
@@ -2475,8 +2229,6 @@ foreach (var rawLine in cleanLines)
 
                 }
 
-
-
                 if (items.Count >= 2 && items.Count <= 8 && header.Length >= 4)
 
                 {
@@ -2495,13 +2247,9 @@ foreach (var rawLine in cleanLines)
 
         }
 
-
-
         return clusters;
 
     }
-
-
 
     private static GeneratedQuestionDto VaryQuestionForSet(GeneratedQuestionDto original, int setIndex, string title, List<string> pool)
 
@@ -2510,8 +2258,6 @@ foreach (var rawLine in cleanLines)
         var rand = new Random(setIndex * 31 + original.Prompt.GetHashCode());
 
         var prompt = original.Prompt;
-
-
 
         // Dynamic prompt framing variation across sets
 
@@ -2530,8 +2276,6 @@ foreach (var rawLine in cleanLines)
             prompt = $"In an analytical problem regarding {title}, consider: \"{original.Prompt.TrimEnd('?')}\". Identify the correct answer:";
 
         }
-
-
 
         // Shuffle options and swap fresh distractors
 
@@ -2555,8 +2299,6 @@ foreach (var rawLine in cleanLines)
 
                 .ToList();
 
-
-
             int dCount = 1;
 
             while (newDistractors.Count < 3)
@@ -2566,8 +2308,6 @@ foreach (var rawLine in cleanLines)
                 newDistractors.Add($"Alternative concept {dCount++} for Set {setIndex + 1}");
 
             }
-
-
 
             variedOptions = new List<GeneratedOptionDto>
 
@@ -2586,8 +2326,6 @@ foreach (var rawLine in cleanLines)
             variedOptions = variedOptions.OrderBy(_ => rand.Next()).ToList();
 
         }
-
-
 
         return new GeneratedQuestionDto(
 
@@ -2617,8 +2355,6 @@ foreach (var rawLine in cleanLines)
 
     }
 
-
-
     private static List<GeneratedQuestionDto> GenerateTrueFalseQuestions(
 
         List<(string Term, string Definition, string FullSentence)> definitions,
@@ -2641,23 +2377,17 @@ foreach (var rawLine in cleanLines)
 
         bool nextIsTrue = (setIndex % 2 == 0);
 
-
-
         while (defIndex < definitions.Count && result.Count < countNeeded)
 
         {
 
             var current = definitions[defIndex];
 
-
-
             if (nextIsTrue || definitions.Count < 2)
 
             {
 
                 var prompt = $"True or False: {current.Term} refers to: \"{current.Definition}\".";
-
-
 
                 var options = new List<GeneratedOptionDto>
 
@@ -2668,8 +2398,6 @@ foreach (var rawLine in cleanLines)
                     new GeneratedOptionDto("False", false, "This statement is directly confirmed in your notes.")
 
                 };
-
-
 
                 result.Add(new GeneratedQuestionDto(
 
@@ -2705,8 +2433,6 @@ foreach (var rawLine in cleanLines)
 
                 var alt = definitions[altIndex];
 
-
-
                 var prompt = $"True or False: {current.Term} is defined as: \"{alt.Definition}\".";
 
                 var options = new List<GeneratedOptionDto>
@@ -2718,8 +2444,6 @@ foreach (var rawLine in cleanLines)
                     new GeneratedOptionDto("False", true, null)
 
                 };
-
-
 
                 result.Add(new GeneratedQuestionDto(
 
@@ -2747,13 +2471,9 @@ foreach (var rawLine in cleanLines)
 
             }
 
-
-
             defIndex++;
 
         }
-
-
 
         if (result.Count < countNeeded)
 
@@ -2771,8 +2491,6 @@ foreach (var rawLine in cleanLines)
 
                 .ToList();
 
-
-
             for (int i = 0; i < factualSentences.Count && result.Count < countNeeded; i++)
 
             {
@@ -2780,8 +2498,6 @@ foreach (var rawLine in cleanLines)
                 var s = factualSentences[i];
 
                 if (result.Any(q => q.Prompt.Contains(s[..Math.Min(20, s.Length)]))) continue;
-
-
 
                 var prompt = $"True or False: According to your study material: \"{s}\"";
 
@@ -2794,8 +2510,6 @@ foreach (var rawLine in cleanLines)
                     new GeneratedOptionDto("False", false, "This factual statement is directly stated in your notes.")
 
                 };
-
-
 
                 result.Add(new GeneratedQuestionDto(
 
@@ -2815,7 +2529,7 @@ foreach (var rawLine in cleanLines)
 
                     null,
 
-                    $"Notes excerpt: {s}"
+                    s
 
                 ));
 
@@ -2823,13 +2537,9 @@ foreach (var rawLine in cleanLines)
 
         }
 
-
-
         return result;
 
     }
-
-
 
     private static List<GeneratedQuestionDto> GenerateClozeQuestions(
 
@@ -2849,8 +2559,6 @@ foreach (var rawLine in cleanLines)
 
         var result = new List<GeneratedQuestionDto>();
 
-
-
         for (int i = 0; i < definitions.Count && result.Count < countNeeded; i++)
 
         {
@@ -2860,8 +2568,6 @@ foreach (var rawLine in cleanLines)
             int clozeStyle = (i + setIndex) % 3;
 
             string prompt;
-
-
 
             if (clozeStyle == 0 || !def.FullSentence.Contains(def.Term, StringComparison.OrdinalIgnoreCase))
 
@@ -2887,8 +2593,6 @@ foreach (var rawLine in cleanLines)
 
             }
 
-
-
             var hints = new List<string>
 
             {
@@ -2909,8 +2613,6 @@ foreach (var rawLine in cleanLines)
 
             };
 
-
-
             var options = new List<GeneratedOptionDto>
 
             {
@@ -2918,8 +2620,6 @@ foreach (var rawLine in cleanLines)
                 new GeneratedOptionDto(def.Term, true, null)
 
             };
-
-
 
             result.Add(new GeneratedQuestionDto(
 
@@ -2943,13 +2643,11 @@ foreach (var rawLine in cleanLines)
 
                 null,
 
-                $"Notes excerpt: {def.FullSentence}"
+                def.FullSentence
 
             ));
 
         }
-
-
 
         if (result.Count < countNeeded)
 
@@ -2967,8 +2665,6 @@ foreach (var rawLine in cleanLines)
 
                 .ToList();
 
-
-
             for (int i = 0; i < factualSentences.Count && result.Count < countNeeded; i++)
 
             {
@@ -2979,27 +2675,19 @@ foreach (var rawLine in cleanLines)
 
                 if (words.Length < 5) continue;
 
-
-
                 var candidateWord = words.FirstOrDefault(w => w.Length >= 5 && char.IsLetter(w[0]) &&
 
                     !Regex.IsMatch(w, @"^(which|their|about|these|those|where|there|would|could|should|being|after|before)$", RegexOptions.IgnoreCase))
 
                     ?? words[words.Length / 2];
 
-
-
                 candidateWord = candidateWord.TrimEnd('.', ',', ';', ':', '!', '?');
 
                 if (candidateWord.Length < 3) continue;
 
-
-
                 var blanked = Regex.Replace(sentence, Regex.Escape(candidateWord), "________", RegexOptions.IgnoreCase);
 
                 var prompt = $"Fill in the missing word from your study notes: \"{blanked}\"";
-
-
 
                 result.Add(new GeneratedQuestionDto(
 
@@ -3023,7 +2711,7 @@ foreach (var rawLine in cleanLines)
 
                     null,
 
-                    $"Notes passage: {sentence}"
+                    sentence
 
                 ));
 
@@ -3031,13 +2719,9 @@ foreach (var rawLine in cleanLines)
 
         }
 
-
-
         return result;
 
     }
-
-
 
     private static List<GeneratedQuestionDto> GenerateEnumerationQuestions(
 
@@ -3053,15 +2737,11 @@ foreach (var rawLine in cleanLines)
 
         var result = new List<GeneratedQuestionDto>();
 
-
-
         foreach (var cluster in clusters)
 
         {
 
             if (result.Count >= countNeeded) break;
-
-
 
             var prompt = $"Enumerate the {cluster.Items.Count} items/components of: \"{cluster.Title}\"";
 
@@ -3076,8 +2756,6 @@ foreach (var rawLine in cleanLines)
                 $"First item begins with '{cluster.Items[0][0]}'"
 
             };
-
-
 
             result.Add(new GeneratedQuestionDto(
 
@@ -3106,8 +2784,6 @@ foreach (var rawLine in cleanLines)
             ));
 
         }
-
-
 
         if (result.Count < countNeeded && definitions.Count >= 3)
 
@@ -3153,13 +2829,9 @@ foreach (var rawLine in cleanLines)
 
         }
 
-
-
         return result;
 
     }
-
-
 
     private static List<GeneratedQuestionDto> GenerateMatchingQuestions(
 
@@ -3176,8 +2848,6 @@ foreach (var rawLine in cleanLines)
         var result = new List<GeneratedQuestionDto>();
 
         if (definitions.Count < 2) return result;
-
-
 
         int offset = (setIndex * 2) % Math.Max(1, definitions.Count);
 
@@ -3209,13 +2879,9 @@ foreach (var rawLine in cleanLines)
 
             }
 
-
-
             var matchingPairs = slice.Select(d => new { term = d.Term, definition = d.Definition }).ToList();
 
             var serializedPairs = JsonSerializer.Serialize(matchingPairs, JsonOptions);
-
-
 
             var prompt = "Match each key term to its correct definition:";
 
@@ -3229,11 +2895,7 @@ foreach (var rawLine in cleanLines)
 
             };
 
-
-
             var explanation = "Correct matches:\n" + string.Join("\n", matchingPairs.Select(p => $"• {p.term} ➔ {p.definition}"));
-
-
 
             result.Add(new GeneratedQuestionDto(
 
@@ -3261,19 +2923,13 @@ foreach (var rawLine in cleanLines)
 
             ));
 
-
-
             offset += slice.Count;
 
         }
 
-
-
         return result;
 
     }
-
-
 
     private static List<GeneratedQuestionDto> GenerateIdentificationQuestions(
 
@@ -3288,8 +2944,6 @@ foreach (var rawLine in cleanLines)
     {
 
         var result = new List<GeneratedQuestionDto>();
-
-
 
         for (int i = 0; i < definitions.Count && result.Count < countNeeded; i++)
 
@@ -3313,8 +2967,6 @@ foreach (var rawLine in cleanLines)
                 continue;
             }
 
-
-
             result.Add(new GeneratedQuestionDto(
 
                 "identification",
@@ -3337,19 +2989,15 @@ foreach (var rawLine in cleanLines)
 
                 null,
 
-                $"Source passage: {def.FullSentence}"
+                def.FullSentence
 
             ));
 
         }
 
-
-
         return result;
 
     }
-
-
 
         private static bool IsCircularOrInvalid(string prompt, string answer, string title)
     {
@@ -3364,11 +3012,15 @@ foreach (var rawLine in cleanLines)
         if (!string.IsNullOrEmpty(cleanTitle) && string.Equals(cleanAns, cleanTitle, StringComparison.OrdinalIgnoreCase))
             return true;
 
-        // 2. Answer or prompt contains placeholder strings
+        // 2. Answer or prompt contains generic placeholder strings
         if (cleanAns.Contains("Core academic principles", StringComparison.OrdinalIgnoreCase) ||
             cleanPrompt.Contains("Core academic principles", StringComparison.OrdinalIgnoreCase) ||
             cleanAns.Contains("Foundational study material", StringComparison.OrdinalIgnoreCase) ||
-            cleanPrompt.Contains("Foundational study material", StringComparison.OrdinalIgnoreCase))
+            cleanPrompt.Contains("Foundational study material", StringComparison.OrdinalIgnoreCase) ||
+            cleanAns.Contains("characterized by", StringComparison.OrdinalIgnoreCase) ||
+            cleanPrompt.Contains("characterized by", StringComparison.OrdinalIgnoreCase) ||
+            cleanAns.Contains("omitted or fails to apply", StringComparison.OrdinalIgnoreCase) ||
+            cleanPrompt.Contains("omitted or fails to apply", StringComparison.OrdinalIgnoreCase))
             return true;
 
         // 3. Prompt contains title multiple times and answer also contains title (circular question)
@@ -3413,8 +3065,6 @@ foreach (var rawLine in cleanLines)
 
         if (propositions.Count == 0) return result;
 
-
-
         // Apply rotation / variant shuffling
 
         var workingList = new List<SubstantiveProposition>(propositions);
@@ -3439,13 +3089,9 @@ foreach (var rawLine in cleanLines)
 
         }
 
-
-
         int propIdx = 0;
 
         int dimensionCounter = setIndex;
-
-
 
         while (result.Count < countNeeded && propIdx < workingList.Count * 3)
 
@@ -3455,8 +3101,6 @@ foreach (var rawLine in cleanLines)
 
             int dimension = (dimensionCounter++) % 6;
 
-
-
             string prompt;
 
             string answer;
@@ -3464,8 +3108,6 @@ foreach (var rawLine in cleanLines)
             string dimensionTag;
 
             string explanation;
-
-
 
             switch (dimension)
             {
@@ -3480,7 +3122,7 @@ foreach (var rawLine in cleanLines)
                 case 1:
                     // Dimension 2: REVERSE ACTIVE RECALL
                     dimensionTag = "REVERSE RECALL";
-                    prompt = $"Which concept, item, or term is characterized by: \"{prop.CorePredicate.TrimEnd('.')}\"?";
+                    prompt = $"Which concept, item, or term corresponds to the following description: \"{prop.CorePredicate.TrimEnd('.')}\"?";
                     answer = prop.Subject;
                     explanation = $"The concept or item corresponding to this description is \"{prop.Subject}\". Notes: \"{prop.FullPassage}\"";
                     break;
@@ -3580,19 +3222,13 @@ foreach (var rawLine in cleanLines)
 
             }
 
-
-
             propIdx++;
 
         }
 
-
-
         return result;
 
     }
-
-
 
     private static List<GeneratedQuestionDto> GenerateScenarioQuestions(
 
@@ -3612,8 +3248,6 @@ foreach (var rawLine in cleanLines)
 
         var result = new List<GeneratedQuestionDto>();
 
-
-
         for (int i = 0; i < definitions.Count && result.Count < countNeeded; i++)
 
         {
@@ -3621,8 +3255,6 @@ foreach (var rawLine in cleanLines)
             var def = definitions[i];
 
             var rand = new Random(setIndex * 997 + (def.Term + i + "scenario").GetHashCode());
-
-
 
             var otherTerms = definitions
 
@@ -3638,8 +3270,6 @@ foreach (var rawLine in cleanLines)
 
                 .ToList();
 
-
-
             int tCount = 1;
 
             while (otherTerms.Count < 3)
@@ -3649,8 +3279,6 @@ foreach (var rawLine in cleanLines)
                 otherTerms.Add($"Alternative concept {tCount++} from {title}");
 
             }
-
-
 
             var options = new List<GeneratedOptionDto>
 
@@ -3666,11 +3294,7 @@ foreach (var rawLine in cleanLines)
 
             };
 
-
-
             options = options.OrderBy(_ => rand.Next()).ToList();
-
-
 
             int scenarioStyle = (i + setIndex) % 4;
 
@@ -3687,8 +3311,6 @@ foreach (var rawLine in cleanLines)
                 _ => $"Which core concept directly addresses the following condition: \"{def.Definition}\"?"
 
             };
-
-
 
             result.Add(new GeneratedQuestionDto(
 
@@ -3708,19 +3330,15 @@ foreach (var rawLine in cleanLines)
 
                 null,
 
-                $"Source passage: {def.FullSentence}"
+                def.FullSentence
 
             ));
 
         }
 
-
-
         return result;
 
     }
-
-
 
     private static List<GeneratedQuestionDto> GenerateShortAnswerQuestions(
 
@@ -3735,8 +3353,6 @@ foreach (var rawLine in cleanLines)
     {
 
         var result = new List<GeneratedQuestionDto>();
-
-
 
         for (int i = 0; i < definitions.Count && result.Count < countNeeded; i++)
 
@@ -3758,8 +3374,6 @@ foreach (var rawLine in cleanLines)
 
             };
 
-
-
             var keywords = def.Definition
 
                 .Split(new[] { ' ', ',', '.', ';', ':', '(', ')' }, StringSplitOptions.RemoveEmptyEntries)
@@ -3774,11 +3388,7 @@ foreach (var rawLine in cleanLines)
 
                 .ToList();
 
-
-
             if (keywords.Count == 0) keywords.Add(def.Term);
-
-
 
             result.Add(new GeneratedQuestionDto(
 
@@ -3802,19 +3412,15 @@ foreach (var rawLine in cleanLines)
 
                 null,
 
-                $"Source passage: {def.FullSentence}"
+                def.FullSentence
 
             ));
 
         }
 
-
-
         return result;
 
     }
-
-
 
     private static List<GeneratedQuestionDto> GenerateQuestionsFromDefinitions(
         List<(string Term, string Definition, string FullSentence)> definitions,
@@ -3901,7 +3507,7 @@ foreach (var rawLine in cleanLines)
                     break;
                 case 1:
                     // Applied Identification & Criteria
-                    prompt = $"Which concept or term is characterized by: \"{def.Definition}\"?";
+                    prompt = $"Which concept or term matches the following statement: \"{def.Definition}\"?";
                     correctAnswer = def.Term;
                     while (otherTerms.Count < 3)
                     {
@@ -3921,7 +3527,7 @@ foreach (var rawLine in cleanLines)
                     break;
                 case 2:
                     // Cause & Effect / Deduction
-                    prompt = $"What is the direct outcome or implication if {def.Term} is omitted or fails to apply?";
+                    prompt = $"What is the functional consequence if {def.Term} is absent or disrupted?";
                     correctAnswer = $"Loss of: {def.Definition}";
                     var altCounterfactual1 = otherDefs.Count > 0 ? $"Direct compromise of: {otherDefs[0]}" : "Inability to maintain baseline procedural continuity";
                     var altCounterfactual2 = otherDefs.Count > 1 ? $"Unintended variation in: {otherDefs[1]}" : "Systemic misalignment of dependent outcomes";
@@ -3992,12 +3598,12 @@ foreach (var rawLine in cleanLines)
                 null, null, false,
                 explanation,
                 thinkingBreakdown,
-                $"Source passage: {def.FullSentence}"
+                def.FullSentence
             ));
 
             if (wantsIdentification && questions.Count < countNeeded)
             {
-                var idPrompt = $"Identify the principle or concept in {title} characterized by: \"{def.Definition}\"";
+                var idPrompt = $"Identify the principle or concept described as: \"{def.Definition}\"";
                 if (seenPrompts.Add(idPrompt))
                 {
                     questions.Add(new GeneratedQuestionDto(
@@ -4010,7 +3616,7 @@ foreach (var rawLine in cleanLines)
                         null, false,
                         $"Defined in notes: \"{def.FullSentence}\"",
                         new List<string> { "DIMENSION: IDENTIFICATION", $"CONCEPT: {def.Term}" },
-                        $"Source passage: {def.FullSentence}"
+                        def.FullSentence
                     ));
                 }
             }
@@ -4047,8 +3653,6 @@ foreach (var rawLine in cleanLines)
 
             .ToList();
 
-
-
         for (int i = 0; i < factualSentences.Count && result.Count < countNeeded; i++)
 
         {
@@ -4058,8 +3662,6 @@ foreach (var rawLine in cleanLines)
             var words = sentence.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
             if (words.Length < 5) continue;
-
-
 
             // Pick a significant key word or noun phrase from the sentence, avoiding generic status/UI words
 
@@ -4075,17 +3677,11 @@ foreach (var rawLine in cleanLines)
 
                 ?? words[words.Length / 2].TrimEnd('.', ',', ';', ':', '!', '?');
 
-
-
             candidateWord = candidateWord.TrimEnd('.', ',', ';', ':', '!', '?');
 
             if (candidateWord.Length < 3) continue;
 
-
-
             var blankedSentence = Regex.Replace(sentence, Regex.Escape(candidateWord), "________", RegexOptions.IgnoreCase);
-
-
 
             var distractors = pool
 
@@ -4096,8 +3692,6 @@ foreach (var rawLine in cleanLines)
                 .Take(3)
 
                 .ToList();
-
-
 
             if (distractors.Count < 3)
 
@@ -4119,8 +3713,6 @@ foreach (var rawLine in cleanLines)
 
                     .ToList();
 
-
-
                 foreach (var dw in docWords)
 
                 {
@@ -4138,8 +3730,6 @@ foreach (var rawLine in cleanLines)
                 }
 
             }
-
-
 
             var genericDistractors = new[] { "Mechanism", "Structure", "Pathway", "Component", "Principle", "System", "Function" };
 
@@ -4161,8 +3751,6 @@ foreach (var rawLine in cleanLines)
 
             }
 
-
-
             var options = new List<GeneratedOptionDto>
 
             {
@@ -4177,13 +3765,9 @@ foreach (var rawLine in cleanLines)
 
             };
 
-
-
             var rand = new Random((sentence + i).GetHashCode());
 
             options = options.OrderBy(_ => rand.Next()).ToList();
-
-
 
             result.Add(new GeneratedQuestionDto(
 
@@ -4203,19 +3787,15 @@ foreach (var rawLine in cleanLines)
 
                 null,
 
-                $"Notes passage: {sentence}"
+                sentence
 
             ));
 
         }
 
-
-
         return result;
 
     }
-
-
 
     private static GeneratedQuestionDto EnsureFourDistinctChoices(
 
@@ -4232,8 +3812,6 @@ foreach (var rawLine in cleanLines)
         var seenTexts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         var uniqueOptions = new List<GeneratedOptionDto>();
-
-
 
         if (q.Options != null)
 
@@ -4256,8 +3834,6 @@ foreach (var rawLine in cleanLines)
             }
 
         }
-
-
 
         // Guarantee exactly 1 correct option
 
@@ -4349,8 +3925,6 @@ foreach (var rawLine in cleanLines)
 
         }
 
-
-
         // Guarantee 4 distinct options
 
         var poolCandidates = pool
@@ -4360,8 +3934,6 @@ foreach (var rawLine in cleanLines)
             .Distinct(StringComparer.OrdinalIgnoreCase)
 
             .ToList();
-
-
 
         int candidateIdx = 0;
 
@@ -4380,8 +3952,6 @@ foreach (var rawLine in cleanLines)
             }
 
         }
-
-
 
         // If pool is exhausted, supplement with distinct, non-repeating academic distractors
 
@@ -4407,8 +3977,6 @@ foreach (var rawLine in cleanLines)
 
             fallbackNum++;
 
-
-
             if (seenTexts.Add(fallbackText))
 
             {
@@ -4419,11 +3987,18 @@ foreach (var rawLine in cleanLines)
 
         }
 
-
-
         var correctOpt = uniqueOptions.FirstOrDefault(o => o.IsCorrect) ?? uniqueOptions.First();
 
-
+        var finalOptions = uniqueOptions.Take(4).ToList();
+        if (finalOptions.Count >= 2)
+        {
+            var rng = new Random(questionIndex * 37 + (title?.Length ?? 0) * 17);
+            for (int sIdx = finalOptions.Count - 1; sIdx > 0; sIdx--)
+            {
+                int rIdx = rng.Next(sIdx + 1);
+                (finalOptions[sIdx], finalOptions[rIdx]) = (finalOptions[rIdx], finalOptions[sIdx]);
+            }
+        }
 
         return new GeneratedQuestionDto(
 
@@ -4435,7 +4010,7 @@ foreach (var rawLine in cleanLines)
 
             correctOpt.Text,
 
-            uniqueOptions.Take(4).ToList(),
+            finalOptions,
 
             q.ValidSynonyms,
 

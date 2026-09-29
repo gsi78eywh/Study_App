@@ -23,7 +23,6 @@ import "../../settings/services/settings_service.dart";
 import "../../settings/screens/settings_screen.dart";
 import "../../settings/widgets/dswd_safety_modal.dart";
 import "../../../core/constants/api_constants.dart";
-import "../widgets/pomodoro_timer_sheet.dart";
 import "../widgets/grade_tracker_sheet.dart";
 import "../widgets/user_manual_sheet.dart";
 import "../widgets/eye_break_dialog.dart";
@@ -57,7 +56,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   late final SettingsService _settingsService;
   int _currentTabIndex = 0;
   List<CourseModel> _courses = [];
-  bool _isSyncing = false;
   bool _isLoadingCourses = true;
   bool _isLoadingDemoPack = false;
   TodayStudyPlanModel? _todayStudyPlan;
@@ -820,7 +818,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
-    setState(() => _isSyncing = true);
     final result = await _syncService.performSync(
       fullFetch: fullFetch,
       currentCourses: _courses,
@@ -828,13 +825,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!mounted) return;
 
     setState(() {
-      _isSyncing = false;
       _isLoadingCourses = false;
       if (result.success && (result.syncedCourses.isNotEmpty || fullFetch)) {
         _courses = result.syncedCourses;
       }
+      // Do not inject demo courses; keep clean for new user
       if (_courses.isEmpty) {
-        _courses = _getDefaultDemoCourses();
+        _courses = [];
       }
       if (_courses.isNotEmpty && (_activeCourseId == null || !_courses.any((c) => c.id == _activeCourseId))) {
         _activeCourseId = _courses.first.id;
@@ -1049,119 +1046,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  List<CourseModel> _getDefaultDemoCourses() {
-    return [
-      CourseModel(
-        id: "demo-course-bio",
-        code: "BIO-101",
-        name: "General Biology & Cell Physiology",
-        colorHex: "#10B981",
-        createdAt: DateTime.now().subtract(const Duration(days: 3)),
-        studySets: [
-          StudySetModel(
-            id: "demo-set-cell",
-            courseId: "demo-course-bio",
-            title: "Cell Organelles & Energy Synthesis",
-            description: "Active recall deck covering Mitochondria, ATP synthesis, Chloroplasts, and Active Transport.",
-            questionCount: 3,
-            createdAt: DateTime.now().subtract(const Duration(days: 2)),
-            bulletPoints: [
-              "Mitochondria generates 36-38 ATP via aerobic cellular respiration.",
-              "Ribosomes synthesize cellular proteins using mRNA genetic sequences.",
-              "Phospholipid bilayer regulates selective permeability via active and passive transport.",
-            ],
-          ),
-          StudySetModel(
-            id: "demo-set-genetics",
-            courseId: "demo-course-bio",
-            title: "Mendelian Genetics & DNA Replication",
-            description: "Practice problems on Punnett squares, DNA polymerase III, and transcription vs translation.",
-            questionCount: 3,
-            createdAt: DateTime.now().subtract(const Duration(days: 1)),
-            bulletPoints: [
-              "Adenine pairs with Thymine (2 hydrogen bonds); Cytosine with Guanine (3 bonds).",
-              "DNA Helicase unzips the double helix at the replication fork.",
-            ],
-          ),
-        ],
-      ),
-      CourseModel(
-        id: "demo-course-cs",
-        code: "CS-101",
-        name: "Data Structures & Algorithms",
-        colorHex: "#6366F1",
-        createdAt: DateTime.now().subtract(const Duration(days: 5)),
-        studySets: [
-          StudySetModel(
-            id: "demo-set-algo",
-            courseId: "demo-course-cs",
-            title: "Asymptotic Complexity & Tree Traversal",
-            description: "Drill Big-O notation, binary search trees, and DFS/BFS graph fundamentals.",
-            questionCount: 3,
-            createdAt: DateTime.now().subtract(const Duration(days: 2)),
-            bulletPoints: [
-              "Binary Search operates in O(log n) time on sorted collections.",
-              "In-order traversal of a BST yields keys in ascending sorted order.",
-            ],
-          ),
-        ],
-      ),
-    ];
-  }
-
-  List<QuestionModel> _getDemoQuestions(StudySetModel set) {
-    return [
-      QuestionModel(
-        id: "demo-q1-${set.id}",
-        studySetId: set.id,
-        type: QuestionTypeEnum.multipleChoice,
-        prompt: "Which organelle is responsible for generating the majority of cellular ATP via oxidative phosphorylation?",
-        hints: const ["Often referred to as the powerhouse of the cell.", "Contains an inner folded membrane called cristae."],
-        explanation: "Mitochondria produce approximately 36 to 38 molecules of ATP per glucose molecule through aerobic cellular respiration.",
-        difficulty: 2,
-        sortOrder: 1,
-        options: [
-          QuestionOptionModel(id: "o1", optionText: "Mitochondria", isCorrect: true, distractorRationale: "Correct! The site of oxidative phosphorylation."),
-          QuestionOptionModel(id: "o2", optionText: "Endoplasmic Reticulum", isCorrect: false, distractorRationale: "The ER is involved in protein and lipid synthesis."),
-          QuestionOptionModel(id: "o3", optionText: "Golgi Apparatus", isCorrect: false, distractorRationale: "The Golgi packages and sorts macromolecules."),
-          QuestionOptionModel(id: "o4", optionText: "Lysosome", isCorrect: false, distractorRationale: "Lysosomes contain acidic digestive enzymes."),
-        ],
-      ),
-      QuestionModel(
-        id: "demo-q2-${set.id}",
-        studySetId: set.id,
-        type: QuestionTypeEnum.multipleChoice,
-        prompt: "What is the primary function of the phospholipid bilayer in the cell membrane?",
-        hints: const ["Think about hydrophobic tails and hydrophilic heads.", "It creates a selective barrier."],
-        explanation: "The amphipathic nature of phospholipids forms a semi-permeable membrane that regulates molecular transport into and out of the cell.",
-        difficulty: 2,
-        sortOrder: 2,
-        options: [
-          QuestionOptionModel(id: "o21", optionText: "Provide a semi-permeable selective transport barrier", isCorrect: true),
-          QuestionOptionModel(id: "o22", optionText: "Synthesize ribosomal RNA in the nucleolus", isCorrect: false),
-          QuestionOptionModel(id: "o23", optionText: "Replicate nuclear DNA before mitosis", isCorrect: false),
-          QuestionOptionModel(id: "o24", optionText: "Produce histone scaffolding proteins", isCorrect: false),
-        ],
-      ),
-      QuestionModel(
-        id: "demo-q3-${set.id}",
-        studySetId: set.id,
-        type: QuestionTypeEnum.multipleChoice,
-        prompt: "What time complexity does a Binary Search algorithm achieve on a sorted array of size N?",
-        hints: const ["The search interval is cut in half at each iteration.", "Logarithmic efficiency."],
-        explanation: "Binary search repeatedly divides the search space in half, resulting in logarithmic O(log N) time complexity.",
-        difficulty: 1,
-        sortOrder: 3,
-        options: [
-          QuestionOptionModel(id: "o31", optionText: "O(log N)", isCorrect: true),
-          QuestionOptionModel(id: "o32", optionText: "O(N)", isCorrect: false),
-          QuestionOptionModel(id: "o33", optionText: "O(N log N)", isCorrect: false),
-          QuestionOptionModel(id: "o34", optionText: "O(1)", isCorrect: false),
-        ],
-      ),
-    ];
-  }
-
   Future<void> _showModePicker(StudySetModel set) async {
     final isDark = context.isDarkMode;
     await showModalBottomSheet(
@@ -1210,76 +1094,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
               style: TextStyle(color: ctx.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 16),
-            _modeTile(
-              ctx,
-              "🎯 Simulated Exam (All Question Types)",
-              "Full comprehensive exam: MCQ, Fill-in-the-Blank, True/False, Matching & more",
-              const Color(0xFF6366F1),
-              () {
-                Navigator.pop(ctx);
-                _startQuiz(set, mode: StudyModeValue.simulatedExam);
-              },
-            ),
-            const SizedBox(height: 8),
-            _modeTile(
-              ctx,
-              "📚 Multiple Choice Practice",
-              "Server-graded multiple-choice questions",
-              isDark ? AppColors.primary : AppColors.primaryDark,
-              () {
-                Navigator.pop(ctx);
-                _startQuiz(set, mode: StudyModeValue.multipleChoice);
-              },
-            ),
-            const SizedBox(height: 8),
-            _modeTile(
-              ctx,
-              "🔄 True / False Practice",
-              "Instant verification of factual statements and concepts",
-              const Color(0xFF0EA5E9),
-              () {
-                Navigator.pop(ctx);
-                _startQuiz(set, mode: StudyModeValue.trueFalse);
-              },
-            ),
-            const SizedBox(height: 8),
-            _modeTile(
-              ctx,
-              "✍️ Active Recall & Identification",
-              "Type key terms and fill-in missing concepts",
-              const Color(0xFF10B981),
-              () {
-                Navigator.pop(ctx);
-                _startQuiz(set, mode: StudyModeValue.identification);
-              },
-            ),
-            const SizedBox(height: 8),
-            _modeTile(
-              ctx,
-              "📝 Enumeration & List Recall",
-              "Enumerate structured components and processes from notes",
-              const Color(0xFF8B5CF6),
-              () {
-                Navigator.pop(ctx);
-                _startQuiz(set, mode: StudyModeValue.enumeration);
-              },
-            ),
-            const SizedBox(height: 8),
-            _modeTile(
-              ctx,
-              "🧩 Two-Column Matching",
-              "Connect academic terms to their precise definitions",
-              const Color(0xFFF59E0B),
-              () {
-                Navigator.pop(ctx);
-                _startQuiz(set, mode: StudyModeValue.matchingType);
-              },
+            // Group 1: Study Modes
+            Row(
+              children: [
+                const Icon(Icons.menu_book_rounded, size: 14, color: AppColors.accent),
+                const SizedBox(width: 6),
+                Text(
+                  "STUDY MODES",
+                  style: GoogleFonts.outfit(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.accent,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             _modeTile(
               ctx,
               "🃏 Flashcards (Spaced Repetition)",
-              "Flip and rate your recall",
+              "Flip, reveal key facts, and rate your recall with SM-2 spacing",
               AppColors.accent,
               () {
                 Navigator.pop(ctx);
@@ -1298,14 +1133,85 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 8),
             _modeTile(
               ctx,
-              "⚡ Rapid-Fire Blitz",
-              "${_settingsService.settings.blitzSecondsPerQuestion} seconds per question — race the clock!",
+              "🧩 Two-Column Matching",
+              "Connect academic terms to their precise definitions",
+              const Color(0xFFF59E0B),
+              () {
+                Navigator.pop(ctx);
+                _startQuiz(set, mode: StudyModeValue.matchingType);
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Group 2: Test Modes
+            Row(
+              children: [
+                const Icon(Icons.assignment_turned_in_rounded, size: 14, color: Color(0xFF6366F1)),
+                const SizedBox(width: 6),
+                Text(
+                  "TEST MODES",
+                  style: GoogleFonts.outfit(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF6366F1),
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _modeTile(
+              ctx,
+              "📚 Multiple Choice Quiz",
+              "Server-graded standard multiple-choice questions with full explanations",
+              isDark ? AppColors.primary : AppColors.primaryDark,
+              () {
+                Navigator.pop(ctx);
+                _startQuiz(set, mode: StudyModeValue.multipleChoice);
+              },
+            ),
+            const SizedBox(height: 8),
+            _modeTile(
+              ctx,
+              "🎯 Simulated Exam",
+              "Comprehensive exam covering MCQ, True/False, and Identification",
+              const Color(0xFF6366F1),
+              () {
+                Navigator.pop(ctx);
+                _startQuiz(set, mode: StudyModeValue.simulatedExam);
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Group 3: Quick Mode
+            Row(
+              children: [
+                const Icon(Icons.bolt_rounded, size: 14, color: AppColors.warning),
+                const SizedBox(width: 6),
+                Text(
+                  "QUICK MODE",
+                  style: GoogleFonts.outfit(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.warning,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _modeTile(
+              ctx,
+              "⚡ Rapid-Fire Blitz (${_settingsService.settings.blitzSecondsPerQuestion}s)",
+              "${_settingsService.settings.blitzSecondsPerQuestion} seconds per question — race the countdown clock!",
               AppColors.warning,
               () {
                 Navigator.pop(ctx);
                 _startRapidFire(set);
               },
             ),
+            const SizedBox(height: 12),
+            const Divider(height: 1),
             const SizedBox(height: 8),
             _modeTile(
               ctx,
@@ -1653,10 +1559,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } catch (_) {}
 
     if (mounted) Navigator.of(context).pop();
-
-    if (questions.isEmpty) {
-      questions = _getDemoQuestions(set);
-    }
 
     if (questions.isEmpty) {
       if (mounted) {
@@ -2161,7 +2063,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             Icon(Icons.verified_user_rounded, color: Colors.white, size: 14),
                             SizedBox(width: 4),
                             Text(
-                              '🛡️ DSWD Safe • 1383',
+                              '🛡️ Child safety resources',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 11,
@@ -2395,7 +2297,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        'Grades 1–6: Simplified vocabulary, cheerful hints, audio read-aloud & DSWD child protections.',
+                                        'Grades 1–6: Simplified vocabulary, cheerful hints, audio read-aloud & child safety protections.',
                                         style: TextStyle(fontSize: 11.5, color: context.textSecondary),
                                       ),
                                     ],
@@ -2667,63 +2569,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           );
                         },
                       ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.all(4),
+                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                        icon: const Icon(
+                          Icons.logout_rounded,
+                          color: Color(0xFFEF4444),
+                          size: 22,
+                        ),
+                        tooltip: "Sign Out",
+                        onPressed: _handleLogout,
+                      ),
                     ],
                   ),
                 ],
               ),
               const SizedBox(height: 12),
 
-              // Dedicated Quick Actions Bar
+              // Dedicated Quick Actions Bar (Flashcards, Notebook, Studio, Grades)
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 physics: const BouncingScrollPhysics(),
                 child: Row(
                   children: [
                     _buildQuickActionChip(
-                      icon: Icons.notifications_active_rounded,
-                      label: "Reminders",
-                      color: const Color(0xFF6366F1),
-                      onTap: () => NotificationSheet.show(context),
-                    ),
-                    const SizedBox(width: 8),
-                    _buildQuickActionChip(
-                      icon: Icons.auto_awesome_rounded,
-                      label: "AI Tutor",
-                      color: const Color(0xFF8B5CF6),
-                      onTap: () => setState(() => _currentTabIndex = 4),
+                      icon: Icons.style_rounded,
+                      label: "Flashcards",
+                      color: AppColors.accent,
+                      onTap: () => setState(() => _currentTabIndex = 1),
                     ),
                     const SizedBox(width: 8),
                     _buildQuickActionChip(
                       icon: Icons.menu_book_rounded,
-                      label: "User Manual",
+                      label: "Notebook",
                       color: const Color(0xFF10B981),
-                      onTap: () => UserManualSheet.show(
-                        context,
-                        onOpenIngest: () => setState(() => _currentTabIndex = 3),
-                        onOpenGradeTracker: () => GradeTrackerSheet.show(
-                          context,
-                          widget.apiClient,
-                          onGradesUpdated: () {
-                            _fetchCoursesAndSync(fullFetch: true);
-                            _loadTodayStudyPlan();
-                          },
-                        ),
-                        onOpenFlashcards: () => setState(() => _currentTabIndex = 1),
-                        onOpenAiTutor: () => setState(() => _currentTabIndex = 4),
-                      ),
+                      onTap: () => setState(() => _currentTabIndex = 2),
                     ),
                     const SizedBox(width: 8),
                     _buildQuickActionChip(
-                      icon: Icons.sync_rounded,
-                      label: _isSyncing ? "Syncing..." : "Cloud Sync",
-                      color: AppColors.accent,
-                      isLoading: _isSyncing,
-                      onTap: _isSyncing ? null : () => _fetchCoursesAndSync(showSnackBar: true),
+                      icon: Icons.auto_stories_rounded,
+                      label: "Studio",
+                      color: const Color(0xFF6366F1),
+                      onTap: () => setState(() => _currentTabIndex = 3),
                     ),
                     const SizedBox(width: 8),
                     _buildQuickActionChip(
                       icon: Icons.grade_rounded,
-                      label: "Grade Tracker",
+                      label: "Grades",
                       color: const Color(0xFFF59E0B),
                       onTap: () => GradeTrackerSheet.show(
                         context,
@@ -2734,13 +2627,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         },
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    _buildQuickActionChip(
-                      icon: Icons.logout_rounded,
-                      label: "Sign Out",
-                      color: const Color(0xFFEF4444),
-                      onTap: _handleLogout,
-                    ),
                   ],
                 ),
               ),
@@ -2750,318 +2636,185 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _buildChildSafetyBanner(context),
               const SizedBox(height: 16),
 
-              // Today's Study Plan (AI Adaptive Learning System)
-              TodayStudyPlanWidget(
-                plan: _todayStudyPlan,
-                isLoading: _isLoadingStudyPlan,
-                onStartSmartSession: () => _startSmartStudySession(_todayStudyPlan?.courseId),
-                onOpenMistakeBank: () => _openMistakeBank(_todayStudyPlan?.courseId),
-                onOpenStudentBrain: () => _openStudentBrainModal(),
-                onOpenAcademicPlanner: () => _openAcademicPlannerModal(),
-                onShowReadinessBreakdown: (courseId) => _showReadinessBreakdown(courseId),
-                onStepTapped: (step) {
-                  if (step.stepNumber == 1) {
-                    setState(() => _currentTabIndex = 1);
-                  } else if (step.stepNumber == 4) {
-                    setState(() => _currentTabIndex = 4);
-                  } else {
-                    _startSmartStudySession(_todayStudyPlan?.courseId);
-                  }
-                },
-              ),
-              const SizedBox(height: 18),
-
-              // High-yield stats row & Dedicated Pomodoro Micro-Widget
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final isWide = constraints.maxWidth >= 740;
-                  final telemetryCard = Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: isDark
-                            ? [
-                                AppColors.primary.withValues(alpha: 0.2),
-                                context.surfaceColor,
-                              ]
-                            : [
-                                AppColors.primaryLight.withValues(alpha: 0.12),
-                                context.surfaceColor,
-                              ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: context.cardBorderColor),
-                    ),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      physics: const BouncingScrollPhysics(),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minWidth: constraints.maxWidth >= 400 ? constraints.maxWidth - 40 : 360,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _buildStatItem(
-                              "Enrolled",
-                              "${_courses.length}",
-                              "Courses",
-                              Icons.book_rounded,
-                              isDark ? AppColors.primaryLight : AppColors.primaryDark,
-                            ),
-                            Container(
-                              height: 36,
-                              width: 1,
-                              color: context.cardBorderColor,
-                            ),
-                            _buildStatItem(
-                              "Active Sets",
-                              "$totalSets",
-                              "Study Sets",
-                              Icons.auto_stories_rounded,
-                              AppColors.accent,
-                            ),
-                            Container(
-                              height: 36,
-                              width: 1,
-                              color: context.cardBorderColor,
-                            ),
-                            _buildStatItem(
-                              "Synthesized",
-                              "$totalQuestions",
-                              "Questions",
-                              Icons.psychology_rounded,
-                              AppColors.warning,
-                            ),
-                            Container(
-                              height: 36,
-                              width: 1,
-                              color: context.cardBorderColor,
-                            ),
-                            _buildStatItem(
-                              "Streak",
-                              "${_todayStudyPlan?.readiness.spacingDaysActive ?? 1}d",
-                              "Momentum",
-                              Icons.local_fire_department_rounded,
-                              const Color(0xFFF97316),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-
-                  final pomodoroWidget = Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: context.surfaceColor,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: const Color(0xFFEC4899).withValues(alpha: 0.35),
-                      ),
-                    ),
-                    child: Wrap(
-                      alignment: WrapAlignment.spaceBetween,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 12,
-                      runSpacing: 10,
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEC4899).withValues(alpha: 0.15),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.timer_outlined,
-                                color: Color(0xFFEC4899),
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Row(
-                                  children: [
-                                    Text(
-                                      "${_settingsService.settings.pomodoroFocusMinutes}:00",
-                                      style: GoogleFonts.outfit(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: context.textPrimary,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFEC4899).withValues(alpha: 0.15),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: const Text(
-                                        "FOCUS",
-                                        style: TextStyle(
-                                          color: Color(0xFFEC4899),
-                                          fontSize: 9.5,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Text(
-                                  "Spaced Study Interval",
-                                  style: TextStyle(
-                                    color: context.textSecondary,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFEC4899),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            textStyle: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          icon: const Icon(Icons.play_arrow_rounded, size: 16),
-                          label: const Text("Start Focus"),
-                          onPressed: () => PomodoroTimerSheet.show(
-                            context,
-                            focusMinutes:
-                                _settingsService.settings.pomodoroFocusMinutes,
-                            shortBreakMinutes:
-                                _settingsService.settings.pomodoroShortBreakMinutes,
-                            activeCourseCode: _todayStudyPlan?.courseCode,
-                            activeCourseName: _todayStudyPlan?.courseName,
-                            onStartStudySession: () => _startSmartStudySession(_todayStudyPlan?.courseId),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-
-                  if (isWide) {
-                    return Row(
-                      children: [
-                        Expanded(child: telemetryCard),
-                        const SizedBox(width: 14),
-                        pomodoroWidget,
-                      ],
-                    );
-                  } else {
-                    return Column(
-                      children: [
-                        telemetryCard,
-                        const SizedBox(height: 12),
-                        pomodoroWidget,
-                      ],
-                    );
-                  }
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // Quick Study Hub (1-Tap Workflows)
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: context.surfaceColor,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: context.cardBorderColor),
+              if (_courses.isNotEmpty) ...[
+                // Today's Study Plan (AI Adaptive Learning System)
+                TodayStudyPlanWidget(
+                  plan: _todayStudyPlan,
+                  isLoading: _isLoadingStudyPlan,
+                  onStartSmartSession: () => _startSmartStudySession(_todayStudyPlan?.courseId),
+                  onOpenMistakeBank: () => _openMistakeBank(_todayStudyPlan?.courseId),
+                  onOpenStudentBrain: () => _openStudentBrainModal(),
+                  onOpenAcademicPlanner: () => _openAcademicPlannerModal(),
+                  onShowReadinessBreakdown: (courseId) => _showReadinessBreakdown(courseId),
+                  onStepTapped: (step) {
+                    if (step.stepNumber == 1) {
+                      setState(() => _currentTabIndex = 1);
+                    } else if (step.stepNumber == 4) {
+                      setState(() => _currentTabIndex = 4);
+                    } else {
+                      _startSmartStudySession(_todayStudyPlan?.courseId);
+                    }
+                  },
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      alignment: WrapAlignment.spaceBetween,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 8,
-                      runSpacing: 4,
+                const SizedBox(height: 18),
+
+                // High-yield stats row
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: isDark
+                          ? [
+                              AppColors.primary.withValues(alpha: 0.2),
+                              context.surfaceColor,
+                            ]
+                          : [
+                              AppColors.primaryLight.withValues(alpha: 0.12),
+                              context.surfaceColor,
+                            ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: context.cardBorderColor),
+                  ),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.bolt_rounded,
-                              color: Color(0xFFF59E0B),
-                              size: 18,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              "Quick Study Hub",
-                              style: GoogleFonts.outfit(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: context.textPrimary,
-                              ),
-                            ),
-                          ],
+                        _buildStatItem(
+                          "Enrolled",
+                          "${_courses.length}",
+                          "Courses",
+                          Icons.book_rounded,
+                          isDark ? AppColors.primaryLight : AppColors.primaryDark,
                         ),
-                        Text(
-                          "Direct 1-Tap Action",
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFF10B981),
-                          ),
+                        Container(
+                          height: 36,
+                          width: 1,
+                          margin: const EdgeInsets.symmetric(horizontal: 16),
+                          color: context.cardBorderColor,
+                        ),
+                        _buildStatItem(
+                          "Active Sets",
+                          "$totalSets",
+                          "Study Sets",
+                          Icons.auto_stories_rounded,
+                          AppColors.accent,
+                        ),
+                        Container(
+                          height: 36,
+                          width: 1,
+                          margin: const EdgeInsets.symmetric(horizontal: 16),
+                          color: context.cardBorderColor,
+                        ),
+                        _buildStatItem(
+                          "Synthesized",
+                          "$totalQuestions",
+                          "Questions",
+                          Icons.psychology_rounded,
+                          AppColors.warning,
+                        ),
+                        Container(
+                          height: 36,
+                          width: 1,
+                          margin: const EdgeInsets.symmetric(horizontal: 16),
+                          color: context.cardBorderColor,
+                        ),
+                        _buildStatItem(
+                          "Streak",
+                          "${_todayStudyPlan?.readiness.spacingDaysActive ?? 1}d",
+                          "Momentum",
+                          Icons.local_fire_department_rounded,
+                          const Color(0xFFF97316),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        _buildQuickActionCard(
-                          "Scan & Ingest Notes",
-                          "Camera OCR, PDF & docs",
-                          Icons.document_scanner_rounded,
-                          const Color(0xFF6366F1),
-                          () => setState(() => _currentTabIndex = 3),
-                        ),
-                        const SizedBox(width: 8),
-                        _buildQuickActionCard(
-                          "Mistake Bank",
-                          "${_todayStudyPlan?.unresolvedMistakesCount ?? 0} errors",
-                          Icons.psychology_alt_outlined,
-                          const Color(0xFFEF4444),
-                          () => _openMistakeBank(),
-                        ),
-                        const SizedBox(width: 8),
-                        _buildQuickActionCard(
-                          "Flashcards Deck",
-                          "Spaced retrieval",
-                          Icons.style_outlined,
-                          const Color(0xFF10B981),
-                          () => setState(() => _currentTabIndex = 1),
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
+                const SizedBox(height: 16),
+
+                // Quick Study Hub (1-Tap Workflows)
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: context.surfaceColor,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: context.cardBorderColor),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.bolt_rounded,
+                                color: Color(0xFFF59E0B),
+                                size: 18,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                "Quick Study Hub",
+                                style: GoogleFonts.outfit(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: context.textPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            "Direct 1-Tap Action",
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF10B981),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          _buildQuickActionCard(
+                            "Scan & Ingest Notes",
+                            "Camera OCR, PDF & docs",
+                            Icons.document_scanner_rounded,
+                            const Color(0xFF6366F1),
+                            () => setState(() => _currentTabIndex = 3),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildQuickActionCard(
+                            "Mistake Bank",
+                            "${_todayStudyPlan?.unresolvedMistakesCount ?? 0} errors",
+                            Icons.psychology_alt_outlined,
+                            const Color(0xFFEF4444),
+                            () => _openMistakeBank(),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildQuickActionCard(
+                            "Flashcards Deck",
+                            "Spaced retrieval",
+                            Icons.style_outlined,
+                            const Color(0xFF10B981),
+                            () => setState(() => _currentTabIndex = 1),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
 
               // Enrolled Courses Header & Actions
               Wrap(
@@ -3673,22 +3426,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           vertical: 3,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                          color: (set.attemptsCount == 0
+                                                  ? context.cardBorderColor
+                                                  : const Color(0xFF10B981))
+                                              .withValues(alpha: 0.18),
                                           borderRadius: BorderRadius.circular(6),
                                         ),
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            const Icon(
-                                              Icons.verified_rounded,
+                                            Icon(
+                                              set.attemptsCount == 0
+                                                  ? Icons.hourglass_empty_rounded
+                                                  : Icons.verified_rounded,
                                               size: 12,
-                                              color: Color(0xFF10B981),
+                                              color: set.attemptsCount == 0
+                                                  ? context.textSecondary
+                                                  : const Color(0xFF10B981),
                                             ),
                                             const SizedBox(width: 4),
                                             Text(
-                                              "${((set.questionCount * 13) % 20 + 80)}% Ready",
-                                              style: const TextStyle(
-                                                color: Color(0xFF10B981),
+                                              set.attemptsCount == 0
+                                                  ? "Not started"
+                                                  : "${set.masteryScore > 0 ? set.masteryScore.round() : 85}% Ready",
+                                              style: TextStyle(
+                                                color: set.attemptsCount == 0
+                                                    ? context.textSecondary
+                                                    : const Color(0xFF10B981),
                                                 fontSize: 11,
                                                 fontWeight: FontWeight.bold,
                                               ),
@@ -3770,9 +3534,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             ),
                                           ),
                                           icon: const Icon(Icons.bolt_rounded, size: 16),
-                                          label: const Text(
-                                            "Blitz",
-                                            style: TextStyle(
+                                          label: Text(
+                                            "Blitz (${_settingsService.settings.blitzSecondsPerQuestion}s)",
+                                            style: const TextStyle(
                                               fontWeight: FontWeight.bold,
                                               fontSize: 12,
                                             ),
@@ -4072,7 +3836,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   padding: const EdgeInsets.all(6),
                   constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
                   icon: const Icon(Icons.verified_user_rounded, size: 19, color: Colors.teal),
-                  tooltip: "DSWD Child Safeguard & MAKABATA 1383",
+                  tooltip: "Child safety resources & MAKABATA 1383",
                   onPressed: () => DswdSafetyModal.show(context),
                 ),
                 IconButton(

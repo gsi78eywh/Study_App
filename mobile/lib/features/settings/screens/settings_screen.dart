@@ -363,6 +363,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Text("🃏 Spaced Repetition Flashcards"),
                   ),
                   DropdownMenuItem(
+                    value: StudyModeValue.matchingType,
+                    child: Text("🧩 Two-Column Matching"),
+                  ),
+                  DropdownMenuItem(
                     value: StudyModeValue.rapidFireBlitz,
                     child: Text("⚡ Rapid-Fire Blitz"),
                   ),
@@ -1314,6 +1318,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   min: min,
                   max: max,
                   divisions: divisions,
+                  label: displayValue,
                   activeColor: context.isDarkMode ? AppColors.primaryLight : AppColors.primary,
                   onChanged: onChanged,
                 ),
@@ -1391,7 +1396,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(width: 12),
           DropdownButton<T>(
-            value: value,
+            value: items.any((item) => item.value == value)
+                ? value
+                : (items.isNotEmpty ? items.first.value : null),
             items: items,
             onChanged: onChanged,
             dropdownColor: context.surfaceColor,

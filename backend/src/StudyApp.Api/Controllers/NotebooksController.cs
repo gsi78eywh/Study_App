@@ -101,17 +101,32 @@ public sealed class NotebooksController : ControllerBase
 
         var course = await _context.Courses.FirstOrDefaultAsync(c => c.Id == request.CourseId, cancellationToken);
         var now = DateTime.UtcNow;
-        var note = new NotebookPage
-        {
-            Id = Guid.NewGuid(),
-            CourseId = request.CourseId,
-            Title = request.Title.Trim(),
-            ContentMarkdown = request.ContentMarkdown,
-            CreatedAt = now,
-            UpdatedAt = now
-        };
+        var noteTitle = request.Title.Trim();
 
-        _context.NotebookPages.Add(note);
+        var existingNote = await _context.NotebookPages
+            .Where(n => n.CourseId == request.CourseId && n.Title == noteTitle)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        NotebookPage note;
+        if (existingNote != null)
+        {
+            existingNote.ContentMarkdown = request.ContentMarkdown;
+            existingNote.UpdatedAt = now;
+            note = existingNote;
+        }
+        else
+        {
+            note = new NotebookPage
+            {
+                Id = Guid.NewGuid(),
+                CourseId = request.CourseId,
+                Title = noteTitle,
+                ContentMarkdown = request.ContentMarkdown,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            _context.NotebookPages.Add(note);
+        }
         await _context.SaveChangesAsync(cancellationToken);
 
         return Created($"/api/v1/notebooks/{note.Id}", new

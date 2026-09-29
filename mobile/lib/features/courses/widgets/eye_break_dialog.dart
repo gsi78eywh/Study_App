@@ -102,7 +102,7 @@ class _EyeBreakDialogState extends State<EyeBreakDialog> {
               Text(
                 isJunior
                     ? '🌟 Super Learner Eye Rest!'
-                    : '🌿 Healthy Eye Break (DSWD PES Rule)',
+                    : '🌿 Eye rest reminder',
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w800,
                   color: Colors.teal.shade800,

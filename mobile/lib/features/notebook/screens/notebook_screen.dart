@@ -243,7 +243,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                               final resp = await widget.apiClient.dio.post(
                                 ApiConstants.scanContent,
                                 data: FormData.fromMap(map),
-                              );
+                              ); 
                               if (resp.statusCode == 200 && resp.data is Map) {
                                 final text = (resp.data["extractedText"] ?? "") as String;
                                 if (text.isNotEmpty) {
@@ -808,8 +808,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
                             ),
                             const SizedBox(height: 10),
                             Text(
-                              note.content,
-                              maxLines: 3,
+                              _cleanNotePreview(note.content),
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: context.textSecondary,
@@ -863,5 +863,14 @@ class _NotebookScreenState extends State<NotebookScreen> {
         ),
       ),
     );
+  }
+
+  String _cleanNotePreview(String raw) {
+    final lines = raw.split('\n');
+    final cleanLines = lines
+        .map((l) => l.trim().replaceAll(RegExp(r'^#{1,6}\s*'), '').replaceAll(RegExp(r'^\*+\s*'), ''))
+        .where((l) => l.isNotEmpty && !l.startsWith('Source URL:') && !l.startsWith('http'))
+        .toList();
+    return cleanLines.join(' ');
   }
 }

@@ -43,6 +43,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   late final TabController _tabController;
   late String _selectedCourseId;
   final _titleController = TextEditingController();
+  bool _isCustomTitle = false;
   final _textController = TextEditingController();
   final _urlController = TextEditingController();
 
@@ -57,7 +58,6 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   bool _isExtractingTextToEditor = false;
   bool _isScrapingUrl = false;
   bool _isSavingToNotebook = false;
-  bool _isSynthesizingTranscript = false;
   final _transcriptTextController = TextEditingController();
   Map<String, dynamic>? _scannedResult;
   int _loadingStep = 0;
@@ -195,6 +195,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
   void _resetForm() {
     setState(() {
+      _isCustomTitle = false;
       _selectedFile = null;
       _selectedFileBytes = null;
       _fileSizeBytes = 0;
@@ -283,7 +284,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           _scannedResult = data;
           if (cleanText.trim().isNotEmpty) {
             _textController.text = cleanText.trim();
-            if (_titleController.text.trim().isEmpty || _titleController.text == file.name.split('.').first) {
+            if (!_isCustomTitle || _titleController.text.trim().isEmpty) {
               _titleController.text = candidateTitle.isNotEmpty ? candidateTitle : file.name.split('.').first;
             }
             // Switch to Note Editor tab so the user immediately sees all extracted text & bullet points!
@@ -365,7 +366,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
         setState(() {
           _textController.text = cleanText.trim();
-          if (_titleController.text.trim().isEmpty || _titleController.text == "C#") {
+          if (!_isCustomTitle || _titleController.text.trim().isEmpty) {
             _titleController.text = suggestedTitle.isNotEmpty ? suggestedTitle : (uri.host);
           }
           // Navigate to Note Editor so user can verify, edit, and synthesize
@@ -383,32 +384,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         }
       }
     } on DioException catch (e) {
-      if (rawUrl.contains("youtube.com") || rawUrl.contains("youtu.be")) {
-        final videoId = uri.queryParameters["v"] ?? rawUrl.split("/").last;
-        final candidateTitle = _titleController.text.trim().isNotEmpty
-            ? _titleController.text.trim()
-            : "YouTube Video Notes ($videoId)";
-        final templateText = "# $candidateTitle\n**Source URL:** $rawUrl\n\n## Lecture Outline & Key Concepts\n- [ ] Main Concepts & Definitions\n- [ ] Instructor Examples & Code\n- [ ] Summary & Action Items\n\n## My Personal Notes\n(Add your study notes or paste lecture transcript here)";
-        setState(() {
-          _textController.text = templateText;
-          if (_titleController.text.trim().isEmpty) {
-            _titleController.text = candidateTitle;
-          }
-          _tabController.animateTo(0);
-          _errorMessage = null;
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("📺 Loaded YouTube study template into Note Editor!"),
-              backgroundColor: Color(0xFF10B981),
-              duration: Duration(seconds: 4),
-            ),
-          );
-        }
-        return;
-      }
-      String msg = "Could not scrape web page. Check that the URL is public and accessible.";
+      String msg = "Couldn't generate, try again.";
       if (e.response?.data is Map) {
         final data = e.response!.data as Map;
         msg = data["message"]?.toString() ?? data["title"]?.toString() ?? msg;
@@ -614,73 +590,6 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     }
   }
 
-  Future<void> _generateFromTranscriptOrYouTube() async {
-    final url = _urlController.text.trim();
-    final transcript = _transcriptTextController.text.trim();
-
-    if (url.isEmpty && transcript.isEmpty) {
-      setState(() => _errorMessage = "Please enter a YouTube/Article URL or paste a lecture transcript.");
-      return;
-    }
-
-    setState(() {
-      _isSynthesizingTranscript = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final title = _titleController.text.trim().isNotEmpty ? _titleController.text.trim() : null;
-      final res = await widget.apiClient.transcriptToNotes(
-        courseId: _validGuidOrNull(_selectedCourseId),
-        title: title,
-        content: transcript.isNotEmpty ? transcript : null,
-        url: url.isNotEmpty ? url : null,
-        generateFlashcards: true,
-      );
-
-      if (mounted) {
-        if (res != null) {
-          final contentMarkdown = res["contentMarkdown"]?.toString() ?? "";
-          final noteTitle = res["title"]?.toString() ?? "Lecture Notes";
-          final flashcardCount = res["questionCount"] ?? 0;
-
-          setState(() {
-            _textController.text = contentMarkdown;
-            _titleController.text = noteTitle;
-            _tabController.animateTo(0);
-          });
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.auto_awesome_rounded, color: Color(0xFFFDE047), size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      "✓ Created structured Cornell Notes & $flashcardCount Flashcards saved to Notebook!",
-                    ),
-                  ),
-                ],
-              ),
-              backgroundColor: const Color(0xFF10B981),
-              duration: const Duration(seconds: 4),
-            ),
-          );
-        } else {
-          setState(() => _errorMessage = "Could not process video or transcript. Please verify URL or transcript text.");
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _errorMessage = "Transcript processing error: $e");
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isSynthesizingTranscript = false);
-      }
-    }
-  }
 
   void _openCameraScanner() {
     CameraScannerModal.show(
@@ -1683,7 +1592,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         }
       }
     } on DioException catch (e) {
-      String msg = "AI generation failed. Check server status.";
+      String msg = "Couldn't generate, try again.";
       if (e.response?.data is Map) {
         final data = e.response!.data as Map;
         msg = data["message"]?.toString() ?? data["title"]?.toString() ?? msg;
@@ -1977,7 +1886,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                 ),
                               ),
                               Text(
-                                "Directly extracts questions, answers, and concepts from notes, handwritten whiteboard photos, and documents without AI hallucinations.",
+                                "Directly extracts questions, answers, and concepts from notes, handwritten whiteboard photos, and documents grounded directly in your study material.",
                                 style: GoogleFonts.inter(
                                   fontSize: 12,
                                   color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF4338CA),
@@ -2023,30 +1932,18 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                               Row(
                                 children: [
                                   Text(
-                                    "⚡ Quick local processing",
+                                    "⚡ Rapid processing",
                                     style: GoogleFonts.outfit(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 14,
                                       color: context.textPrimary,
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.accent.withValues(alpha: 0.15),
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: const Text(
-                                      "OFFLINE READY",
-                                      style: TextStyle(color: AppColors.accent, fontSize: 10, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
                                 ],
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                "Quick local question generation on-device. Works smoothly offline or on slow networks.",
+                                "Optimized rapid generation for shorter study sets.",
                                 style: TextStyle(color: context.textSecondary, fontSize: 12),
                               ),
                             ],
@@ -2158,6 +2055,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                   TextField(
                     controller: _titleController,
                     style: TextStyle(color: context.textPrimary),
+                    onChanged: (val) => setState(() => _isCustomTitle = val.trim().isNotEmpty),
                     decoration: const InputDecoration(
                       labelText: "Study Set Title",
                       hintText: "e.g. Chapter 4: Cellular Respiration & Krebs Cycle",
@@ -2457,7 +2355,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                                      ),
                                                      icon: const Icon(Icons.edit_note_rounded, size: 14),
-                                                     label: const Text("✏️ Open Clear Text in Note Editor", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                                     label: const Text("Extract to Note Editor", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                                                      onPressed: _isScanning ? null : _scanAndTransferToEditor,
                                                    ),
                                                    OutlinedButton.icon(
@@ -2604,24 +2502,43 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              TextField(
-                                controller: _urlController,
-                                keyboardType: TextInputType.url,
-                                style: TextStyle(color: context.textPrimary),
-                                decoration: InputDecoration(
-                                  labelText: "YouTube Video or Web Article URL",
-                                  hintText: "https://www.youtube.com/watch?v=... or https://en.wikipedia.org/...",
-                                  prefixIcon: const Icon(Icons.smart_display_rounded, color: Color(0xFFEF4444)),
-                                  suffixIcon: _urlController.text.isNotEmpty
-                                      ? IconButton(
-                                          icon: const Icon(Icons.clear_rounded, size: 18),
-                                          onPressed: () {
-                                            setState(() => _urlController.clear());
-                                          },
-                                        )
-                                      : null,
-                                ),
-                                onChanged: (v) => setState(() {}),
+                              Builder(
+                                builder: (ctx) {
+                                  final urlText = _urlController.text.trim().toLowerCase();
+                                  final isYt = urlText.contains("youtube.com") || urlText.contains("youtu.be");
+                                  final isWeb = urlText.startsWith("http://") || urlText.startsWith("https://");
+
+                                  return TextField(
+                                    controller: _urlController,
+                                    keyboardType: TextInputType.url,
+                                    style: TextStyle(color: context.textPrimary),
+                                    decoration: InputDecoration(
+                                      labelText: isYt
+                                          ? "YouTube Video URL"
+                                          : (isWeb ? "Web Article URL" : "Web / Video URL"),
+                                      hintText: isYt
+                                          ? "https://www.youtube.com/watch?v=..."
+                                          : "https://en.wikipedia.org/... or YouTube URL",
+                                      prefixIcon: Icon(
+                                        isYt
+                                            ? Icons.smart_display_rounded
+                                            : (isWeb ? Icons.language_rounded : Icons.link_rounded),
+                                        color: isYt
+                                            ? const Color(0xFFEF4444)
+                                            : (isWeb ? const Color(0xFF6366F1) : context.textSecondary),
+                                      ),
+                                      suffixIcon: _urlController.text.isNotEmpty
+                                          ? IconButton(
+                                              icon: const Icon(Icons.clear_rounded, size: 18),
+                                              onPressed: () {
+                                                setState(() => _urlController.clear());
+                                              },
+                                            )
+                                          : null,
+                                    ),
+                                    onChanged: (v) => setState(() {}),
+                                  );
+                                },
                               ),
                               const SizedBox(height: 10),
                               TextField(
@@ -2644,34 +2561,43 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: const Color(0xFF6366F1),
                                       foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                     ),
-                                    icon: _isSynthesizingTranscript
+                                    icon: _isScrapingUrl
                                         ? const SizedBox(
                                             width: 14,
                                             height: 14,
                                             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                           )
-                                        : const Icon(Icons.auto_stories_rounded, size: 16),
+                                        : const Icon(Icons.arrow_forward_rounded, size: 16),
                                     label: Text(
-                                      _isSynthesizingTranscript ? "Synthesizing Cornell Notes..." : "⚡ Auto-Notes + Flashcards",
+                                      _isScrapingUrl
+                                          ? "Extracting to Editor..."
+                                          : "Extract to Note Editor",
                                       style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                                     ),
-                                    onPressed: (_isSynthesizingTranscript || _isLoading) ? null : _generateFromTranscriptOrYouTube,
-                                  ),
-                                  OutlinedButton.icon(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: context.textPrimary,
-                                      side: BorderSide(color: context.cardBorderColor),
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                    ),
-                                    icon: _isScrapingUrl
-                                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                                        : const Icon(Icons.download_rounded, size: 16),
-                                    label: const Text("Scrape into Editor", style: TextStyle(fontSize: 12)),
-                                    onPressed: (_isScrapingUrl || _isLoading) ? null : _scrapeAndLoadUrlToEditor,
+                                    onPressed: (_isScrapingUrl || _isLoading)
+                                        ? null
+                                        : () {
+                                            if (_transcriptTextController.text.trim().isNotEmpty && _urlController.text.trim().isEmpty) {
+                                              setState(() {
+                                                _textController.text = _transcriptTextController.text.trim();
+                                                if (!_isCustomTitle || _titleController.text.trim().isEmpty) {
+                                                  _titleController.text = "Lecture Transcript Notes";
+                                                }
+                                                _tabController.animateTo(0);
+                                              });
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text("📝 Transcript loaded into Note Editor! Review and tap Generate Study Set."),
+                                                  backgroundColor: Color(0xFF10B981),
+                                                ),
+                                              );
+                                            } else {
+                                              _scrapeAndLoadUrlToEditor();
+                                            }
+                                          },
                                   ),
                                 ],
                               ),

@@ -52,7 +52,7 @@ public class UatSecurityAndLoadBalancingTests
                         IsOrdered: false,
                         Explanation: "Mitochondria produce ATP via cellular respiration.",
                         ThinkingBreakdown: new List<string> { "Step 1: Cell biology fundamentals" },
-                        SourceReference: "Bio 101 Chapter 4"
+                        SourceReference: "Mitochondria generate adenosine triphosphate through oxidative phosphorylation."
                     )
                 }
             );
@@ -380,16 +380,16 @@ This process provides the primary energy currency for eukaryotic organisms.";
 
         var markdown = savedPage.ContentMarkdown;
 
-        // Verify Cornell Note Structure
+        // Verify Cornell Note Structure keeps generated flashcards out of note body
         Assert.Contains("# Cellular Biology Lecture 4", markdown);
         Assert.Contains("## Executive Lecture Summary", markdown);
         Assert.Contains("## Core Academic Concepts & Cornell Cues", markdown);
         Assert.Contains("## Mechanistic Breakdown & Detailed Notes", markdown);
-        Assert.Contains("## Active Recall Flashcard Prompts", markdown);
+        Assert.DoesNotContain("## Active Recall Flashcard Prompts", markdown);
 
         // Verify Content Accuracy
         Assert.Contains("Mitochondria", markdown);
-        Assert.Contains("Active Recall Flashcard Prompts", markdown);
+        Assert.DoesNotContain("Active Recall Flashcard Prompts", markdown);
     }
 
     [Fact]

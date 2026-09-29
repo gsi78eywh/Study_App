@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using StudyApp.Application.Common.Interfaces;
@@ -8,6 +9,7 @@ namespace StudyApp.Api.Controllers;
 [ApiController]
 [Route("api/v1/ai")]
 [Authorize]
+[EnableRateLimiting("ingestion")]
 public class AiController : ControllerBase
 {
     private readonly IAiTutorService _aiTutorService;

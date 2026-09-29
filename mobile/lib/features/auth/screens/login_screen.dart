@@ -614,10 +614,10 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     await widget.sessionService.saveAuth(
-      token: "offline_demo_guest_token",
-      userId: "demo_guest_student",
-      email: "guest@studyapp.local",
-      fullName: "Demo Student",
+      token: "guest_session_token",
+      userId: "guest_${DateTime.now().millisecondsSinceEpoch}",
+      email: "guest@studyapp.app",
+      fullName: "Guest Student",
     );
 
     if (!mounted) return;
@@ -1061,53 +1061,24 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 16),
 
-                          // Offline Demo Mode Button (100% works without server or Wi-Fi)
+                          // Clearly labeled Guest Mode
                           Center(
                             child: OutlinedButton.icon(
                               onPressed: _isLoading ? null : _handleOfflineDemoLogin,
-                              icon: const Icon(Icons.offline_bolt_rounded, size: 16, color: Color(0xFF10B981)),
+                              icon: const Icon(Icons.person_outline_rounded, size: 16, color: Color(0xFF10B981)),
                               label: const Text(
-                                "Explore in Offline Demo Mode (No Server)",
+                                "Continue as Guest",
                                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                               ),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: const Color(0xFF10B981),
                                 side: BorderSide(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
-                                padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 14),
+                                padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 20),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 8),
-
-                          // Try Demo Student Account (Visually secondary tertiary styling)
-                          Center(
-                            child: TextButton.icon(
-                              onPressed: () {
-                                _emailController.text = "dev@studyapp.local";
-                                _passwordController.text = "DevPass123!";
-                                setState(() {
-                                  _errorMessage = null;
-                                });
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text("Demo student credentials loaded."),
-                                    duration: Duration(seconds: 2),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFFF59E0B)),
-                              label: const Text(
-                                "Try Demo Student Account",
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                              ),
-                              style: TextButton.styleFrom(
-                                foregroundColor: context.textSecondary,
-                                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 12),
 
                           // Register Link
                           Wrap(

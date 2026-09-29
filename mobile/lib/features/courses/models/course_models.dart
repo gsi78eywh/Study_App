@@ -67,6 +67,8 @@ class StudySetModel {
   final int questionCount;
   final DateTime createdAt;
   final List<String> bulletPoints;
+  final int attemptsCount;
+  final double masteryScore;
 
   StudySetModel({
     required this.id,
@@ -76,6 +78,8 @@ class StudySetModel {
     this.questionCount = 0,
     required this.createdAt,
     this.bulletPoints = const [],
+    this.attemptsCount = 0,
+    this.masteryScore = 0.0,
   });
 
   factory StudySetModel.fromJson(Map<String, dynamic> json) {
@@ -90,6 +94,8 @@ class StudySetModel {
               ?.map((e) => e.toString())
               .toList() ??
           [],
+      attemptsCount: json["attemptsCount"] as int? ?? 0,
+      masteryScore: (json["masteryScore"] as num?)?.toDouble() ?? 0.0,
     );
   }
 
@@ -99,5 +105,7 @@ class StudySetModel {
         "title": title,
         "description": description,
         "createdAt": createdAt.toIso8601String(),
+        "attemptsCount": attemptsCount,
+        "masteryScore": masteryScore,
       };
 }
