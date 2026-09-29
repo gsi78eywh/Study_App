@@ -418,7 +418,7 @@ public class IngestionController : ControllerBase
             : null;
         var result = await _aiGenerator.GenerateStudySetAsync(
             extractedText,
-            CleanTitle(candidateTitle),
+            ResolveUsableTitle(candidateTitle, uri.ToString(), extractedText),
             request.QuestionTypes ?? new List<string>(),
             ClampTargetCount(request.TargetCount),
             request.SetIndex,
@@ -517,7 +517,7 @@ public class IngestionController : ControllerBase
         return Ok(new
         {
             url = uri.ToString(),
-            suggestedTitle = CleanTitle(candidateTitle),
+            suggestedTitle = ResolveUsableTitle(candidateTitle, uri.ToString(), extractedText),
             charCount = extractedText.Length,
             wordCount = words.Length,
             lineCount = lines.Length,
@@ -588,8 +588,12 @@ public class IngestionController : ControllerBase
             }
         }
 
-        sourceText = Regex.Replace(sourceText, @"(?:\b\d{1,2}:\d{2}(?::\d{2})?\b|\[\d{1,2}:\d{2}(?::\d{2})?\])", " ");
-        sourceText = Regex.Replace(sourceText, @"\s{2,}", " ").Trim();
+        sourceText = Regex.Replace(sourceText, @"\[\d{1,2}:\d{2}(?::\d{2})?\]", " ");
+        sourceText = Regex.Replace(sourceText, @"(?m)^\s*\d{1,2}:\d{2}(?::\d{2})?\s+", " ");
+        sourceText = Regex.Replace(sourceText, @"\b\d{1,2}:\d{2}(?::\d{2})?\b(?!\s*(?:[AaPp][Mm]|to|-|–))", " ");
+        sourceText = sourceText.Replace("\r\n", "\n").Replace('\r', '\n');
+        sourceText = Regex.Replace(sourceText, @"[^\S\n]{2,}", " ");
+        sourceText = Regex.Replace(sourceText, @"\n{3,}", "\n\n").Trim();
         sourceText = LimitSourceText(sourceText);
 
         if (!HasUsableStudyContent(sourceText))
@@ -597,15 +601,19 @@ public class IngestionController : ControllerBase
             return BadRequest(new { message = "Could not extract enough readable transcript text. Please paste the lecture transcript directly." });
         }
 
-        var noteTitle = CleanTitle(!string.IsNullOrWhiteSpace(candidateTitle) ? candidateTitle : "Lecture Notes & Cornell Summary");
+        var noteTitle = ResolveUsableTitle(candidateTitle, url, sourceText);
         var geminiKey = !string.IsNullOrWhiteSpace(request.ApiKey)
             ? request.ApiKey.Trim()
             : Request.Headers["X-Gemini-ApiKey"].ToString().Trim();
 
+        var requestedTypes = request.GenerateFlashcards
+            ? new List<string> { "flashcard", "identification", "multiple_choice" }
+            : new List<string> { "identification", "multiple_choice" };
+
         var result = await _aiGenerator.GenerateStudySetAsync(
             sourceText,
             noteTitle,
-            new List<string> { "Identification", "MultipleChoice" },
+            requestedTypes,
             request.GenerateFlashcards ? 8 : 4,
             0,
             null,
@@ -1469,12 +1477,93 @@ public class IngestionController : ControllerBase
         return userId.HasValue && await _context.Courses.AnyAsync(course => course.Id == courseId && course.UserId == userId.Value);
     }
 
-    private static int ClampTargetCount(int targetCount) => Math.Clamp(targetCount, 4, 50);
+        private static int ClampTargetCount(int targetCount) => Math.Clamp(targetCount, 4, 50);
 
     private static string CleanTitle(string? title)
     {
         var cleaned = (title ?? string.Empty).Trim().Replace('\r', ' ').Replace('\n', ' ');
         return string.IsNullOrWhiteSpace(cleaned) ? "Untitled study set" : cleaned[..Math.Min(cleaned.Length, 160)];
+    }
+
+    private static string ResolveUsableTitle(string? candidateTitle, string? url, string? extractedText)
+    {
+        // 1. If explicit title was provided and isn't just a raw domain or URL
+        if (!string.IsNullOrWhiteSpace(candidateTitle))
+        {
+            var trimmed = candidateTitle.Trim();
+            bool isRawUrlOrHost = trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                                  trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                                  (trimmed.Contains('.') && !trimmed.Contains(' ') && (trimmed.EndsWith(".app", StringComparison.OrdinalIgnoreCase) || trimmed.EndsWith(".com", StringComparison.OrdinalIgnoreCase) || trimmed.EndsWith(".io", StringComparison.OrdinalIgnoreCase) || trimmed.EndsWith(".net", StringComparison.OrdinalIgnoreCase) || trimmed.EndsWith(".org", StringComparison.OrdinalIgnoreCase)));
+
+            if (!isRawUrlOrHost)
+            {
+                return CleanTitle(trimmed);
+            }
+        }
+
+        // 2. Scan extracted markdown text for a leading # or ## heading
+        if (!string.IsNullOrWhiteSpace(extractedText))
+        {
+            var lines = extractedText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var rawLine in lines)
+            {
+                var line = rawLine.Trim();
+                if (line.StartsWith("# ") || line.StartsWith("## ") || line.StartsWith("### "))
+                {
+                    var heading = line.TrimStart('#', ' ', '*').Trim();
+                    if (heading.Length >= 3 && heading.Length <= 80 && !Regex.IsMatch(heading, @"^\d+(\.\d+)?$"))
+                    {
+                        return CleanTitle(heading);
+                    }
+                }
+                if (line.StartsWith("**") && line.EndsWith("**") && line.Length >= 5 && line.Length <= 80)
+                {
+                    var bold = line.Trim('*', ' ');
+                    if (!bold.Contains(":") && !Regex.IsMatch(bold, @"^\d+(\.\d+)?$"))
+                    {
+                        return CleanTitle(bold);
+                    }
+                }
+            }
+
+            // Also check first readable sentence if short and non-technical
+            foreach (var rawLine in lines)
+            {
+                var line = rawLine.Trim();
+                if (line.Length >= 5 && line.Length <= 60 && !line.StartsWith("http") && !line.StartsWith("•") && !line.StartsWith("-") && !line.Contains("://") && !Regex.IsMatch(line, @"^\d+(\.\d+)?$"))
+                {
+                    return CleanTitle(line);
+                }
+            }
+        }
+
+        // 3. Fallback: Pretty-print hostname
+        string host = "";
+        if (!string.IsNullOrWhiteSpace(url) && Uri.TryCreate(url, UriKind.Absolute, out var parsedUri))
+        {
+            host = parsedUri.Host;
+        }
+        else if (!string.IsNullOrWhiteSpace(candidateTitle))
+        {
+            host = candidateTitle.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(host))
+        {
+            var cleanHost = Regex.Replace(host, @"^(?:https?:\/\/)?(?:www\.)?", "", RegexOptions.IgnoreCase);
+            cleanHost = Regex.Replace(cleanHost, @"\.(?:up\.railway\.app|railway\.app|herokuapp\.com|vercel\.app|pages\.dev|github\.io|com|org|net|edu|gov|ph|io|app|co)$", "", RegexOptions.IgnoreCase);
+            var parts = cleanHost.Split(new[] { '-', '_', '.' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length > 0)
+            {
+                var formatted = string.Join(" ", parts.Select(p => p.Length <= 3 ? p.ToUpperInvariant() : char.ToUpperInvariant(p[0]) + p[1..]));
+                if (!string.IsNullOrWhiteSpace(formatted))
+                {
+                    return CleanTitle(formatted);
+                }
+            }
+        }
+
+        return CleanTitle(candidateTitle);
     }
 
     private static string LimitSourceText(string content)

@@ -302,7 +302,7 @@ public class OpenAiAiService : IAiQuestionGenerator, IAiTutorService
 
             _logger.LogInformation("[OpenAI] Wiring paused pending project target. Synthesizing set '{Title}' via pedagogical engine.", title);
 
-            var localResult = NoteScriptSynthesizer.SynthesizeFromNotes(rawText, title, requestedTypes, targetCount, setIndex, variant);
+            var localResult = NoteScriptSynthesizer.SynthesizeFromNotes(title, rawText, requestedTypes, targetCount, setIndex, variant);
 
             _cache[cacheKey] = (DateTime.UtcNow, localResult);
 
@@ -327,28 +327,35 @@ public class OpenAiAiService : IAiQuestionGenerator, IAiTutorService
 
 
             var systemPrompt = """
-                You are an elite university professor, expert collegiate instructor, and university examination board director.
-                Your mission is to formulate rigorous, high-intelligence examination questions that demand deep critical thinking, analytical deduction, and mechanistic understanding (Bloom\'s Taxonomy Levels 4 to 6: Analyze, Evaluate, Synthesize).
+                You are an expert pedagogical instructor and examination specialist.
+                Your mission is to formulate rigorous, accurate, high-quality study items, questions, and flashcards grounded directly in the provided material.
 
-                MANDATORY PEDAGOGICAL STANDARDS:
-                1. HIGHER-ORDER INTELLECTUAL QUALITY:
-                   - NEVER create elementary, simplistic definition-matching questions like "What is X?", "Which of the following defines X?", or "What term means Y?".
-                   - Craft intellectually substantive scenario problems, mechanistic cause-and-effect questions ("Under conditions where X is altered, which mechanism accounts for Y?"), counterfactual deductions ("If component A fails, what theoretical consequence occurs to B?"), and diagnostic evaluations.
+                DOMAIN ADAPTATION RULES:
+                1. ACADEMIC / SCIENTIFIC TEXTS:
+                   - Focus on deep mechanistic understanding, cause-and-effect, and analytical deduction (Bloom's Taxonomy Levels 4 to 6).
+                   - Craft substantive scenario questions, operational mechanisms, and diagnostic evaluations.
 
-                2. AUTHENTIC DISCRIMINATIVE DISTRACTORS:
-                   - Every incorrect distractor MUST be a sophisticated, plausible college-level misconception that an advanced student might reasonably confuse.
+                2. REAL-WORLD, COMMERCIAL, WEB, OR INFORMATIONAL TEXTS (e.g. cafes, restaurants, businesses, menus, travel guides, articles, locations, technical guides):
+                   - Extract CONCRETE, REAL-WORLD FACTS stated directly in the text: specific prices, menu items, ingredients, location addresses, landmarks, directions, operating hours, policies, reviews, and distinct attributes.
+                   - Examples:
+                     * "Where is [Entity] located?" -> "[Exact address/barangay/city]"
+                     * "What is the price of [Menu Item]?" -> "[Exact currency/price stated]"
+                     * "What landmark do travelers pass on the way to [Destination]?" -> "[Landmark name]"
+                     * "How can visitors travel to [Entity] from [Origin]?" -> "[Route/bus/transit directions]"
+
+                3. STRICT ANTI-CIRCULAR & FACTUAL INTEGRITY GUARDS:
+                   - NEVER create circular questions where the page title or URL is asked about itself (e.g., NEVER ask "What is the primary role of X in X?").
+                   - The answer must NEVER be merely the document title or URL.
+                   - NEVER output placeholder sentences like "Core academic principles and subject knowledge of...".
+                   - Every single question must be grounded in an actual fact explicitly written in the provided text.
+
+                4. AUTHENTIC DISTRACTORS:
+                   - For multiple-choice questions, every distractor must be plausible and drawn from adjacent concepts, items, prices, or details in the text.
                    - NEVER use joke options, obvious throwaway options, or generic placeholders.
-                   - Provide a precise diagnostic rationale for EVERY incorrect distractor explaining the exact conceptual flaw.
 
-                3. STRICT ANTI-REPETITION:
-                   - Thoroughly explore the ENTIRE notes from beginning to end.
-                   - Every single question must target a COMPLETELY UNIQUE concept, mechanism, or analytical angle. Never repeat questions or test the same concept twice with trivial wording swaps.
-
-                4. DIRECT & METADATA-FREE:
-                   - Make question prompts direct, professional, and clear.
-                   - NEVER use meta-referencing phrases like "Based on the screenshot", "According to the provided module", "In your study notes", "Based on the image", or "From the reading".
-                   - Ask directly about the concept, principle, or mechanism itself.
-
+                5. DIRECT & METADATA-FREE:
+                   - Make question prompts direct and professional.
+                   - NEVER use meta-referencing phrases like "Based on the text", "According to the notes", "In the provided document", or "As seen on the website".
                 JSON structure:
                 {
                   "summary": "High yield conceptual summary...",
@@ -493,7 +500,7 @@ public class OpenAiAiService : IAiQuestionGenerator, IAiTutorService
 
         // Graceful fallback to NoteScriptSynthesizer
 
-        var fallback = NoteScriptSynthesizer.SynthesizeFromNotes(rawText, title, requestedTypes, targetCount, setIndex, variant);
+        var fallback = NoteScriptSynthesizer.SynthesizeFromNotes(title, rawText, requestedTypes, targetCount, setIndex, variant);
 
         _cache[cacheKey] = (DateTime.UtcNow, fallback);
 
@@ -526,10 +533,9 @@ public class OpenAiAiService : IAiQuestionGenerator, IAiTutorService
     {
 
         var localResult = NoteScriptSynthesizer.SynthesizeFromNotes(
-
+            title,
             $"[Visual study document: {title}] Key concepts and high-yield active-recall topics extracted from study imagery.",
-
-            title, requestedTypes, targetCount, setIndex, variant);
+            requestedTypes, targetCount, setIndex, variant);
 
         return Task.FromResult(localResult);
 

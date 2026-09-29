@@ -235,26 +235,35 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
 
                 var aiPrompt = $$"""
-                You are an elite university professor, expert collegiate instructor, and university examination board director.
-                Your mission is to formulate rigorous, high-intelligence examination questions that demand deep critical thinking, analytical deduction, and mechanistic understanding (Bloom's Taxonomy Levels 4 to 6: Analyze, Evaluate, Synthesize).
+                You are an expert pedagogical instructor and examination specialist.
+                Your mission is to formulate rigorous, accurate, high-quality study items, questions, and flashcards grounded directly in the provided material.
 
-                MANDATORY PEDAGOGICAL STANDARDS:
-                1. HIGHER-ORDER INTELLECTUAL QUALITY:
-                   - NEVER create elementary, simplistic definition-matching questions like "What is X?", "Which of the following defines X?", or "What term means Y?".
-                   - Craft intellectually substantive scenario problems, mechanistic cause-and-effect questions ("Under physiological/operational conditions where X is altered, which mechanism accounts for Y?"), counterfactual deductions ("If component A fails, what theoretical consequence occurs to B?"), and diagnostic evaluations.
+                DOMAIN ADAPTATION RULES:
+                1. ACADEMIC / SCIENTIFIC TEXTS:
+                   - Focus on deep mechanistic understanding, cause-and-effect, and analytical deduction (Bloom's Taxonomy Levels 4 to 6).
+                   - Craft substantive scenario questions, operational mechanisms, and diagnostic evaluations.
 
-                2. AUTHENTIC DISCRIMINATIVE DISTRACTORS:
-                   - Every incorrect distractor MUST be a sophisticated, plausible college-level misconception that an advanced student might reasonably confuse.
+                2. REAL-WORLD, COMMERCIAL, WEB, OR INFORMATIONAL TEXTS (e.g. cafes, restaurants, businesses, menus, travel guides, articles, locations, technical guides):
+                   - Extract CONCRETE, REAL-WORLD FACTS stated directly in the text: specific prices, menu items, ingredients, location addresses, landmarks, directions, operating hours, policies, reviews, and distinct attributes.
+                   - Examples:
+                     * "Where is [Entity] located?" -> "[Exact address/barangay/city]"
+                     * "What is the price of [Menu Item]?" -> "[Exact currency/price stated]"
+                     * "What landmark do travelers pass on the way to [Destination]?" -> "[Landmark name]"
+                     * "How can visitors travel to [Entity] from [Origin]?" -> "[Route/bus/transit directions]"
+
+                3. STRICT ANTI-CIRCULAR & FACTUAL INTEGRITY GUARDS:
+                   - NEVER create circular questions where the page title or URL is asked about itself (e.g., NEVER ask "What is the primary role of X in X?").
+                   - The answer must NEVER be merely the document title or URL.
+                   - NEVER output placeholder sentences like "Core academic principles and subject knowledge of...".
+                   - Every single question must be grounded in an actual fact explicitly written in the provided text.
+
+                4. AUTHENTIC DISTRACTORS:
+                   - For multiple-choice questions, every distractor must be plausible and drawn from adjacent concepts, items, prices, or details in the text.
                    - NEVER use joke options, obvious throwaway options, or generic placeholders.
-                   - Provide a precise diagnostic rationale for EVERY incorrect distractor explaining the exact conceptual flaw.
 
-                3. STRICT ANTI-REPETITION:
-                   - Thoroughly explore the ENTIRE notes from beginning to end.
-                   - Every single question must target a COMPLETELY UNIQUE concept, mechanism, or analytical angle. Never repeat questions, never repeat answers, and never ask the same thing from two slight variations.
-
-                4. DIRECT & METADATA-FREE:
-                   - Make question prompts direct, professional, and clear.
-                   - NEVER use meta-referencing phrases like "Based on the screenshot", "According to the provided module", "In your study notes", "Based on the image", "According to the notes", "From the reading", or "As seen in the document".
+                5. DIRECT & METADATA-FREE:
+                   - Make question prompts direct and professional.
+                   - NEVER use meta-referencing phrases like "Based on the text", "According to the notes", "In the provided document", or "As seen on the website".
 
                 STUDY MATERIAL TITLE: {{title}}
                 REQUESTED QUESTION/CARD TYPES: {{typesListStr}}
@@ -265,15 +274,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 {{rawText}}
 
                 INSTRUCTIONS FOR FLASHCARDS:
-                If flashcards are requested or needed, create active-recall flashcards across distinct cognitive dimensions:
-                1. Core Concept & Mechanism (Front: What foundational mechanism allows X to operate? Back: ...)
-                2. Counterfactual Deduction (Front: What specific outcome occurs if X is inhibited? Back: ...)
-                3. Cause & Effect Dynamics (Front: What is the primary causal driver connecting X to Y? Back: ...)
-                4. Key Distinctions (Front: What key criterion fundamentally distinguishes X from Y? Back: ...)
-                5. Applied Problem Solving (Front: In a complex scenario involving X, how is Y derived? Back: ...)
-
-
-
+                If flashcards are requested or needed, create active-recall flashcards testing concrete knowledge from the text (Front: clear question asking for a specific fact, mechanism, price, or location; Back: concise, accurate answer).
                 Return pure valid JSON adhering to this schema:
 
                 {

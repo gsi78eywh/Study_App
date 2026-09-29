@@ -3624,7 +3624,7 @@ public class DocumentExtractor : IDocumentExtractor
 
 
 
-        var elementsToRemove = document.QuerySelectorAll("script, style, nav, footer, header, noscript, svg, form, aside, dialog, .cookie-banner, .advertisement");
+        var elementsToRemove = document.QuerySelectorAll("script, style, nav, footer, header, noscript, svg, form, aside, dialog, .cookie-banner, .advertisement, button, input, select, textarea, menu, [role='navigation'], [role='banner'], [role='complementary'], .nav, .navbar, .site-header, .site-footer, .breadcrumb, .social-share, .cookie-notice, .popup, .modal");
 
 
 
@@ -3833,229 +3833,52 @@ public class DocumentExtractor : IDocumentExtractor
 
 
             int extractedNodeCount = 0;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            var seenHeadings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenLines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var node in nodes)
-
-
-
-
-
-
-
             {
-
-
-
-
-
-
-
                 var text = node.TextContent.Trim();
-
-
-
-
-
-
-
                 if (string.IsNullOrWhiteSpace(text) || text.Length < 3) continue;
 
+                // Strip rating noise (e.g., "5.0", "### 5.0", "4.9 ★", "5.0 (120 reviews)")
+                if (Regex.IsMatch(text, @"^#*\s*[\d\.]+\s*(?:★|stars?|reviews?|\(\d+\s*reviews?\))?\s*$", RegexOptions.IgnoreCase) ||
+                    Regex.IsMatch(text, @"^\d(?:\.\d)?$"))
+                {
+                    continue;
+                }
 
-
-
-
-
-
-
-
-
-
-
-
-
+                // Strip UI navigation controls, buttons, map widgets
+                if (Regex.IsMatch(text, @"^(?:Interactive Highland Map|Click to (?:enlarge|view|open)|Close|Submit|Cancel|Open Menu|Toggle Navigation|Follow Us|Share on|Read More|Back to top|View on map|Get directions)$", RegexOptions.IgnoreCase))
+                {
+                    continue;
+                }
 
                 var tag = node.TagName.ToLowerInvariant();
-
-
-
-
-
-
-
                 if (tag is "h1" or "h2" or "h3" or "h4" or "h5" or "h6")
-
-
-
-
-
-
-
                 {
-
-
-
-
-
-
-
+                    if (!seenHeadings.Add(text)) continue;
                     sb.AppendLine($"\n### {text}");
-
-
-
-
-
-
-
                     extractedNodeCount++;
-
-
-
-
-
-
-
                 }
-
-
-
-
-
-
-
                 else if (tag == "li")
-
-
-
-
-
-
-
                 {
-
-
-
-
-
-
-
+                    if (text.Length >= 8 && !seenLines.Add(text)) continue;
                     sb.AppendLine($"• {text}");
-
-
-
-
-
-
-
                     extractedNodeCount++;
-
-
-
-
-
-
-
                 }
-
-
-
-
-
-
-
                 else if (tag == "blockquote")
-
-
-
-
-
-
-
                 {
-
-
-
-
-
-
-
+                    if (text.Length >= 8 && !seenLines.Add(text)) continue;
                     sb.AppendLine($"> {text}");
-
-
-
-
-
-
-
                     extractedNodeCount++;
-
-
-
-
-
-
-
                 }
-
-
-
-
-
-
-
                 else
-
-
-
-
-
-
-
                 {
-
-
-
-
-
-
-
+                    if (text.Length >= 8 && !seenLines.Add(text)) continue;
                     sb.AppendLine(text);
-
-
-
-
-
-
-
                     extractedNodeCount++;
-
-
-
-
-
-
-
                 }
-
-
-
-
-
-
-
             }
 
 

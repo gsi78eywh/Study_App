@@ -218,13 +218,37 @@ public static class NoteScriptSynthesizer
 
 
 
-        var rawLines = safeText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
-
+        var rawLinesInitial = safeText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
             .Select(l => l.Trim())
-
             .Where(l => l.Length > 0 && !l.StartsWith("--- Page", StringComparison.OrdinalIgnoreCase))
-
             .ToList();
+
+        var rawLines = new List<string>();
+        foreach (var line in rawLinesInitial)
+        {
+            if (line.StartsWith("#") || line.StartsWith("-") || line.StartsWith("*") || line.StartsWith("•") ||
+                Regex.IsMatch(line, @"^\s*[\(\[]?[A-Fa-f][\)\]]?[\.:\s\-]") ||
+                Regex.IsMatch(line, @"^(?:Q(?:uestion)?\s*\d*[:.]?|Answer[:.]?|Ans[:.]?|Key[:.]|Solution[:.]?)", RegexOptions.IgnoreCase) ||
+                (line.Contains(":") && line.IndexOf(":") <= 40))
+            {
+                rawLines.Add(line);
+            }
+            else if (line.Length > 160 && (line.Contains('.') || line.Contains('!') || line.Contains(';')))
+            {
+                var sentences = Regex.Split(line, @"(?<=[.!?])\s+(?=[A-Z0-9""'₱$])")
+                    .Select(s => s.Trim())
+                    .Where(s => s.Length > 0);
+                rawLines.AddRange(sentences);
+            }
+            else
+            {
+                rawLines.Add(line);
+            }
+        }
+        if (rawLines.Count == 0 && rawLinesInitial.Count > 0)
+        {
+            rawLines = rawLinesInitial;
+        }
 
 
 
@@ -788,8 +812,12 @@ public static class NoteScriptSynthesizer
 
 
 
-        // If user input had more questions (e.g. 15 questions in note script), retain all of them!
+        // Final filter to ensure no circular or invalid questions leaked through
+        normalizedQuestions = normalizedQuestions
+            .Where(q => !IsCircularOrInvalid(q.Prompt, q.CorrectAnswer, cleanTitle))
+            .ToList();
 
+        // If user input had more questions (e.g. 15 questions in note script), retain all of them!
         return new GeneratedStudySetResult(
 
             Guid.NewGuid(),
@@ -1708,7 +1736,14 @@ public static class NoteScriptSynthesizer
 
 
 
-        foreach (var rawLine in cleanLines)
+        var pricePattern = new Regex(@"^(?:[-*•]\s*)?([A-Za-z0-9\s&'/\-]{2,45}?)\s*(?:costs?|is priced at|priced at|is|:|-|–)\s*([₱$€¥£]\s*\d+(?:\.\d{2})?|\d+(?:\.\d{2})?\s*(?:pesos|php|dollars|usd|eur))\b(.*)$", RegexOptions.IgnoreCase);
+        var reversePricePattern = new Regex(@"^(?:[-*•]\s*)?([₱$€¥£]\s*\d+(?:\.\d{2})?|\d+(?:\.\d{2})?\s*(?:pesos|php|dollars|usd|eur))\s*[-–:]\s*([A-Za-z0-9\s&'/\-]{2,45})$", RegexOptions.IgnoreCase);
+        var locationPattern = new Regex(@"^(?:(?:[-*•]\s*)?(?:Address|Location)\s*[:–-]\s*|([A-Za-z0-9\s&'/\-]{2,45}?)\s+(?:is located (?:at|in)|can be found at|is situated (?:at|in))\s+)(.+)$", RegexOptions.IgnoreCase);
+        var landmarkPattern = new Regex(@"^(?:[-*•]\s*)?(.{3,50}?)\s+(?:on the way to|en route to|near|overlooking|heading towards)\s+(.+)$", RegexOptions.IgnoreCase);
+        var routePattern = new Regex(@"^(?:[-*•]\s*)?(?:To get (?:there|to [^,]+)|Getting there|From\s+([^,]+)),?\s*(?:take|ride|board|follow|head)\s+(.+)$", RegexOptions.IgnoreCase);
+        var hoursPattern = new Regex(@"^(?:(?:[-*•]\s*)?(?:Operating hours?|Hours?)\s*[:–-]\s*|([A-Za-z0-9\s&'/\-]{2,45}?)\s+(?:is open|operates)\s+)(.+)$", RegexOptions.IgnoreCase);
+        var offeringsPattern = new Regex(@"^(?:(?:[-*•]\s*)?(?:Specialties|Popular items?|Menu highlights?|Offerings?)\s*[:–-]\s*|([A-Za-z0-9\s&'/\-]{2,45}?)\s+(?:specializes in|is known for|offers|serves)\s+)(.+)$", RegexOptions.IgnoreCase);
+foreach (var rawLine in cleanLines)
 
         {
 
@@ -1998,7 +2033,104 @@ public static class NoteScriptSynthesizer
 
 
 
-            // 6. General declarative / expository sentence from notes (digging through all paragraphs!)
+            
+            // 5a. Pricing & Menu Items
+            var pMatch = pricePattern.Match(line);
+            if (pMatch.Success)
+            {
+                var subj = pMatch.Groups[1].Value.Trim().TrimEnd(':', '-', '–');
+                var price = pMatch.Groups[2].Value.Trim();
+                if (subj.Length >= 2 && seenKeys.Add(subj))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, $"Priced at {price}", line, PropositionKind.QuantitativeFact));
+                    continue;
+                }
+            }
+
+            var rpMatch = reversePricePattern.Match(line);
+            if (rpMatch.Success)
+            {
+                var price = rpMatch.Groups[1].Value.Trim();
+                var subj = rpMatch.Groups[2].Value.Trim();
+                if (subj.Length >= 2 && seenKeys.Add(subj))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, $"Priced at {price}", line, PropositionKind.QuantitativeFact));
+                    continue;
+                }
+            }
+
+            // 5b. Location & Address
+            var locMatch = locationPattern.Match(line);
+            if (locMatch.Success)
+            {
+                var subj = locMatch.Groups[1].Success && !string.IsNullOrWhiteSpace(locMatch.Groups[1].Value)
+                    ? locMatch.Groups[1].Value.Trim()
+                    : (!string.IsNullOrWhiteSpace(title) ? title : "Location");
+                var loc = locMatch.Groups[2].Value.Trim();
+                if (loc.Length >= 4 && seenKeys.Add(subj + "_loc"))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, $"Located at {loc}", line, PropositionKind.CoreConcept));
+                    continue;
+                }
+            }
+
+            // 5c. Landmarks & Travel Routes
+            var lmMatch = landmarkPattern.Match(line);
+            if (lmMatch.Success)
+            {
+                var subj = lmMatch.Groups[1].Value.Trim();
+                var dest = lmMatch.Groups[2].Value.Trim();
+                if (subj.Length >= 3 && dest.Length >= 4 && seenKeys.Add(subj))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, $"Located on the way to {dest}", line, PropositionKind.CoreConcept));
+                    continue;
+                }
+            }
+
+            var rtMatch = routePattern.Match(line);
+            if (rtMatch.Success)
+            {
+                var origin = rtMatch.Groups[1].Success && !string.IsNullOrWhiteSpace(rtMatch.Groups[1].Value)
+                    ? $"Directions from {rtMatch.Groups[1].Value.Trim()}"
+                    : "Directions / Route";
+                var route = rtMatch.Groups[2].Value.Trim();
+                if (route.Length >= 6 && seenKeys.Add(origin))
+                {
+                    propositions.Add(new SubstantiveProposition(origin, route, line, PropositionKind.MechanismOrProcess));
+                    continue;
+                }
+            }
+
+            // 5d. Operating Hours
+            var hrMatch = hoursPattern.Match(line);
+            if (hrMatch.Success)
+            {
+                var subj = hrMatch.Groups[1].Success && !string.IsNullOrWhiteSpace(hrMatch.Groups[1].Value)
+                    ? hrMatch.Groups[1].Value.Trim()
+                    : (!string.IsNullOrWhiteSpace(title) ? title : "Operating Hours");
+                var hours = hrMatch.Groups[2].Value.Trim();
+                if (hours.Length >= 4 && seenKeys.Add(subj + "_hours"))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, $"Operating hours: {hours}", line, PropositionKind.CoreConcept));
+                    continue;
+                }
+            }
+
+            // 5e. Specialties & Offerings
+            var offMatch = offeringsPattern.Match(line);
+            if (offMatch.Success)
+            {
+                var subj = offMatch.Groups[1].Success && !string.IsNullOrWhiteSpace(offMatch.Groups[1].Value)
+                    ? offMatch.Groups[1].Value.Trim()
+                    : (!string.IsNullOrWhiteSpace(title) ? title : "Specialties");
+                var items = offMatch.Groups[2].Value.Trim();
+                if (items.Length >= 4 && seenKeys.Add(subj + "_items"))
+                {
+                    propositions.Add(new SubstantiveProposition(subj, $"Offers {items}", line, PropositionKind.CoreConcept));
+                    continue;
+                }
+            }
+// 6. General declarative / expository sentence from notes (digging through all paragraphs!)
 
             if (line.Length >= 25 && line.Length <= 240 && !line.Contains("?"))
 
@@ -2062,24 +2194,33 @@ public static class NoteScriptSynthesizer
 
 
 
-        // Guarantee at least foundational propositions if note was extremely concise
-
+        // Guarantee at least foundational propositions if note was concise or structured unusually
         if (propositions.Count == 0)
-
         {
-
-            propositions.Add(new SubstantiveProposition(
-
-                title,
-
-                $"Core academic principles and subject knowledge of {title}",
-
-                $"Foundational study material for {title}.",
-
-                PropositionKind.CoreConcept
-
-            ));
-
+            foreach (var line in cleanLines)
+            {
+                if (line.Length >= 15 && !line.Contains("?") && !IsMcqOptionOrAnswerKeyLine(line))
+                {
+                    var words = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (words.Length >= 4)
+                    {
+                        int half = Math.Max(2, words.Length / 3);
+                        var subj = string.Join(" ", words.Take(half)).TrimEnd(':', ',', '-', ';');
+                        var pred = string.Join(" ", words.Skip(half)).Trim();
+                        if (subj.Length >= 3 && pred.Length >= 6 && seenKeys.Add(subj))
+                        {
+                            propositions.Add(new SubstantiveProposition(subj, pred, line, PropositionKind.CoreConcept));
+                            if (propositions.Count >= 6) break;
+                        }
+                    }
+                }
+            }
+        }
+        if (propositions.Count == 0 && cleanLines.Count > 0)
+        {
+            var firstLine = cleanLines[0];
+            var safeSubject = !string.IsNullOrWhiteSpace(title) && !title.Contains('.') ? title : "Key Subject Detail";
+            propositions.Add(new SubstantiveProposition(safeSubject, firstLine, firstLine, PropositionKind.CoreConcept));
         }
 
 
@@ -3159,16 +3300,18 @@ public static class NoteScriptSynthesizer
             int idStyle = (i + setIndex) % 3;
 
             string prompt = idStyle switch
-
             {
-
-                1 => $"In {title}, what term or concept is defined as: \"{def.Definition}\"?",
-
-                2 => $"Name the core concept matching: \"{def.Definition}\"",
-
+                1 => (!string.IsNullOrWhiteSpace(title) && !title.Contains('.') && !string.Equals(def.Term, title, StringComparison.OrdinalIgnoreCase))
+                    ? $"In {title}, what term or concept is defined as: \"{def.Definition}\"?"
+                    : $"What concept or term is defined as: \"{def.Definition}\"?",
+                2 => $"Name the core concept or item matching: \"{def.Definition}\"",
                 _ => $"Identify the term or concept: \"{def.Definition}\""
-
             };
+
+            if (IsCircularOrInvalid(prompt, def.Term, title))
+            {
+                continue;
+            }
 
 
 
@@ -3207,6 +3350,50 @@ public static class NoteScriptSynthesizer
     }
 
 
+
+        private static bool IsCircularOrInvalid(string prompt, string answer, string title)
+    {
+        if (string.IsNullOrWhiteSpace(prompt) || string.IsNullOrWhiteSpace(answer))
+            return true;
+
+        var cleanAns = answer.Trim().TrimEnd('.', '!', '?');
+        var cleanPrompt = prompt.Trim();
+        var cleanTitle = (title ?? string.Empty).Trim();
+
+        // 1. Answer equals title
+        if (!string.IsNullOrEmpty(cleanTitle) && string.Equals(cleanAns, cleanTitle, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // 2. Answer or prompt contains placeholder strings
+        if (cleanAns.Contains("Core academic principles", StringComparison.OrdinalIgnoreCase) ||
+            cleanPrompt.Contains("Core academic principles", StringComparison.OrdinalIgnoreCase) ||
+            cleanAns.Contains("Foundational study material", StringComparison.OrdinalIgnoreCase) ||
+            cleanPrompt.Contains("Foundational study material", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // 3. Prompt contains title multiple times and answer also contains title (circular question)
+        if (!string.IsNullOrEmpty(cleanTitle) && cleanTitle.Length >= 4)
+        {
+            int titleOccurrencesInPrompt = Regex.Matches(cleanPrompt, Regex.Escape(cleanTitle), RegexOptions.IgnoreCase).Count;
+            if (titleOccurrencesInPrompt >= 2)
+                return true;
+
+            if (titleOccurrencesInPrompt >= 1 && cleanAns.Contains(cleanTitle, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        // 4. Prompt contains the answer verbatim (tautological question, excluding True/False options)
+        if (!cleanAns.Equals("True", StringComparison.OrdinalIgnoreCase) &&
+            !cleanAns.Equals("False", StringComparison.OrdinalIgnoreCase) &&
+            cleanAns.Length >= 5 && cleanPrompt.Contains(cleanAns, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // 5. Answer contains the prompt verbatim
+        if (cleanPrompt.Length >= 10 && cleanAns.Contains(cleanPrompt, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
 
     private static List<GeneratedQuestionDto> GenerateFlashcardQuestions(
 
@@ -3281,138 +3468,83 @@ public static class NoteScriptSynthesizer
 
 
             switch (dimension)
-
             {
-
                 case 0:
-
-                    // Dimension 1: CORE CONCEPT & ROLE
-
+                    // Dimension 1: CORE CONCEPT / FACT
                     dimensionTag = "CORE CONCEPT";
-
-                    prompt = $"What is the primary role and core definition of \"{prop.Subject}\" in {title}?";
-
+                    prompt = $"What is the key detail, fact, or definition regarding \"{prop.Subject}\"?";
                     answer = prop.CorePredicate;
-
-                    explanation = $"Direct study note passage: \"{prop.FullPassage}\"";
-
+                    explanation = $"Direct study detail: \"{prop.FullPassage}\"";
                     break;
-
-
 
                 case 1:
-
                     // Dimension 2: REVERSE ACTIVE RECALL
-
                     dimensionTag = "REVERSE RECALL";
-
-                    prompt = $"In {title}, which core concept or principle is characterized by: \"{prop.CorePredicate.TrimEnd('.')}\"?";
-
+                    prompt = $"Which concept, item, or term is characterized by: \"{prop.CorePredicate.TrimEnd('.')}\"?";
                     answer = prop.Subject;
-
-                    explanation = $"The concept corresponding to this description is \"{prop.Subject}\". Notes: \"{prop.FullPassage}\"";
-
+                    explanation = $"The concept or item corresponding to this description is \"{prop.Subject}\". Notes: \"{prop.FullPassage}\"";
                     break;
-
-
 
                 case 2:
-
-                    // Dimension 3: CAUSE & EFFECT / PROCESS
-
-                    dimensionTag = "CAUSE & EFFECT";
-
-                    if (prop.Kind == PropositionKind.CauseAndEffect || !string.IsNullOrWhiteSpace(prop.ConsequenceOrRole))
-
+                    // Dimension 3: CAUSE & EFFECT / PROCESS / QUANTITATIVE
+                    dimensionTag = "DETAIL & FUNCTION";
+                    if (prop.Kind == PropositionKind.QuantitativeFact)
                     {
-
-                        prompt = $"What is the direct consequence, function, or outcome associated with \"{prop.Subject}\"?";
-
-                        answer = prop.ConsequenceOrRole ?? prop.CorePredicate;
-
-                    }
-
-                    else
-
-                    {
-
-                        prompt = $"When studying {title}, what functional effect or mechanism does \"{prop.Subject}\" govern?";
-
+                        prompt = $"What specific price, quantity, or measurement is associated with \"{prop.Subject}\"?";
                         answer = prop.CorePredicate;
-
                     }
-
-                    explanation = $"Operational mechanism verified from notes: \"{prop.FullPassage}\"";
-
+                    else if (prop.Kind == PropositionKind.CauseAndEffect || !string.IsNullOrWhiteSpace(prop.ConsequenceOrRole))
+                    {
+                        prompt = $"What is the direct consequence, function, or outcome associated with \"{prop.Subject}\"?";
+                        answer = prop.ConsequenceOrRole ?? prop.CorePredicate;
+                    }
+                    else
+                    {
+                        prompt = $"What key attribute or functional mechanism characterizes \"{prop.Subject}\"?";
+                        answer = prop.CorePredicate;
+                    }
+                    explanation = $"Operational detail verified from notes: \"{prop.FullPassage}\"";
                     break;
-
-
 
                 case 3:
-
                     // Dimension 4: KEY DISTINCTION
-
                     dimensionTag = "KEY DISTINCTION";
-
                     if (!string.IsNullOrWhiteSpace(prop.DistinguishingFeature))
-
                     {
-
                         prompt = $"What is the key distinguishing factor of \"{prop.Subject}\"?";
-
                         answer = prop.DistinguishingFeature;
-
                     }
-
                     else
-
                     {
-
-                        prompt = $"What key attribute uniquely characterizes \"{prop.Subject}\"?";
-
+                        prompt = $"What key attribute or information uniquely describes \"{prop.Subject}\"?";
                         answer = prop.CorePredicate;
-
                     }
-
                     explanation = $"Key distinction verified from notes: \"{prop.FullPassage}\"";
-
                     break;
-
-
 
                 case 4:
-
-                    // Dimension 5: APPLICATION DRILL
-
-                    dimensionTag = "APPLICATION DRILL";
-
-                    prompt = $"How should the principle of \"{prop.Subject}\" be applied?";
-
+                    // Dimension 5: APPLICATION / CONTEXT
+                    dimensionTag = "PRACTICAL CONTEXT";
+                    prompt = $"How is \"{prop.Subject}\" described or applied in the material?";
                     answer = prop.CorePredicate;
-
                     explanation = $"Application context from notes: \"{prop.FullPassage}\"";
-
                     break;
-
-
 
                 default:
-
-                    // Dimension 6: CONTEXTUAL CLOZE
-
-                    dimensionTag = "CONTEXTUAL CLOZE";
-
-                    prompt = $"Complete the key recall statement for {title}: \"{prop.Subject} — [ ________ ]\"";
-
+                    // Dimension 6: CONTEXTUAL COMPLETION
+                    dimensionTag = "CONTEXTUAL RECALL";
+                    prompt = $"Complete the recall prompt: \"{prop.Subject} — [ ________ ]\"";
                     answer = prop.CorePredicate;
-
                     explanation = $"Full statement from study material: \"{prop.FullPassage}\"";
-
                     break;
-
             }
 
-
+            // Anti-circular guard: reject questions where answer is the title or questions repeat the title circularly
+            if (IsCircularOrInvalid(prompt, answer, title))
+            {
+                propIdx++;
+                continue;
+            }
 
             // Ensure prompt isn't already added
 
@@ -3747,7 +3879,9 @@ public static class NoteScriptSynthesizer
             {
                 case 0:
                     // Core Role & Mechanism
-                    prompt = $"What is the primary role or significance of {def.Term} in {title}?";
+                    prompt = (!string.IsNullOrWhiteSpace(title) && !title.Contains('.') && !string.Equals(def.Term, title, StringComparison.OrdinalIgnoreCase))
+                        ? $"What is the primary role or significance of {def.Term} in {title}?"
+                        : $"What is the primary role, detail, or significance of {def.Term}?";
                     correctAnswer = def.Definition;
                     while (otherDefs.Count < 3)
                     {
@@ -3787,7 +3921,7 @@ public static class NoteScriptSynthesizer
                     break;
                 case 2:
                     // Cause & Effect / Deduction
-                    prompt = $"In {title}, what is the direct outcome or implication if {def.Term} is omitted or fails to apply?";
+                    prompt = $"What is the direct outcome or implication if {def.Term} is omitted or fails to apply?";
                     correctAnswer = $"Loss of: {def.Definition}";
                     var altCounterfactual1 = otherDefs.Count > 0 ? $"Direct compromise of: {otherDefs[0]}" : "Inability to maintain baseline procedural continuity";
                     var altCounterfactual2 = otherDefs.Count > 1 ? $"Unintended variation in: {otherDefs[1]}" : "Systemic misalignment of dependent outcomes";
@@ -3839,6 +3973,9 @@ public static class NoteScriptSynthesizer
                     thinkingBreakdown = new List<string> { "DIMENSION: PRINCIPLE SYNTHESIS", $"CONCEPT: {def.Term}", "TAXONOMY: BLOOM LEVEL 6 (SYNTHESIZE)" };
                     break;
             }
+
+            // Anti-circular guard: reject questions where answer is the title or questions repeat the title circularly
+            if (IsCircularOrInvalid(prompt, correctAnswer, title)) continue;
 
             // Anti-repetition check: reject duplicate prompts or concept reuse in the same archetype
             var sig = $"{prompt}_{correctAnswer}";
