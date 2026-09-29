@@ -49,10 +49,11 @@ class StudyAppMobile extends StatelessWidget {
           darkTheme: AppTheme.darkTheme,
           themeMode: themeController.themeMode,
           builder: (context, child) {
-            // Apply DSWD WCAG 2.1 AA Dynamic Text Scaling
+            // Apply DSWD WCAG 2.1 AA Dynamic Text Scaling with safe viewport bounds
+            final safeFactor = childSafety.textScaleFactor.clamp(0.85, 1.22);
             return MediaQuery(
               data: MediaQuery.of(context).copyWith(
-                textScaler: TextScaler.linear(childSafety.textScaleFactor),
+                textScaler: TextScaler.linear(safeFactor),
               ),
               child: child ?? const SizedBox.shrink(),
             );

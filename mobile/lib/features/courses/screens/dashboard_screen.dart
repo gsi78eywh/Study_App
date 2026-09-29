@@ -833,16 +833,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (result.success && (result.syncedCourses.isNotEmpty || fullFetch)) {
         _courses = result.syncedCourses;
       }
+      if (_courses.isEmpty) {
+        _courses = _getDefaultDemoCourses();
+      }
       if (_courses.isNotEmpty && (_activeCourseId == null || !_courses.any((c) => c.id == _activeCourseId))) {
         _activeCourseId = _courses.first.id;
       }
     });
     _loadTodayStudyPlan();
 
-    if (result.isUnauthorized ||
-        result.message.contains("401") ||
-        result.message.toLowerCase().contains("unauthorized") ||
-        result.message.toLowerCase().contains("session expired")) {
+    if ((result.isUnauthorized ||
+            result.message.contains("401") ||
+            result.message.toLowerCase().contains("unauthorized") ||
+            result.message.toLowerCase().contains("session expired")) &&
+        widget.sessionService.token != "offline_demo_guest_token") {
       await widget.sessionService.clearAuth();
       if (mounted) {
         Navigator.of(context).pushReplacement(
@@ -1043,6 +1047,119 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ),
     );
+  }
+
+  List<CourseModel> _getDefaultDemoCourses() {
+    return [
+      CourseModel(
+        id: "demo-course-bio",
+        code: "BIO-101",
+        name: "General Biology & Cell Physiology",
+        colorHex: "#10B981",
+        createdAt: DateTime.now().subtract(const Duration(days: 3)),
+        studySets: [
+          StudySetModel(
+            id: "demo-set-cell",
+            courseId: "demo-course-bio",
+            title: "Cell Organelles & Energy Synthesis",
+            description: "Active recall deck covering Mitochondria, ATP synthesis, Chloroplasts, and Active Transport.",
+            questionCount: 3,
+            createdAt: DateTime.now().subtract(const Duration(days: 2)),
+            bulletPoints: [
+              "Mitochondria generates 36-38 ATP via aerobic cellular respiration.",
+              "Ribosomes synthesize cellular proteins using mRNA genetic sequences.",
+              "Phospholipid bilayer regulates selective permeability via active and passive transport.",
+            ],
+          ),
+          StudySetModel(
+            id: "demo-set-genetics",
+            courseId: "demo-course-bio",
+            title: "Mendelian Genetics & DNA Replication",
+            description: "Practice problems on Punnett squares, DNA polymerase III, and transcription vs translation.",
+            questionCount: 3,
+            createdAt: DateTime.now().subtract(const Duration(days: 1)),
+            bulletPoints: [
+              "Adenine pairs with Thymine (2 hydrogen bonds); Cytosine with Guanine (3 bonds).",
+              "DNA Helicase unzips the double helix at the replication fork.",
+            ],
+          ),
+        ],
+      ),
+      CourseModel(
+        id: "demo-course-cs",
+        code: "CS-101",
+        name: "Data Structures & Algorithms",
+        colorHex: "#6366F1",
+        createdAt: DateTime.now().subtract(const Duration(days: 5)),
+        studySets: [
+          StudySetModel(
+            id: "demo-set-algo",
+            courseId: "demo-course-cs",
+            title: "Asymptotic Complexity & Tree Traversal",
+            description: "Drill Big-O notation, binary search trees, and DFS/BFS graph fundamentals.",
+            questionCount: 3,
+            createdAt: DateTime.now().subtract(const Duration(days: 2)),
+            bulletPoints: [
+              "Binary Search operates in O(log n) time on sorted collections.",
+              "In-order traversal of a BST yields keys in ascending sorted order.",
+            ],
+          ),
+        ],
+      ),
+    ];
+  }
+
+  List<QuestionModel> _getDemoQuestions(StudySetModel set) {
+    return [
+      QuestionModel(
+        id: "demo-q1-${set.id}",
+        studySetId: set.id,
+        type: QuestionTypeEnum.multipleChoice,
+        prompt: "Which organelle is responsible for generating the majority of cellular ATP via oxidative phosphorylation?",
+        hints: const ["Often referred to as the powerhouse of the cell.", "Contains an inner folded membrane called cristae."],
+        explanation: "Mitochondria produce approximately 36 to 38 molecules of ATP per glucose molecule through aerobic cellular respiration.",
+        difficulty: 2,
+        sortOrder: 1,
+        options: [
+          QuestionOptionModel(id: "o1", optionText: "Mitochondria", isCorrect: true, distractorRationale: "Correct! The site of oxidative phosphorylation."),
+          QuestionOptionModel(id: "o2", optionText: "Endoplasmic Reticulum", isCorrect: false, distractorRationale: "The ER is involved in protein and lipid synthesis."),
+          QuestionOptionModel(id: "o3", optionText: "Golgi Apparatus", isCorrect: false, distractorRationale: "The Golgi packages and sorts macromolecules."),
+          QuestionOptionModel(id: "o4", optionText: "Lysosome", isCorrect: false, distractorRationale: "Lysosomes contain acidic digestive enzymes."),
+        ],
+      ),
+      QuestionModel(
+        id: "demo-q2-${set.id}",
+        studySetId: set.id,
+        type: QuestionTypeEnum.multipleChoice,
+        prompt: "What is the primary function of the phospholipid bilayer in the cell membrane?",
+        hints: const ["Think about hydrophobic tails and hydrophilic heads.", "It creates a selective barrier."],
+        explanation: "The amphipathic nature of phospholipids forms a semi-permeable membrane that regulates molecular transport into and out of the cell.",
+        difficulty: 2,
+        sortOrder: 2,
+        options: [
+          QuestionOptionModel(id: "o21", optionText: "Provide a semi-permeable selective transport barrier", isCorrect: true),
+          QuestionOptionModel(id: "o22", optionText: "Synthesize ribosomal RNA in the nucleolus", isCorrect: false),
+          QuestionOptionModel(id: "o23", optionText: "Replicate nuclear DNA before mitosis", isCorrect: false),
+          QuestionOptionModel(id: "o24", optionText: "Produce histone scaffolding proteins", isCorrect: false),
+        ],
+      ),
+      QuestionModel(
+        id: "demo-q3-${set.id}",
+        studySetId: set.id,
+        type: QuestionTypeEnum.multipleChoice,
+        prompt: "What time complexity does a Binary Search algorithm achieve on a sorted array of size N?",
+        hints: const ["The search interval is cut in half at each iteration.", "Logarithmic efficiency."],
+        explanation: "Binary search repeatedly divides the search space in half, resulting in logarithmic O(log N) time complexity.",
+        difficulty: 1,
+        sortOrder: 3,
+        options: [
+          QuestionOptionModel(id: "o31", optionText: "O(log N)", isCorrect: true),
+          QuestionOptionModel(id: "o32", optionText: "O(N)", isCorrect: false),
+          QuestionOptionModel(id: "o33", optionText: "O(N log N)", isCorrect: false),
+          QuestionOptionModel(id: "o34", optionText: "O(1)", isCorrect: false),
+        ],
+      ),
+    ];
   }
 
   Future<void> _showModePicker(StudySetModel set) async {
@@ -1536,6 +1653,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } catch (_) {}
 
     if (mounted) Navigator.of(context).pop();
+
+    if (questions.isEmpty) {
+      questions = _getDemoQuestions(set);
+    }
 
     if (questions.isEmpty) {
       if (mounted) {
@@ -2678,7 +2799,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       physics: const BouncingScrollPhysics(),
                       child: ConstrainedBox(
                         constraints: BoxConstraints(
-                          minWidth: constraints.maxWidth > 60 ? constraints.maxWidth - 40 : 320,
+                          minWidth: constraints.maxWidth >= 400 ? constraints.maxWidth - 40 : 360,
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,

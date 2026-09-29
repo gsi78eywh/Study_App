@@ -48,17 +48,7 @@ public class IngestionController : ControllerBase
             return BadRequest(new { message = "Study notes or content cannot be empty." });
         }
 
-        Guid effectiveCourseId;
-        if (request.CourseId.HasValue && request.CourseId.Value != Guid.Empty)
-        {
-            if (!await OwnsCourseAsync(request.CourseId.Value)) return NotFound(new { message = "Course not found." });
-            effectiveCourseId = request.CourseId.Value;
-        }
-        else
-        {
-            var defaultCourse = await GetOrCreateDefaultCourseAsync(userId.Value);
-            effectiveCourseId = defaultCourse.Id;
-        }
+        var effectiveCourseId = await ResolveCourseIdAsync(request.CourseId, userId.Value);
 
         var sourceText = LimitSourceText(request.Content);
         if (!HasUsableStudyContent(sourceText))
@@ -110,7 +100,7 @@ public class IngestionController : ControllerBase
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> GenerateFromFile(
         [FromForm] IFormFile file,
-        [FromForm] Guid? courseId,
+        [FromForm] string? courseId,
         [FromForm] string? title,
         [FromForm] string? questionTypes,
         [FromForm] int? targetCount,
@@ -131,17 +121,7 @@ public class IngestionController : ControllerBase
             return BadRequest(new { message = "File exceeds 30MB limit." });
         }
 
-        Guid effectiveCourseId;
-        if (courseId.HasValue && courseId.Value != Guid.Empty)
-        {
-            if (!await OwnsCourseAsync(courseId.Value)) return NotFound(new { message = "Course not found." });
-            effectiveCourseId = courseId.Value;
-        }
-        else
-        {
-            var defaultCourse = await GetOrCreateDefaultCourseAsync(userId.Value);
-            effectiveCourseId = defaultCourse.Id;
-        }
+        var effectiveCourseId = await ResolveCourseIdAsync(courseId, userId.Value);
 
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         var setHeader = CleanTitle(!string.IsNullOrWhiteSpace(title) ? title : Path.GetFileNameWithoutExtension(file.FileName));
@@ -263,6 +243,7 @@ public class IngestionController : ControllerBase
         });
     }
 
+    [AllowAnonymous]
     [HttpPost("scan")]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> ScanDocumentContent(
@@ -393,33 +374,42 @@ public class IngestionController : ControllerBase
             return BadRequest(new { message = "Only valid HTTP(S) URLs can be imported." });
         }
 
-        Guid effectiveCourseId;
-        if (request.CourseId.HasValue && request.CourseId.Value != Guid.Empty)
-        {
-            if (!await OwnsCourseAsync(request.CourseId.Value)) return NotFound(new { message = "Course not found." });
-            effectiveCourseId = request.CourseId.Value;
-        }
-        else
-        {
-            var defaultCourse = await GetOrCreateDefaultCourseAsync(userId.Value);
-            effectiveCourseId = defaultCourse.Id;
-        }
+        var effectiveCourseId = await ResolveCourseIdAsync(request.CourseId, userId.Value);
 
-        string extractedText;
-        try
+        string extractedText = "";
+        string candidateTitle = string.IsNullOrWhiteSpace(request.Title) ? uri.Host : request.Title;
+
+        if (request.Url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || 
+            request.Url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase))
         {
-            extractedText = await _documentExtractor.ExtractUrlContentAsync(uri.ToString());
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
+            var (ytText, ytTitle) = await TryExtractYouTubeContentAsync(request.Url, HttpContext.RequestAborted);
+            if (!string.IsNullOrWhiteSpace(ytText))
+            {
+                extractedText = ytText;
+                if (string.IsNullOrWhiteSpace(request.Title) && !string.IsNullOrWhiteSpace(ytTitle))
+                {
+                    candidateTitle = ytTitle;
+                }
+            }
         }
 
         if (string.IsNullOrWhiteSpace(extractedText))
+        {
+            try
+            {
+                extractedText = await _documentExtractor.ExtractUrlContentAsync(uri.ToString());
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(extractedText) || !HasUsableStudyContent(extractedText))
         {
             return BadRequest(new { message = "No readable study text was found at that URL." });
         }
@@ -428,7 +418,7 @@ public class IngestionController : ControllerBase
             : null;
         var result = await _aiGenerator.GenerateStudySetAsync(
             extractedText,
-            CleanTitle(request.Title),
+            CleanTitle(candidateTitle),
             request.QuestionTypes ?? new List<string>(),
             ClampTargetCount(request.TargetCount),
             request.SetIndex,
@@ -448,12 +438,10 @@ public class IngestionController : ControllerBase
         });
     }
 
+    [AllowAnonymous]
     [HttpPost("scan-url")]
     public async Task<IActionResult> ScanUrl([FromBody] ScanUrlRequest request)
     {
-        var userId = CurrentUserId();
-        if (userId is null) return Unauthorized();
-
         if (string.IsNullOrWhiteSpace(request.Url))
         {
             return BadRequest(new { message = "A URL is required to scan." });
@@ -463,22 +451,41 @@ public class IngestionController : ControllerBase
             return BadRequest(new { message = "Only valid HTTP(S) URLs can be scanned." });
         }
 
-        string extractedText;
-        try
+        string extractedText = "";
+        string candidateTitle = uri.Host;
+
+        if (request.Url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || 
+            request.Url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase))
         {
-            extractedText = await _documentExtractor.ExtractUrlContentAsync(uri.ToString());
+            var (ytText, ytTitle) = await TryExtractYouTubeContentAsync(request.Url, HttpContext.RequestAborted);
+            if (!string.IsNullOrWhiteSpace(ytText))
+            {
+                extractedText = ytText;
+                if (!string.IsNullOrWhiteSpace(ytTitle))
+                {
+                    candidateTitle = ytTitle;
+                }
+            }
         }
-        catch (ArgumentException ex)
+
+        if (string.IsNullOrWhiteSpace(extractedText))
         {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = $"Could not extract content from the URL: {ex.Message}" });
+            try
+            {
+                extractedText = await _documentExtractor.ExtractUrlContentAsync(uri.ToString());
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = $"Could not extract content from the URL: {ex.Message}" });
+            }
         }
 
         if (string.IsNullOrWhiteSpace(extractedText))
@@ -489,19 +496,21 @@ public class IngestionController : ControllerBase
         var lines = extractedText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries);
         var words = extractedText.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
-        string candidateTitle = uri.Host;
-        foreach (var line in lines)
+        if (candidateTitle == uri.Host)
         {
-            var trimmed = line.Trim();
-            if (trimmed.StartsWith("# ") || trimmed.StartsWith("### "))
+            foreach (var line in lines)
             {
-                candidateTitle = trimmed.TrimStart('#', ' ', '*');
-                break;
-            }
-            if (trimmed.Length >= 5 && trimmed.Length <= 70 && !trimmed.StartsWith("http"))
-            {
-                candidateTitle = trimmed;
-                break;
+                var trimmed = line.Trim();
+                if (trimmed.StartsWith("# ") || trimmed.StartsWith("### "))
+                {
+                    candidateTitle = trimmed.TrimStart('#', ' ', '*');
+                    break;
+                }
+                if (trimmed.Length >= 5 && trimmed.Length <= 70 && !trimmed.StartsWith("http"))
+                {
+                    candidateTitle = trimmed;
+                    break;
+                }
             }
         }
 
@@ -541,17 +550,7 @@ public class IngestionController : ControllerBase
             return BadRequest(new { message = "Please provide either a lecture transcript text or a video/article URL." });
         }
 
-        Guid effectiveCourseId;
-        if (request.CourseId.HasValue && request.CourseId.Value != Guid.Empty)
-        {
-            if (!await OwnsCourseAsync(request.CourseId.Value)) return NotFound(new { message = "Course not found." });
-            effectiveCourseId = request.CourseId.Value;
-        }
-        else
-        {
-            var defaultCourse = await GetOrCreateDefaultCourseAsync(userId.Value);
-            effectiveCourseId = defaultCourse.Id;
-        }
+        var effectiveCourseId = await ResolveCourseIdAsync(request.CourseId, userId.Value);
 
         string sourceText = rawContent;
         string? candidateTitle = request.Title;
@@ -563,13 +562,13 @@ public class IngestionController : ControllerBase
                 return BadRequest(new { message = "Only valid HTTP(S) URLs can be processed." });
             }
 
-            var ytTranscript = await TryExtractYouTubeTranscriptAsync(url, cancellationToken);
+            var (ytTranscript, ytTitle) = await TryExtractYouTubeContentAsync(url, cancellationToken);
             if (!string.IsNullOrWhiteSpace(ytTranscript))
             {
                 sourceText = ytTranscript;
                 if (string.IsNullOrWhiteSpace(candidateTitle))
                 {
-                    candidateTitle = "YouTube Lecture Notes";
+                    candidateTitle = ytTitle ?? "YouTube Lecture Notes";
                 }
             }
             else
@@ -699,18 +698,94 @@ public class IngestionController : ControllerBase
         });
     }
 
-    private static async Task<string?> TryExtractYouTubeTranscriptAsync(string url, CancellationToken ct)
+    private static async Task<(string? Text, string? Title)> TryExtractYouTubeContentAsync(string url, CancellationToken ct)
     {
         try
         {
-            if (!url.Contains("youtube.com") && !url.Contains("youtu.be"))
-                return null;
+            if (!url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) && 
+                !url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase))
+                return (null, null);
 
             using var httpClient = new HttpClient();
-            httpClient.Timeout = TimeSpan.FromSeconds(15);
+            httpClient.Timeout = TimeSpan.FromSeconds(20);
             httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            httpClient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
+
             var html = await httpClient.GetStringAsync(url, ct);
 
+            // Extract Title
+            string? videoTitle = null;
+            var ogTitleMatch = Regex.Match(html, @"<meta property=""og:title"" content=""([^""]+)""");
+            if (ogTitleMatch.Success)
+            {
+                videoTitle = WebUtility.HtmlDecode(ogTitleMatch.Groups[1].Value);
+            }
+            else
+            {
+                var titleTagMatch = Regex.Match(html, @"<title>(.*?)</title>");
+                if (titleTagMatch.Success)
+                {
+                    videoTitle = WebUtility.HtmlDecode(titleTagMatch.Groups[1].Value);
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(videoTitle))
+            {
+                videoTitle = videoTitle.Replace(" - YouTube", "").Trim();
+            }
+
+            // Extract Channel / Author
+            string? channelName = null;
+            var channelMatch = Regex.Match(html, @"""ownerChannelName"":\s*""([^""]+)""");
+            if (!channelMatch.Success)
+            {
+                channelMatch = Regex.Match(html, @"""author"":\s*""([^""]+)""");
+            }
+            if (channelMatch.Success)
+            {
+                channelName = Regex.Unescape(channelMatch.Groups[1].Value);
+            }
+
+            // Extract Description
+            string description = "";
+            var shortDescMatch = Regex.Match(html, @"""shortDescription"":\s*""((?:[^""\\]|\\.)*)""");
+            if (shortDescMatch.Success)
+            {
+                try
+                {
+                    description = Regex.Unescape(shortDescMatch.Groups[1].Value);
+                }
+                catch
+                {
+                    description = shortDescMatch.Groups[1].Value.Replace("\\n", "\n").Replace("\\\"", "\"");
+                }
+            }
+            else
+            {
+                var metaDesc = Regex.Match(html, @"<meta name=""description"" content=""([^""]*)""");
+                if (metaDesc.Success)
+                {
+                    description = WebUtility.HtmlDecode(metaDesc.Groups[1].Value);
+                }
+            }
+
+            // Extract Chapters
+            var chapters = new List<string>();
+            var chapterRegex = new Regex(@"""macroMarkersListItemRenderer"":\s*\{.*?""title"":\s*\{.*?""simpleText"":\s*""([^""]+)"".*?""timeDescription"":\s*\{.*?""simpleText"":\s*""([^""]+)""", RegexOptions.Singleline);
+            var chapterMatches = chapterRegex.Matches(html);
+            var seenChapters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Match cm in chapterMatches)
+            {
+                var chTitle = Regex.Unescape(cm.Groups[1].Value);
+                var chTime = Regex.Unescape(cm.Groups[2].Value);
+                var entry = $"{chTime} - {chTitle}";
+                if (seenChapters.Add(entry))
+                {
+                    chapters.Add(entry);
+                }
+            }
+
+            // Extract Captions if available
+            string? captionTranscript = null;
             var captionMatch = Regex.Match(html, @"""captionTracks"":\s*\[(.*?)\]");
             if (captionMatch.Success)
             {
@@ -723,36 +798,90 @@ public class IngestionController : ControllerBase
                         (transcriptUri.Host.EndsWith("youtube.com", StringComparison.OrdinalIgnoreCase) ||
                          transcriptUri.Host.EndsWith("google.com", StringComparison.OrdinalIgnoreCase)))
                     {
-                        var xml = await httpClient.GetStringAsync(transcriptUrl, ct);
-                        var textMatches = Regex.Matches(xml, @"<text[^>]*>(.*?)</text>", RegexOptions.Singleline);
-                        if (textMatches.Count > 0)
+                        try
                         {
-                            var sb = new System.Text.StringBuilder();
-                            foreach (Match m in textMatches)
+                            var xml = await httpClient.GetStringAsync(transcriptUrl, ct);
+                            var textMatches = Regex.Matches(xml, @"<text[^>]*>(.*?)</text>", RegexOptions.Singleline);
+                            if (textMatches.Count > 0)
                             {
-                                var decoded = WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
-                                if (!string.IsNullOrWhiteSpace(decoded))
+                                var sb = new System.Text.StringBuilder();
+                                foreach (Match m in textMatches)
                                 {
-                                    sb.Append(decoded).Append(' ');
+                                    var decoded = WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
+                                    if (!string.IsNullOrWhiteSpace(decoded))
+                                    {
+                                        sb.Append(decoded).Append(' ');
+                                    }
+                                }
+                                var fullTranscript = sb.ToString().Trim();
+                                if (fullTranscript.Length > 50)
+                                {
+                                    captionTranscript = fullTranscript;
                                 }
                             }
-                            var fullTranscript = sb.ToString().Trim();
-                            if (fullTranscript.Length > 50) return fullTranscript;
+                        }
+                        catch
+                        {
+                            // timedtext fetch failed or rate-limited; proceed to fallback
                         }
                     }
                 }
             }
 
-            var titleMatch = Regex.Match(html, @"<title>(.*?)</title>");
-            var descMatch = Regex.Match(html, @"<meta name=""description"" content=""(.*?)""");
-            var title = titleMatch.Success ? WebUtility.HtmlDecode(titleMatch.Groups[1].Value).Replace(" - YouTube", "") : "YouTube Lecture";
-            var desc = descMatch.Success ? WebUtility.HtmlDecode(descMatch.Groups[1].Value) : "";
-            return $"{title}\n\n{desc}";
+            // Build rich structured lecture text
+            var contentBuilder = new System.Text.StringBuilder();
+            if (!string.IsNullOrWhiteSpace(videoTitle))
+            {
+                contentBuilder.AppendLine($"# {videoTitle}");
+            }
+            if (!string.IsNullOrWhiteSpace(channelName))
+            {
+                contentBuilder.AppendLine($"Instructor / Channel: {channelName}");
+            }
+            contentBuilder.AppendLine($"Source URL: {url}");
+            contentBuilder.AppendLine();
+
+            if (chapters.Count > 0)
+            {
+                contentBuilder.AppendLine("## Lecture Outline & Chapters:");
+                foreach (var c in chapters)
+                {
+                    contentBuilder.AppendLine($"- {c}");
+                }
+                contentBuilder.AppendLine();
+            }
+
+            if (!string.IsNullOrWhiteSpace(captionTranscript))
+            {
+                contentBuilder.AppendLine("## Lecture Transcript:");
+                contentBuilder.AppendLine(captionTranscript);
+                contentBuilder.AppendLine();
+            }
+
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                contentBuilder.AppendLine("## Video Overview & Syllabus Notes:");
+                contentBuilder.AppendLine(description.Trim());
+            }
+
+            var finalContent = contentBuilder.ToString().Trim();
+            if (HasUsableStudyContent(finalContent))
+            {
+                return (finalContent, videoTitle);
+            }
+
+            return (null, videoTitle);
         }
         catch
         {
-            return null;
+            return (null, null);
         }
+    }
+
+    private static async Task<string?> TryExtractYouTubeTranscriptAsync(string url, CancellationToken ct)
+    {
+        var (text, _) = await TryExtractYouTubeContentAsync(url, ct);
+        return text;
     }
 
 
@@ -1316,6 +1445,22 @@ public class IngestionController : ControllerBase
         _context.Courses.Add(defaultCourse);
         await _context.SaveChangesAsync();
         return defaultCourse;
+    }
+
+    private async Task<Guid> ResolveCourseIdAsync(string? requestedCourseId, Guid userId)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedCourseId) &&
+            Guid.TryParse(requestedCourseId.Trim(), out var parsedCourseId) &&
+            parsedCourseId != Guid.Empty)
+        {
+            if (await OwnsCourseAsync(parsedCourseId))
+            {
+                return parsedCourseId;
+            }
+        }
+
+        var defaultCourse = await GetOrCreateDefaultCourseAsync(userId);
+        return defaultCourse.Id;
     }
 
     private async Task<bool> OwnsCourseAsync(Guid courseId)

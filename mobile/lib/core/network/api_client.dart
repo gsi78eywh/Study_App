@@ -430,10 +430,15 @@ class ApiClient {
     bool generateFlashcards = true,
   }) async {
     try {
+      final validCourseId = (courseId != null &&
+              RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+                  .hasMatch(courseId.trim()))
+          ? courseId.trim()
+          : null;
       final res = await dio.post(
         "/api/v1/ingestion/transcript-to-notes",
         data: {
-          "courseId": courseId,
+          "courseId": validCourseId,
           "title": title,
           "content": content,
           "url": url,

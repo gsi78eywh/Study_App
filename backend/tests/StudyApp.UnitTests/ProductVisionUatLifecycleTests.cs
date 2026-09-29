@@ -106,6 +106,7 @@ public class ProductVisionUatLifecycleTests
 
         // "What if" failure state: Question answered correctly vs skipped
         Assert.False(string.IsNullOrWhiteSpace(q1.CorrectAnswer));
+        Assert.NotNull(q1.Options);
         Assert.NotEmpty(q1.Options);
 
         var correctOption = q1.Options.Find(o => o.IsCorrect);

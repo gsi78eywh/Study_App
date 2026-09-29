@@ -1,7 +1,7 @@
 namespace StudyApp.Application.DTOs.Ingestion;
 
 public record GenerateFromTextRequest(
-    Guid? CourseId = null,
+    string? CourseId = null,
     string Title = "",
     string Content = "",
     List<string>? QuestionTypes = null, // "mcq", "identification", "enumeration", "bullet_points", "logical_thinking"
@@ -12,7 +12,7 @@ public record GenerateFromTextRequest(
 );
 
 public record GenerateFromUrlRequest(
-    Guid? CourseId = null,
+    string? CourseId = null,
     string Title = "",
     string Url = "",
     List<string>? QuestionTypes = null,
@@ -24,7 +24,7 @@ public record GenerateFromUrlRequest(
 public record ScanUrlRequest(string Url);
 
 public record TranscriptToNotesRequest(
-    Guid? CourseId = null,
+    string? CourseId = null,
     string? Title = null,
     string? Content = null,
     string? Url = null,

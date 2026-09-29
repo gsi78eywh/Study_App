@@ -316,6 +316,14 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     }
   }
 
+  String? _validGuidOrNull(String? id) {
+    if (id == null) return null;
+    final clean = id.trim();
+    if (clean.isEmpty) return null;
+    final guidRegex = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+    return guidRegex.hasMatch(clean) ? clean : null;
+  }
+
   Future<void> _scrapeAndLoadUrlToEditor() async {
     final rawUrl = _urlController.text.trim();
     if (rawUrl.isEmpty) {
@@ -375,8 +383,40 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         }
       }
     } on DioException catch (e) {
+      if (rawUrl.contains("youtube.com") || rawUrl.contains("youtu.be")) {
+        final videoId = uri.queryParameters["v"] ?? rawUrl.split("/").last;
+        final candidateTitle = _titleController.text.trim().isNotEmpty
+            ? _titleController.text.trim()
+            : "YouTube Video Notes ($videoId)";
+        final templateText = "# $candidateTitle\n**Source URL:** $rawUrl\n\n## Lecture Outline & Key Concepts\n- [ ] Main Concepts & Definitions\n- [ ] Instructor Examples & Code\n- [ ] Summary & Action Items\n\n## My Personal Notes\n(Add your study notes or paste lecture transcript here)";
+        setState(() {
+          _textController.text = templateText;
+          if (_titleController.text.trim().isEmpty) {
+            _titleController.text = candidateTitle;
+          }
+          _tabController.animateTo(0);
+          _errorMessage = null;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("📺 Loaded YouTube study template into Note Editor!"),
+              backgroundColor: Color(0xFF10B981),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+      String msg = "Could not scrape web page. Check that the URL is public and accessible.";
+      if (e.response?.data is Map) {
+        final data = e.response!.data as Map;
+        msg = data["message"]?.toString() ?? data["title"]?.toString() ?? msg;
+      } else if (e.message != null && e.message!.isNotEmpty) {
+        msg = e.message!;
+      }
       setState(() {
-        _errorMessage = e.error?.toString() ?? e.message ?? "Could not scrape web page. Check that the URL is public and accessible.";
+        _errorMessage = msg;
       });
     } catch (e) {
       setState(() {
@@ -591,7 +631,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     try {
       final title = _titleController.text.trim().isNotEmpty ? _titleController.text.trim() : null;
       final res = await widget.apiClient.transcriptToNotes(
-        courseId: _selectedCourseId,
+        courseId: _validGuidOrNull(_selectedCourseId),
         title: title,
         content: transcript.isNotEmpty ? transcript : null,
         url: url.isNotEmpty ? url : null,
@@ -1495,7 +1535,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         response = await widget.apiClient.dio.post(
           ApiConstants.ingestText,
           data: {
-            "courseId": _selectedCourseId.trim().isNotEmpty ? _selectedCourseId.trim() : null,
+            "courseId": _validGuidOrNull(_selectedCourseId),
             "title": _titleController.text.trim(),
             "content": _textController.text.trim(),
             "targetCount": _targetCount,
@@ -1549,7 +1589,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
         final formDataMap = <String, dynamic>{
           "file": multipartFile,
-          if (_selectedCourseId.trim().isNotEmpty) "courseId": _selectedCourseId.trim(),
+          if (_validGuidOrNull(_selectedCourseId) != null) "courseId": _validGuidOrNull(_selectedCourseId)!,
           "title": _titleController.text.trim(),
           "questionTypes": _selectedModes.map((m) {
               return switch (m) {
@@ -1598,7 +1638,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         response = await widget.apiClient.dio.post(
           ApiConstants.ingestUrl,
           data: {
-            "courseId": _selectedCourseId.trim().isNotEmpty ? _selectedCourseId.trim() : null,
+            "courseId": _validGuidOrNull(_selectedCourseId),
             "title": _titleController.text.trim(),
             "url": _urlController.text.trim(),
             "targetCount": _targetCount,
@@ -1643,8 +1683,15 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         }
       }
     } on DioException catch (e) {
+      String msg = "AI generation failed. Check server status.";
+      if (e.response?.data is Map) {
+        final data = e.response!.data as Map;
+        msg = data["message"]?.toString() ?? data["title"]?.toString() ?? msg;
+      } else if (e.message != null && e.message!.isNotEmpty) {
+        msg = e.message!;
+      }
       setState(() {
-        _errorMessage = e.error?.toString() ?? e.message ?? "AI generation failed. Check server status.";
+        _errorMessage = msg;
       });
     } catch (e) {
       setState(() {

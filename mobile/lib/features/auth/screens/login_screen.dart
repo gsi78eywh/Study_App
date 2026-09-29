@@ -595,10 +595,45 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  void _showServerConfigDialog() {
-    final urlController = TextEditingController(
-      text: widget.sessionService.baseUrl ?? ApiConstants.defaultBaseUrl,
+  String _currentServerLabel() {
+    final url = widget.sessionService.baseUrl ?? ApiConstants.defaultBaseUrl;
+    if (url.contains("172.23.249.209")) return "PC Wi-Fi:5000";
+    if (url.contains("127.0.0.1") || url.contains("localhost")) return "Local:5000";
+    try {
+      final uri = Uri.parse(url);
+      return uri.host.isNotEmpty ? uri.host : "Server";
+    } catch (_) {
+      return "Server";
+    }
+  }
+
+  Future<void> _handleOfflineDemoLogin() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    await widget.sessionService.saveAuth(
+      token: "offline_demo_guest_token",
+      userId: "demo_guest_student",
+      email: "guest@studyapp.local",
+      fullName: "Demo Student",
     );
+
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => DashboardScreen(
+          apiClient: widget.apiClient,
+          sessionService: widget.sessionService,
+        ),
+      ),
+    );
+  }
+
+  void _showServerConfigDialog() {
+    final currentBase = widget.sessionService.baseUrl ?? ApiConstants.defaultBaseUrl;
+    final urlController = TextEditingController(text: currentBase);
 
     showDialog(
       context: context,
@@ -607,9 +642,14 @@ class _LoginScreenState extends State<LoginScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
-            const Icon(Icons.developer_mode_rounded, color: AppColors.accent, size: 22),
+            const Icon(Icons.wifi_tethering_rounded, color: AppColors.accent, size: 22),
             const SizedBox(width: 10),
-            Text("Developer Endpoint", style: GoogleFonts.outfit(color: ctx.textPrimary, fontWeight: FontWeight.bold, fontSize: 18)),
+            Expanded(
+              child: Text(
+                "Backend Server Connection",
+                style: GoogleFonts.outfit(color: ctx.textPrimary, fontWeight: FontWeight.bold, fontSize: 17),
+              ),
+            ),
           ],
         ),
         content: SingleChildScrollView(
@@ -618,16 +658,34 @@ class _LoginScreenState extends State<LoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Internal developer tool for Flutter local device or staging overrides:",
-                style: TextStyle(color: ctx.textSecondary, fontSize: 13),
+                "If testing on your phone over Wi-Fi, select 'PC Wi-Fi'. If testing on this PC or Web, use 'Localhost':",
+                style: TextStyle(color: ctx.textSecondary, fontSize: 12.5, height: 1.4),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ActionChip(
+                    avatar: const Icon(Icons.wifi_rounded, size: 14, color: AppColors.accent),
+                    label: const Text("PC Wi-Fi (172.23.249.209)", style: TextStyle(fontSize: 11.5)),
+                    onPressed: () => urlController.text = "http://172.23.249.209:5000",
+                  ),
+                  ActionChip(
+                    avatar: const Icon(Icons.computer_rounded, size: 14),
+                    label: const Text("Localhost:5000", style: TextStyle(fontSize: 11.5)),
+                    onPressed: () => urlController.text = "http://127.0.0.1:5000",
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
               TextField(
                 controller: urlController,
                 style: TextStyle(color: ctx.textPrimary),
-                decoration: const InputDecoration(
-                  labelText: "Base URL",
-                  hintText: "http://localhost:5000",
+                decoration: InputDecoration(
+                  labelText: "Server Base URL",
+                  hintText: "http://172.23.249.209:5000",
+                  prefixIcon: Icon(Icons.link_rounded, color: ctx.textSecondary),
                 ),
               ),
             ],
@@ -649,11 +707,11 @@ class _LoginScreenState extends State<LoginScreen> {
               setState(() {});
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text("Base URL updated: $newUrl")),
+                  SnackBar(content: Text("Server connected to: $newUrl")),
                 );
               }
             },
-            child: const Text("Save"),
+            child: const Text("Save & Connect"),
           ),
         ],
       ),
@@ -685,49 +743,84 @@ class _LoginScreenState extends State<LoginScreen> {
           SafeArea(
             child: Center(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 440),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
-                    decoration: BoxDecoration(
-                      color: context.surfaceColor,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: context.cardBorderColor, width: 1.2),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.08),
-                          blurRadius: 36,
-                          offset: const Offset(0, 14),
+                  child: LayoutBuilder(
+                    builder: (context, boxConstraints) {
+                      final isNarrow = boxConstraints.maxWidth < 360;
+                      return Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isNarrow ? 18 : 28,
+                          vertical: isNarrow ? 22 : 30,
                         ),
-                      ],
-                    ),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Top Controls: Theme Toggle Only (Gear icon removed completely)
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
+                        decoration: BoxDecoration(
+                          color: context.surfaceColor,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: context.cardBorderColor, width: 1.2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.08),
+                              blurRadius: 36,
+                              offset: const Offset(0, 14),
+                            ),
+                          ],
+                        ),
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              ListenableBuilder(
-                                listenable: ThemeController.instance,
-                                builder: (context, _) {
-                                  final currentIsDark = ThemeController.instance.isDarkMode;
-                                  return IconButton(
-                                    icon: Icon(
-                                      currentIsDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-                                      color: currentIsDark ? const Color(0xFFF59E0B) : AppColors.primaryDark,
+                              // Top Controls: Server Endpoint Selector & Theme Toggle
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  InkWell(
+                                    onTap: _showServerConfigDialog,
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: context.secondaryBg,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(color: context.cardBorderColor),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.wifi_rounded, size: 13, color: AppColors.accent),
+                                          const SizedBox(width: 5),
+                                          Text(
+                                            _currentServerLabel(),
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                              color: context.textPrimary,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 3),
+                                          Icon(Icons.tune_rounded, size: 12, color: context.textSecondary),
+                                        ],
+                                      ),
                                     ),
-                                    tooltip: currentIsDark ? "Switch to Light Mode" : "Switch to Dark Mode",
-                                    onPressed: () => ThemeController.instance.toggleTheme(),
-                                  );
-                                },
+                                  ),
+                                  ListenableBuilder(
+                                    listenable: ThemeController.instance,
+                                    builder: (context, _) {
+                                      final currentIsDark = ThemeController.instance.isDarkMode;
+                                      return IconButton(
+                                        icon: Icon(
+                                          currentIsDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                                          color: currentIsDark ? const Color(0xFFF59E0B) : AppColors.primaryDark,
+                                        ),
+                                        tooltip: currentIsDark ? "Switch to Light Mode" : "Switch to Dark Mode",
+                                        onPressed: () => ThemeController.instance.toggleTheme(),
+                                      );
+                                    },
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
+                              const SizedBox(height: 4),
 
                           // App Logo & Branding (5-tap developer gesture only active in kDebugMode)
                           Center(
@@ -968,6 +1061,25 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 16),
 
+                          // Offline Demo Mode Button (100% works without server or Wi-Fi)
+                          Center(
+                            child: OutlinedButton.icon(
+                              onPressed: _isLoading ? null : _handleOfflineDemoLogin,
+                              icon: const Icon(Icons.offline_bolt_rounded, size: 16, color: Color(0xFF10B981)),
+                              label: const Text(
+                                "Explore in Offline Demo Mode (No Server)",
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF10B981),
+                                side: BorderSide(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+                                padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+
                           // Try Demo Student Account (Visually secondary tertiary styling)
                           Center(
                             child: TextButton.icon(
@@ -991,11 +1103,11 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               style: TextButton.styleFrom(
                                 foregroundColor: context.textSecondary,
-                                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 8),
 
                           // Register Link
                           Wrap(
@@ -1021,57 +1133,66 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 6),
 
                           // Terms of Service & Privacy Policy Links
-                          Wrap(
-                            alignment: WrapAlignment.center,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Text(
-                                "By continuing, you agree to our ",
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Text.rich(
+                              TextSpan(
+                                text: "By continuing, you agree to our ",
                                 style: TextStyle(color: context.textSecondary, fontSize: 11.5),
-                              ),
-                              InkWell(
-                                onTap: () => TermsAndPrivacyModal.showTerms(context),
-                                child: Text(
-                                  "Terms of Service",
-                                  style: TextStyle(
-                                    color: AppColors.primary,
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.bold,
-                                    decoration: TextDecoration.underline,
+                                children: [
+                                  WidgetSpan(
+                                    alignment: PlaceholderAlignment.baseline,
+                                    baseline: TextBaseline.alphabetic,
+                                    child: InkWell(
+                                      onTap: () => TermsAndPrivacyModal.showTerms(context),
+                                      child: const Text(
+                                        "Terms of Service",
+                                        style: TextStyle(
+                                          color: AppColors.primary,
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.bold,
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ),
-                              Text(
-                                " and ",
-                                style: TextStyle(color: context.textSecondary, fontSize: 11.5),
-                              ),
-                              InkWell(
-                                onTap: () => TermsAndPrivacyModal.showPrivacy(context),
-                                child: Text(
-                                  "Privacy Policy",
-                                  style: TextStyle(
-                                    color: AppColors.primary,
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.bold,
-                                    decoration: TextDecoration.underline,
+                                  const TextSpan(text: " and "),
+                                  WidgetSpan(
+                                    alignment: PlaceholderAlignment.baseline,
+                                    baseline: TextBaseline.alphabetic,
+                                    child: InkWell(
+                                      onTap: () => TermsAndPrivacyModal.showPrivacy(context),
+                                      child: const Text(
+                                        "Privacy Policy",
+                                        style: TextStyle(
+                                          color: AppColors.primary,
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.bold,
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                ],
                               ),
-                            ],
+                              textAlign: TextAlign.center,
+                            ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             ),
           ),
-        ],
+        ),
       ),
-    );
+    ],
+  ),
+);
   }
 }

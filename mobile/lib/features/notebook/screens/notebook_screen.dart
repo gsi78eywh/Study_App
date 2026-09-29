@@ -1,3 +1,4 @@
+import "dart:convert";
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
@@ -205,6 +206,36 @@ class _NotebookScreenState extends State<NotebookScreen> {
                             if (files.isNotEmpty) {
                               final f = files.first;
                               final bytes = await f.readAsBytes();
+
+                              // For text or markdown files, decode immediately offline
+                              final lowerName = f.name.toLowerCase();
+                              if (lowerName.endsWith('.txt') || lowerName.endsWith('.md')) {
+                                try {
+                                  final directText = utf8.decode(bytes, allowMalformed: true);
+                                  if (directText.trim().isNotEmpty) {
+                                    setModalState(() {
+                                      if (contentController.text.trim().isEmpty) {
+                                        contentController.text = directText.trim();
+                                      } else {
+                                        contentController.text = "${contentController.text}\n\n${directText.trim()}";
+                                      }
+                                      if (titleController.text.trim().isEmpty) {
+                                        titleController.text = f.name.split('.').first;
+                                      }
+                                    });
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text("📄 Loaded ${directText.length} characters from ${f.name}!"),
+                                          backgroundColor: AppColors.accent,
+                                        ),
+                                      );
+                                    }
+                                    return;
+                                  }
+                                } catch (_) {}
+                              }
+
                               final multipart = MultipartFile.fromBytes(bytes, filename: f.name);
                               final geminiKey = widget.apiClient.sessionService.geminiApiKey;
                               final map = <String, dynamic>{"file": multipart};
@@ -239,8 +270,13 @@ class _NotebookScreenState extends State<NotebookScreen> {
                             }
                           } catch (e) {
                             if (mounted) {
+                              String errText = "Could not scan document. Ensure backend is running or type notes manually.";
+                              if (e is DioException && e.response?.data is Map) {
+                                final d = e.response!.data as Map;
+                                errText = d["message"]?.toString() ?? errText;
+                              }
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text("Scan error: $e"), backgroundColor: AppColors.danger),
+                                SnackBar(content: Text(errText), backgroundColor: AppColors.danger),
                               );
                             }
                           }
