@@ -22,6 +22,7 @@ import "../../ai_tutor/screens/ai_tutor_screen.dart";
 import "../../settings/services/settings_service.dart";
 import "../../settings/screens/settings_screen.dart";
 import "../../settings/widgets/dswd_safety_modal.dart";
+import "../widgets/onboarding_modal.dart";
 import "../../../core/constants/api_constants.dart";
 import "../widgets/grade_tracker_sheet.dart";
 import "../widgets/user_manual_sheet.dart";
@@ -93,6 +94,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     } finally {
       if (mounted) setState(() => _isLoadingDemoPack = false);
+    }
+  }
+
+  Future<void> _removeStarterDemoPack() async {
+    setState(() => _isLoadingCourses = true);
+    try {
+      final sampleCourses = _courses.where((c) => c.isSample).toList();
+      for (final c in sampleCourses) {
+        try {
+          await widget.apiClient.deleteCourse(c.id);
+        } catch (_) {}
+      }
+      await widget.sessionService.setHasSampleData(false);
+      await _fetchCoursesAndSync(fullFetch: true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Sample data removed.")),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingCourses = false);
     }
   }
 
@@ -227,6 +249,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
     _fetchCoursesAndSync(fullFetch: true);
     _initEyeBreakMonitoring();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        OnboardingModal.showIfNeeded(
+          context,
+          sessionService: widget.sessionService,
+          onCompleted: () {
+            if (mounted) setState(() {});
+          },
+        );
+      }
+    });
   }
 
   void _initEyeBreakMonitoring() {
@@ -2044,37 +2077,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ),
 
-                  // DSWD Compliant Badge with clear tooltip
-                  Tooltip(
-                    message: "DSWD Safety & Child Protection (MAKABATA 1383 Helpline): Educational safe filtering, PII privacy protection, and child welfare guardrails. Tap for safety details.",
-                    child: InkWell(
-                      onTap: () => DswdSafetyModal.show(context),
-                      borderRadius: BorderRadius.circular(20),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: Colors.teal.shade700,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.verified_user_rounded, color: Colors.white, size: 14),
-                            SizedBox(width: 4),
-                            Text(
-                              '🛡️ DSWD Safe • 1383',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-
                   // 20-20-20 Eye Break quick button with clear touchable affordance
                   Tooltip(
                     message: "20-20-20 Screen Wellness: Every 20 minutes, look at an object 20 feet away for 20 seconds to prevent digital eye strain.",
@@ -2441,41 +2443,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           runSpacing: 4,
                           children: [
                             Text(
-                              "Welcome back, $displayName 👋",
+                              _courses.isEmpty
+                                  ? "Welcome, ${(widget.sessionService.fullName?.trim() != null && widget.sessionService.fullName!.trim().isNotEmpty && !widget.sessionService.fullName!.trim().toLowerCase().contains('google student')) ? widget.sessionService.fullName!.trim().split(RegExp(r'\s+')).first : 'Student'} 👋"
+                                  : "Welcome back, ${(widget.sessionService.fullName?.trim() != null && widget.sessionService.fullName!.trim().isNotEmpty && !widget.sessionService.fullName!.trim().toLowerCase().contains('google student')) ? widget.sessionService.fullName!.trim().split(RegExp(r'\s+')).first : 'Student'} 👋",
                               style: GoogleFonts.outfit(
                                 fontSize: 22,
                                 fontWeight: FontWeight.bold,
                                 color: context.textPrimary,
                               ),
                             ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF97316).withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: const Color(0xFFF97316).withValues(alpha: 0.4),
+                            if ((_todayStudyPlan?.readiness.spacingDaysActive ?? 0) > 0 &&
+                                _courses.any((c) => !c.isSample))
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF97316).withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: const Color(0xFFF97316).withValues(alpha: 0.4),
+                                  ),
                                 ),
-                              ),
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Text("🔥", style: TextStyle(fontSize: 12)),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      "${_todayStudyPlan?.readiness.spacingDaysActive ?? 1}-Day Streak",
-                                      style: GoogleFonts.inter(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: const Color(0xFFF97316),
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Text("🔥", style: TextStyle(fontSize: 12)),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        "${_todayStudyPlan?.readiness.spacingDaysActive ?? 1}-Day Streak",
+                                        style: GoogleFonts.inter(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          color: const Color(0xFFF97316),
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
                           ],
                         ),
                         const SizedBox(height: 4),
@@ -2568,70 +2574,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           );
                         },
                       ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.all(4),
-                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                        icon: const Icon(
-                          Icons.logout_rounded,
-                          color: Color(0xFFEF4444),
-                          size: 22,
-                        ),
-                        tooltip: "Sign Out",
-                        onPressed: _handleLogout,
-                      ),
                     ],
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-
-              // Dedicated Quick Actions Bar (Flashcards, Notebook, Studio, Grades)
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                child: Row(
-                  children: [
-                    _buildQuickActionChip(
-                      icon: Icons.style_rounded,
-                      label: "Flashcards",
-                      color: AppColors.accent,
-                      onTap: () => setState(() => _currentTabIndex = 1),
-                    ),
-                    const SizedBox(width: 8),
-                    _buildQuickActionChip(
-                      icon: Icons.menu_book_rounded,
-                      label: "Notebook",
-                      color: const Color(0xFF10B981),
-                      onTap: () => setState(() => _currentTabIndex = 2),
-                    ),
-                    const SizedBox(width: 8),
-                    _buildQuickActionChip(
-                      icon: Icons.auto_stories_rounded,
-                      label: "Studio",
-                      color: const Color(0xFF6366F1),
-                      onTap: () => setState(() => _currentTabIndex = 3),
-                    ),
-                    const SizedBox(width: 8),
-                    _buildQuickActionChip(
-                      icon: Icons.grade_rounded,
-                      label: "Grades",
-                      color: const Color(0xFFF59E0B),
-                      onTap: () => GradeTrackerSheet.show(
-                        context,
-                        widget.apiClient,
-                        onGradesUpdated: () {
-                          _fetchCoursesAndSync(fullFetch: true);
-                          _loadTodayStudyPlan();
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
               const SizedBox(height: 16),
 
-              // DSWD Child Safety & Learner Mode Bar
+              // Sample Data Banner (When sample pack is loaded)
+              if (_courses.any((c) => c.isSample)) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.35)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.science_outlined, color: Color(0xFFD97706), size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "Sample Data active (excluded from streaks & sync)",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: context.textPrimary,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _removeStarterDemoPack,
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFFEF4444),
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        child: const Text("Remove sample data", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              // Child Safety & Learner Mode Bar
               _buildChildSafetyBanner(context),
               const SizedBox(height: 16),
 

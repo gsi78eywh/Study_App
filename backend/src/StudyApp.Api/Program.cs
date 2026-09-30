@@ -506,11 +506,15 @@ if (!app.Environment.IsDevelopment())
 }
 
 // A safe health check (no stack or database details leaked)
-app.MapGet("/health", async (ApplicationDbContext db, CancellationToken cancellationToken) =>
+app.MapGet("/health", async (ApplicationDbContext db, IConfiguration config, CancellationToken cancellationToken) =>
 {
     var canConnect = await db.Database.CanConnectAsync(cancellationToken);
+    var geminiKey = config["AiSettings:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
+    var hasGemini = !string.IsNullOrWhiteSpace(geminiKey) && !geminiKey.Contains("YOUR_GEMINI_API_KEY") && geminiKey != "disabled" && geminiKey != "offline";
+    var version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "1.0.0";
+
     return canConnect
-        ? Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow })
+        ? Results.Ok(new { ok = true, status = "healthy", version = version, gemini = hasGemini, timestamp = DateTime.UtcNow })
         : Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Database unavailable.");
 }).AllowAnonymous();
 

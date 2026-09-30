@@ -53,4 +53,9 @@ class ApiConstants {
   static const String aiStatus = "/api/v1/ai/status";
   static const String aiTutorStatus = "/api/v1/ai/tutor-status";
   static const String aiChatLogs = "/api/v1/ai/chat-logs";
+
+  // Google OAuth & Account Management
+  static const String googleAuth = "/api/v1/auth/google";
+  static const String deleteAccount = "/api/v1/auth/account";
+  static const String health = "/health";
 }

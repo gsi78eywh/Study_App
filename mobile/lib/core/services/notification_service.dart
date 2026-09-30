@@ -81,7 +81,7 @@ class NotificationService extends ChangeNotifier {
         icon: Icons.bolt_rounded,
         color: const Color(0xFF6366F1),
         category: "study_reminder",
-        isRead: false,
+        isRead: true,
       ),
       AppNotificationItem(
         id: "notif-streak-1",
@@ -91,7 +91,7 @@ class NotificationService extends ChangeNotifier {
         icon: Icons.local_fire_department_rounded,
         color: const Color(0xFFF97316),
         category: "streak_alert",
-        isRead: false,
+        isRead: true,
       ),
       AppNotificationItem(
         id: "notif-mistake-1",

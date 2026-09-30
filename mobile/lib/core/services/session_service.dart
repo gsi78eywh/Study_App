@@ -1,3 +1,4 @@
+import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
@@ -10,6 +11,11 @@ class SessionService {
   static const String _keyLastSync = "last_sync_timestamp";
   static const String _keyThemeMode = "app_theme_mode";
   static const String _keyGeminiApiKey = "gemini_api_key";
+  static const String _keyOnboardingCompleted = "onboarding_completed";
+  static const String _keySchoolLevel = "student_school_level";
+  static const String _keyGradingScale = "student_grading_scale";
+  static const String _keyMinorConsent = "student_minor_consent";
+  static const String _keySampleDataLoaded = "is_sample_data_loaded";
 
   final SharedPreferences _prefs;
 
@@ -25,8 +31,33 @@ class SessionService {
   String? get userId => _prefs.getString(_keyUserId);
   String? get email => _prefs.getString(_keyEmail);
   String? get fullName => _prefs.getString(_keyFullName);
-  String? get baseUrl => _prefs.getString(_keyBaseUrl);
+  String? get baseUrl {
+    // Release builds strictly enforce the configured/production HTTPS endpoint with no local override
+    if (kReleaseMode) return null;
+    return _prefs.getString(_keyBaseUrl);
+  }
   String? get geminiApiKey => _prefs.getString(_keyGeminiApiKey);
+
+  bool get isOnboardingCompleted => _prefs.getBool(_keyOnboardingCompleted) ?? false;
+  String get schoolLevel => _prefs.getString(_keySchoolLevel) ?? "College";
+  String get gradingScale => _prefs.getString(_keyGradingScale) ?? "USJ-R (1.00 - 5.00)";
+  bool get hasMinorConsent => _prefs.getBool(_keyMinorConsent) ?? false;
+  bool get isSampleDataLoaded => _prefs.getBool(_keySampleDataLoaded) ?? false;
+
+  Future<void> setOnboardingCompleted({
+    required String schoolLevel,
+    required String gradingScale,
+    bool hasMinorConsent = false,
+  }) async {
+    await _prefs.setBool(_keyOnboardingCompleted, true);
+    await _prefs.setString(_keySchoolLevel, schoolLevel);
+    await _prefs.setString(_keyGradingScale, gradingScale);
+    await _prefs.setBool(_keyMinorConsent, hasMinorConsent);
+  }
+
+  Future<void> setSampleDataLoaded(bool loaded) async {
+    await _prefs.setBool(_keySampleDataLoaded, loaded);
+  }
 
   Future<void> setGeminiApiKey(String? key) async {
     if (key == null || key.trim().isEmpty) {
@@ -73,6 +104,7 @@ class SessionService {
   }
 
   Future<void> setBaseUrl(String url) async {
+    if (kReleaseMode) return;
     await _prefs.setString(_keyBaseUrl, url);
   }
 
@@ -86,8 +118,6 @@ class SessionService {
     await _prefs.remove(_keyEmail);
     await _prefs.remove(_keyFullName);
     await _prefs.remove(_keyLastSync);
-    // A personally supplied AI key must never survive sign-out on a shared
-    // phone or tablet. Backend-managed providers do not require this value.
     await _prefs.remove(_keyGeminiApiKey);
   }
 

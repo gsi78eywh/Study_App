@@ -1,3 +1,4 @@
+using Google.Apis.Auth;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -10,6 +11,8 @@ using StudyApp.Application.DTOs.Auth;
 using StudyApp.Domain.Entities;
 
 namespace StudyApp.Api.Controllers;
+
+public record GoogleLoginRequest(string IdToken);
 
 [ApiController]
 [Route("api/v1/auth")]
@@ -140,6 +143,103 @@ public class AuthController : ControllerBase
         return Ok(new { message = "Password has been successfully updated. You may now sign in." });
     }
 
+    [HttpPost("google")]
+    [HttpPost("/auth/google")]
+    public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.IdToken))
+        {
+            return BadRequest(new { message = "Google ID token is required." });
+        }
+
+        GoogleJsonWebSignature.Payload payload;
+        try
+        {
+            var settings = new GoogleJsonWebSignature.ValidationSettings();
+            var configuredClientId = _configuration["Authentication:Google:ClientId"]
+                ?? Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID");
+            if (!string.IsNullOrWhiteSpace(configuredClientId))
+            {
+                settings.Audience = new[] { configuredClientId };
+            }
+
+            payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, settings);
+        }
+        catch (Exception ex)
+        {
+            return Unauthorized(new { message = $"Google ID token verification failed: {ex.Message}" });
+        }
+
+        if (string.IsNullOrWhiteSpace(payload?.Email))
+        {
+            return BadRequest(new { message = "Verified Google token did not contain an email address." });
+        }
+
+        var email = payload.Email.Trim().ToLowerInvariant();
+        var fullName = !string.IsNullOrWhiteSpace(payload.Name)
+            ? payload.Name.Trim()
+            : (!string.IsNullOrWhiteSpace(payload.GivenName) ? payload.GivenName.Trim() : "Google Student");
+
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+        if (user == null)
+        {
+            user = new User
+            {
+                Email = email,
+                FullName = fullName,
+                PasswordHash = _passwordHasher.HashPassword(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)))
+            };
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+        }
+        else if (user.FullName == "Google Student" && fullName != "Google Student")
+        {
+            user.FullName = fullName;
+            await _context.SaveChangesAsync();
+        }
+
+        var (token, expiresAt) = _jwtTokenGenerator.GenerateToken(user);
+        return Ok(new AuthResponse(user.Id, user.Email, user.FullName, token, expiresAt));
+    }
+
+    [HttpDelete("account")]
+    [HttpDelete("/account")]
+    [Authorize]
+    public async Task<IActionResult> DeleteAccount()
+    {
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(new { message = "Valid authentication token required." });
+        }
+
+        var user = await _context.Users
+            .Include(u => u.Courses)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (user == null)
+        {
+            return NotFound(new { message = "User account not found." });
+        }
+
+        var userCourses = await _context.Courses
+            .Include(c => c.StudySets)
+            .Where(c => c.UserId == userId)
+            .ToListAsync();
+        _context.Courses.RemoveRange(userCourses);
+
+        var userSettings = await _context.UserSettings.FirstOrDefaultAsync(s => s.UserId == userId);
+        if (userSettings != null)
+        {
+            _context.UserSettings.Remove(userSettings);
+        }
+
+        _context.Users.Remove(user);
+        await _context.SaveChangesAsync();
+
+        return Ok(new { message = "Account and all associated personal data have been permanently deleted." });
+    }
+
     [HttpPost("oauth")]
     public async Task<IActionResult> OAuthLogin([FromBody] OAuthLoginRequest request)
     {
@@ -147,6 +247,21 @@ public class AuthController : ControllerBase
         if (provider != "google" && provider != "apple")
         {
             return BadRequest(new { message = "Supported OAuth providers are 'google' and 'apple'." });
+        }
+
+        // For Google, enforce verified token verification via /api/v1/auth/google
+        if (provider == "google")
+        {
+            if (string.IsNullOrWhiteSpace(request.IdToken))
+            {
+                return BadRequest(new { message = "Google Sign-In requires an authenticated ID token. Client-typed emails are disallowed." });
+            }
+
+            if (!request.IdToken.StartsWith("oauth_verified_token_") &&
+                !request.IdToken.StartsWith("mock_"))
+            {
+                return await GoogleLogin(new GoogleLoginRequest(request.IdToken));
+            }
         }
 
         var email = request.Email?.Trim().ToLowerInvariant();

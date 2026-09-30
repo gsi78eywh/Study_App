@@ -9,12 +9,14 @@ import "../../../core/network/api_client.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../courses/models/course_models.dart";
 import "../../quiz/models/quiz_models.dart";
+import "../../settings/services/settings_service.dart";
 import "../widgets/camera_scanner_modal.dart";
 import "../widgets/progressive_exam_studio.dart";
 
 class IngestionScreen extends StatefulWidget {
   final List<CourseModel> courses;
   final ApiClient apiClient;
+  final SettingsService? settingsService;
   final void Function(StudySetModel)? onStudySetCreated;
   final String? draftTitle;
   final String? draftContent;
@@ -26,6 +28,7 @@ class IngestionScreen extends StatefulWidget {
     super.key,
     required this.courses,
     required this.apiClient,
+    this.settingsService,
     this.onStudySetCreated,
     this.draftTitle,
     this.draftContent,
@@ -50,7 +53,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   PlatformFile? _selectedFile;
   Uint8List? _selectedFileBytes;
   int _fileSizeBytes = 0;
-  int _targetCount = 10;
+  int _targetCount = 15;
   bool _isLoading = false;
   bool _fastMode = false;
   bool _showAdvancedExamOptions = false;
@@ -120,6 +123,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   @override
   void initState() {
     super.initState();
+    _targetCount = widget.settingsService?.settings.defaultQuestionCount ?? 15;
     _tabController = TabController(length: 3, vsync: this);
     if (widget.initialCourseId != null &&
         widget.initialCourseId!.isNotEmpty &&
@@ -1689,7 +1693,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           tabs: const [
             Tab(icon: Icon(Icons.notes_rounded), text: "Paste Text"),
             Tab(icon: Icon(Icons.photo_camera_back_rounded), text: "Upload File / Photo"),
-            Tab(icon: Icon(Icons.link_rounded), text: "Article URL"),
+            Tab(icon: Icon(Icons.link_rounded), text: "Link"),
           ],
         ),
       ),
@@ -2002,7 +2006,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                   const SizedBox(height: 8),
                   if (widget.courses.isEmpty)
                     Container(
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       decoration: BoxDecoration(
                         color: context.surfaceColor,
                         borderRadius: BorderRadius.circular(12),
@@ -2016,6 +2020,16 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                             child: Text(
                               "No courses found. Study set will be created in default space.",
                               style: TextStyle(color: context.textSecondary, fontSize: 13),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton.icon(
+                            onPressed: _showCreateCourseDialog,
+                            icon: const Icon(Icons.add_rounded, size: 15),
+                            label: const Text("Create Course", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              visualDensity: VisualDensity.compact,
                             ),
                           ),
                         ],
@@ -2175,6 +2189,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                 maxLines: null,
                                 expands: true,
                                 textAlignVertical: TextAlignVertical.top,
+                                onChanged: (_) => setState(() {}),
                                 style: TextStyle(color: context.textPrimary, fontSize: 13.5, height: 1.5),
                                 decoration: InputDecoration(
                                   hintText: "Paste lecture notes or tap the Extract button above to convert any photo, screenshot, or document into clear, readable text...",
@@ -3190,6 +3205,28 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
                   const SizedBox(height: 24),
 
+                  final isTextTab = _tabController.index == 0;
+                  final textLen = _textController.text.trim().length;
+                  final hasMinText = !isTextTab || textLen >= 200;
+                  final canGenerate = !_isLoading && hasMinText;
+
+                  if (isTextTab && textLen < 200) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.3)),
+                      ),
+                      child: Text(
+                        "Add at least 200 characters ($textLen/200)",
+                        style: const TextStyle(color: Color(0xFFD97706), fontSize: 12, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
@@ -3208,7 +3245,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                           : (_fastMode ? "⚡ Quick Local Processing" : "Generate Study Set from Notes"),
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                     ),
-                    onPressed: _isLoading ? null : _handleGenerate,
+                    onPressed: canGenerate ? _handleGenerate : null,
                   ),
                   const SizedBox(height: 32),
                 ],

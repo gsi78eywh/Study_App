@@ -9,6 +9,7 @@ import "../../../core/theme/app_theme.dart";
 import "../../../core/theme/theme_controller.dart";
 import "../models/auth_models.dart";
 import "../widgets/terms_and_privacy_modal.dart";
+import "../../../core/services/google_auth_service.dart";
 import "../../courses/screens/dashboard_screen.dart";
 import "register_screen.dart";
 
@@ -125,27 +126,25 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // End-to-End SSO Authentication via Google or Apple
-  Future<void> _handleOAuthLogin(String provider, {String? customEmail}) async {
+  // Real Google Sign-In with Server-Side ID Token Verification
+  Future<void> _handleRealGoogleSignIn() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final ssoEmail = (customEmail != null && customEmail.trim().isNotEmpty)
-          ? customEmail.trim()
-          : "student.${provider.toLowerCase()}@university.edu";
-      final ssoName = provider.toLowerCase() == "google" ? "Google Student" : "Apple Student";
+      final result = await GoogleAuthService.instance.signIn();
+      if (!result.success) {
+        if (result.errorMessage != null && !result.errorMessage!.contains("cancelled")) {
+          setState(() => _errorMessage = result.errorMessage);
+        }
+        return;
+      }
 
       final response = await widget.apiClient.dio.post(
-        ApiConstants.oauth,
-        data: {
-          "provider": provider.toLowerCase(),
-          "idToken": "oauth_verified_token_${DateTime.now().millisecondsSinceEpoch}",
-          "email": ssoEmail,
-          "fullName": ssoName,
-        },
+        ApiConstants.googleAuth,
+        data: {"idToken": result.idToken},
       );
 
       if (response.statusCode == 200 && response.data != null) {
@@ -169,125 +168,16 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on DioException catch (e) {
       setState(() {
-        _errorMessage = e.response?.data?["message"]?.toString() ?? "SSO Authentication failed. Please try again.";
+        _errorMessage = e.response?.data?["message"]?.toString() ??
+            "Google Authentication failed. Please verify server connection.";
       });
     } catch (e) {
       setState(() {
-        _errorMessage = "An unexpected error occurred during Single Sign-On.";
+        _errorMessage = "Google Sign-In failed: $e";
       });
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  void _showGoogleSignInOptions() {
-    final gmailController = TextEditingController(
-      text: _emailController.text.contains("@") ? _emailController.text : "student@gmail.com",
-    );
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
-        decoration: BoxDecoration(
-          color: ctx.surfaceColor,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: ctx.cardBorderColor,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF4285F4).withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.g_mobiledata_rounded, color: Color(0xFF4285F4), size: 24),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Google Account Sign-In",
-                        style: GoogleFonts.outfit(
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                          color: ctx.textPrimary,
-                        ),
-                      ),
-                      Text(
-                        "Connect your Google / Gmail student account",
-                        style: TextStyle(fontSize: 12, color: ctx.textSecondary),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            TextField(
-              controller: gmailController,
-              keyboardType: TextInputType.emailAddress,
-              style: TextStyle(color: ctx.textPrimary),
-              decoration: const InputDecoration(
-                labelText: "Gmail Address",
-                prefixIcon: Icon(Icons.mail_outline_rounded, color: Color(0xFF4285F4)),
-                hintText: "student@gmail.com",
-              ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(ctx);
-                final email = gmailController.text.trim();
-                _handleOAuthLogin("Google", customEmail: email.isNotEmpty ? email : null);
-              },
-              icon: const Icon(Icons.login_rounded, size: 18),
-              label: const Text("Continue with Google"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4285F4),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () {
-                Navigator.pop(ctx);
-                _showGoogleAccountRecoveryDialog(gmailController.text.trim());
-              },
-              icon: const Icon(Icons.help_outline_rounded, size: 16),
-              label: const Text("Forgot Google Password / Need Recovery?"),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: ctx.textPrimary,
-                side: BorderSide(color: ctx.cardBorderColor),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   void _showGoogleAccountRecoveryDialog(String email) {
@@ -608,6 +498,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _showServerConfigDialog() {
+    if (!kDebugMode) return;
     final currentBase = widget.sessionService.baseUrl ?? ApiConstants.defaultBaseUrl;
     final urlController = TextEditingController(text: currentBase);
 
@@ -634,7 +525,7 @@ class _LoginScreenState extends State<LoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "If testing on your phone over Wi-Fi, select 'PC Wi-Fi'. If testing on this PC or Web, use 'Localhost':",
+                "Select server endpoint or enter custom URL:",
                 style: TextStyle(color: ctx.textSecondary, fontSize: 12.5, height: 1.4),
               ),
               const SizedBox(height: 14),
@@ -642,6 +533,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
+                  ActionChip(
+                    avatar: const Icon(Icons.cloud_rounded, size: 14, color: AppColors.primary),
+                    label: const Text("Railway Production", style: TextStyle(fontSize: 11.5)),
+                    onPressed: () => urlController.text = "https://your-app.up.railway.app",
+                  ),
                   ActionChip(
                     avatar: const Icon(Icons.wifi_rounded, size: 14, color: AppColors.accent),
                     label: const Text("PC Wi-Fi (172.23.249.209)", style: TextStyle(fontSize: 11.5)),
@@ -747,39 +643,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              // Top Controls: Server Endpoint Selector & Theme Toggle
+                              // Top Controls: Theme Toggle
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
-                                  InkWell(
-                                    onTap: _showServerConfigDialog,
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                                      decoration: BoxDecoration(
-                                        color: context.secondaryBg,
-                                        borderRadius: BorderRadius.circular(10),
-                                        border: Border.all(color: context.cardBorderColor),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.wifi_rounded, size: 13, color: AppColors.accent),
-                                          const SizedBox(width: 5),
-                                          Text(
-                                            _currentServerLabel(),
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600,
-                                              color: context.textPrimary,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 3),
-                                          Icon(Icons.tune_rounded, size: 12, color: context.textSecondary),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
                                   ListenableBuilder(
                                     listenable: ThemeController.instance,
                                     builder: (context, _) {
@@ -979,91 +846,55 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 16),
 
-                          // Responsive SSO Buttons: Adapts to narrow viewports without clipping or overflow
-                          LayoutBuilder(
-                            builder: (context, constraints) {
-                              final isNarrow = constraints.maxWidth < 320;
-                              final googleButton = OutlinedButton.icon(
-                                onPressed: _isLoading ? null : _showGoogleSignInOptions,
-                                icon: const Icon(Icons.g_mobiledata_rounded, size: 22, color: Color(0xFF4285F4)),
-                                label: const Text(
-                                  "Google",
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: context.textPrimary,
-                                  side: BorderSide(color: context.cardBorderColor),
-                                  padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
-                              );
-
-                              final appleButton = OutlinedButton.icon(
-                                onPressed: _isLoading ? null : () => _handleOAuthLogin("Apple"),
-                                icon: Icon(Icons.apple_rounded, size: 20, color: context.textPrimary),
-                                label: const Text(
-                                  "Apple",
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: context.textPrimary,
-                                  side: BorderSide(color: context.cardBorderColor),
-                                  padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
-                              );
-
-                              if (isNarrow) {
-                                return Column(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                                  children: [
-                                    googleButton,
-                                    const SizedBox(height: 8),
-                                    appleButton,
-                                  ],
-                                );
-                              }
-
-                              return Row(
-                                children: [
-                                  Expanded(child: googleButton),
-                                  const SizedBox(width: 10),
-                                  Expanded(child: appleButton),
-                                ],
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Try Demo Student Account (Visually secondary tertiary styling)
-                          Center(
-                            child: TextButton.icon(
-                              onPressed: () {
-                                _emailController.text = "dev@studyapp.local";
-                                _passwordController.text = "DevPass123!";
-                                setState(() {
-                                  _errorMessage = null;
-                                });
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text("Demo student credentials loaded."),
-                                    duration: Duration(seconds: 2),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFFF59E0B)),
+                          // Google Sign-In (Real OAuth verified server-side)
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _isLoading ? null : _handleRealGoogleSignIn,
+                              icon: const Icon(Icons.g_mobiledata_rounded, size: 24, color: Color(0xFF4285F4)),
                               label: const Text(
-                                "Try Demo Student Account",
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                "Continue with Google",
+                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                               ),
-                              style: TextButton.styleFrom(
-                                foregroundColor: context.textSecondary,
-                                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: context.textPrimary,
+                                side: BorderSide(color: context.cardBorderColor),
+                                padding: const EdgeInsets.symmetric(vertical: 13),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               ),
                             ),
                           ),
+
+                          // Demo Student Account (Debug builds only • clearly labeled sample mode)
+                          if (kDebugMode) ...[
+                            const SizedBox(height: 14),
+                            Center(
+                              child: TextButton.icon(
+                                onPressed: () {
+                                  _emailController.text = "dev@studyapp.local";
+                                  _passwordController.text = "DevPass123!";
+                                  setState(() {
+                                    _errorMessage = null;
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("Demo credentials loaded (Sample Mode • No Cloud Sync)."),
+                                      duration: Duration(seconds: 2),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFFF59E0B)),
+                                label: const Text(
+                                  "Demo Account (Sample Mode • No Cloud Sync)",
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                ),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: context.textSecondary,
+                                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                                ),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 12),
 
                           // Register Link
@@ -1136,6 +967,22 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ],
                               ),
                               textAlign: TextAlign.center,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Version Footer (Long-press in Debug mode reveals Developer Endpoint dialog)
+                          Center(
+                            child: GestureDetector(
+                              onLongPress: kDebugMode ? _showServerConfigDialog : null,
+                              child: Text(
+                                "StudyApp v1.0.0",
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: context.textSecondary.withValues(alpha: 0.6),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
                             ),
                           ),
                         ],
