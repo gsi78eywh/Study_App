@@ -1,17 +1,24 @@
 import "package:flutter/foundation.dart";
 
 class ApiConstants {
+  // Preset URLs for different runtime environments
+  static const String railwayProductionUrl = "https://studyapp-backend.up.railway.app";
+  static const String androidEmulatorUrl = "http://10.0.2.2:5000";
+  static const String localWifiUrl = "http://172.23.249.209:5000";
+  static const String localhostUrl = "http://localhost:5000";
+
   // Configurable base URL:
-  // For local development: uses the Android emulator loopback when applicable.
-  // For production (e.g. Railway): pass via flutter build --dart-define=API_BASE_URL=https://your-api.up.railway.app
+  // For production (e.g. Railway): pass via flutter build --dart-define=API_BASE_URL=https://studyapp-backend.up.railway.app
   static const String _configuredBaseUrl = String.fromEnvironment("API_BASE_URL");
 
   static String get defaultBaseUrl {
     if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
-    if (kIsWeb) return "http://localhost:5000";
+    // In release builds, Android blocks plain http:// by default, so use HTTPS Railway as default
+    if (kReleaseMode) return railwayProductionUrl;
+    if (kIsWeb) return localhostUrl;
     return defaultTargetPlatform == TargetPlatform.android
-        ? "http://127.0.0.1:5000"
-        : "http://localhost:5000";
+        ? androidEmulatorUrl
+        : localhostUrl;
   }
 
   // Auth endpoints
@@ -44,4 +51,6 @@ class ApiConstants {
   static const String aiTutor = "/api/v1/ai/tutor";
   static const String aiExplain = "/api/v1/ai/explain";
   static const String aiStatus = "/api/v1/ai/status";
+  static const String aiTutorStatus = "/api/v1/ai/tutor-status";
+  static const String aiChatLogs = "/api/v1/ai/chat-logs";
 }

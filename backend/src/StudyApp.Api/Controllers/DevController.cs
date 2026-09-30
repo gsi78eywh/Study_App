@@ -42,16 +42,40 @@ public class DevController : ControllerBase
         var studySetCount = await _context.StudySets.CountAsync();
         var questionCount = await _context.Questions.CountAsync();
 
-        var geminiKey = _configuration["AiSettings:ApiKey"];
-        var hasGeminiKey = !string.IsNullOrWhiteSpace(geminiKey) && geminiKey != "YOUR_GEMINI_API_KEY_HERE";
+        var geminiKey = _configuration["AiSettings:ApiKey"]
+            ?? Environment.GetEnvironmentVariable("AiSettings__ApiKey")
+            ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
+        var hasGeminiKey = !string.IsNullOrWhiteSpace(geminiKey) && !geminiKey.Contains("YOUR_GEMINI_API_KEY");
         var openAiKey = _configuration["AiSettings:OpenAi:ApiKey"] ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         var hasOpenAiKey = StudyApp.Infrastructure.AiServices.OpenAiAiService.IsValidProjectKey(openAiKey);
         var activeProvider = _configuration["AiSettings:Provider"] ?? "GoogleGemini";
         var isOpenAi = string.Equals(activeProvider, "OpenAI", StringComparison.OrdinalIgnoreCase);
 
+        // Check authenticated user if token present
+        User? authUser = null;
+        var authHeader = Request.Headers.Authorization.FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            var token = authHeader.Substring("Bearer ".Length).Trim();
+            var claimsPrincipal = _jwtTokenGenerator.ValidateToken(token);
+            if (claimsPrincipal != null)
+            {
+                var subClaim = claimsPrincipal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                    ?? claimsPrincipal.FindFirst("sub")?.Value;
+                if (Guid.TryParse(subClaim, out var userId))
+                {
+                    authUser = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
+                }
+            }
+        }
+
+        var appVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0-prod";
+
         return Ok(new
         {
             status = "online",
+            serverReachable = true,
+            version = appVersion,
             environment = _environment.EnvironmentName,
             runtime = Environment.Version.ToString(),
             os = Environment.OSVersion.ToString(),
@@ -70,11 +94,20 @@ public class DevController : ControllerBase
                 provider = activeProvider,
                 model = isOpenAi
                     ? (_configuration["AiSettings:OpenAi:ModelId"] ?? "gpt-4o-mini")
-                    : (_configuration["AiSettings:ModelId"] ?? "gemini-3.6-flash"),
+                    : (_configuration["AiSettings:ModelId"] ?? "gemini-3.1-flash-lite"),
                 hasApiKey = isOpenAi ? hasOpenAiKey : hasGeminiKey,
                 openAiWiringStatus = hasOpenAiKey ? "active_live_target" : "paused_pending_key",
                 geminiAvailable = hasGeminiKey,
-                openAiAvailable = hasOpenAiKey
+                openAiAvailable = hasOpenAiKey,
+                reachable = hasGeminiKey || hasOpenAiKey
+            },
+            auth = new
+            {
+                accepted = authUser != null,
+                userId = authUser?.Id,
+                email = authUser?.Email,
+                name = authUser?.FullName,
+                role = authUser != null ? "Student" : null
             },
             supportedQuestionSets = new[]
             {

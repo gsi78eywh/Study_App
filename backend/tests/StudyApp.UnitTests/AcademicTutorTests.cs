@@ -46,7 +46,7 @@ public class AcademicTutorTests
         var inMemoryConfig = new Dictionary<string, string?>
         {
             { "AiSettings:ApiKey", "none" },
-            { "AiSettings:ModelId", "gemini-3.6-flash" }
+            { "AiSettings:ModelId", "gemini-3.1-flash-lite" }
         };
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(inMemoryConfig).Build();
         var httpClient = new HttpClient();
@@ -72,7 +72,7 @@ public class AcademicTutorTests
         var fakeTutor = new FakeAiTutorService();
         var inMemoryConfig = new Dictionary<string, string?>
         {
-            { "AiSettings:ModelId", "gemini-3.6-flash" }
+            { "AiSettings:ModelId", "gemini-3.1-flash-lite" }
         };
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(inMemoryConfig).Build();
 
@@ -95,6 +95,28 @@ public class AcademicTutorTests
         Assert.Contains("AIzaSyUserKey123", response.Reply);
     }
 
+    [Fact]
+    public async Task AiController_GetTutorStatus_ReturnsStatusFromService()
+    {
+        // Arrange
+        var fakeTutor = new FakeAiTutorService();
+        var inMemoryConfig = new Dictionary<string, string?>
+        {
+            { "AiSettings:ModelId", "gemini-3.1-flash-lite" }
+        };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(inMemoryConfig).Build();
+        var controller = new AiController(fakeTutor, configuration);
+
+        // Act
+        var result = await controller.GetTutorStatus(CancellationToken.None);
+
+        // Assert
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var status = Assert.IsType<TutorStatusResponse>(okResult.Value);
+        Assert.True(status.Reachable);
+        Assert.Equal("gemini-3.1-flash-lite", status.Model);
+    }
+
     private class FakeAiTutorService : IAiTutorService
     {
         public string? LastReceivedApiKey { get; private set; }
@@ -104,7 +126,7 @@ public class AcademicTutorTests
             LastReceivedApiKey = request.ApiKey;
             return Task.FromResult(new AskTutorResponse(
                 $"Replied to: {request.Message} with key: {request.ApiKey}",
-                "gemini-3.6-flash",
+                "gemini-3.1-flash-lite",
                 DateTime.UtcNow
             ));
         }
@@ -122,6 +144,11 @@ public class AcademicTutorTests
         public Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default)
         {
             return Task.FromResult(true);
+        }
+
+        public Task<TutorStatusResponse> CheckStatusAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new TutorStatusResponse(true, "AI Tutor Online", "gemini-3.1-flash-lite", 20));
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿using System.IdentityModel.Tokens.Jwt;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.Extensions.Configuration;
@@ -51,5 +51,35 @@ public class JwtTokenGenerator : IJwtTokenGenerator
         );
 
         return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+    }
+
+    public ClaimsPrincipal? ValidateToken(string token)
+    {
+        var secret = _configuration["JwtSettings:Secret"];
+        if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32) return null;
+        var issuer = _configuration["JwtSettings:Issuer"] ?? "StudyApp";
+        var audience = _configuration["JwtSettings:Audience"] ?? "StudyAppMobileClient";
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
+
+        var tokenHandler = new JwtSecurityTokenHandler();
+        try
+        {
+            var principal = tokenHandler.ValidateToken(token, new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = key,
+                ValidateIssuer = true,
+                ValidIssuer = issuer,
+                ValidateAudience = true,
+                ValidAudience = audience,
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.FromMinutes(5)
+            }, out _);
+            return principal;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

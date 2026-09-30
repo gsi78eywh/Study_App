@@ -654,27 +654,16 @@ public class OpenAiAiService : IAiQuestionGenerator, IAiTutorService
         }
 
         catch (Exception ex)
-
         {
-
             _logger.LogWarning(ex, "[OpenAI] Tutor request failed. Gracefully falling back to academic synthesizer.");
-
         }
 
-
-
         var fallbackReply = AcademicTutorSynthesizer.SynthesizeResponse(request.Message, request.ContextTopic, request.History);
-
         return new AskTutorResponse(
-
             fallbackReply,
-
             "Built-in Academic Engine",
-
             DateTime.UtcNow
-
         );
-
     }
 
 
@@ -950,6 +939,18 @@ public class OpenAiAiService : IAiQuestionGenerator, IAiTutorService
             return false;
 
         }
+
+    }
+
+
+
+    public Task<TutorStatusResponse> CheckStatusAsync(CancellationToken cancellationToken = default)
+
+    {
+
+        var hasKey = !IsWiringPaused && IsValidProjectKey(_serverApiKey);
+
+        return Task.FromResult(new TutorStatusResponse(hasKey, "OpenAI", _model, 0.0, hasKey ? "Online" : "Missing API Key"));
 
     }
 

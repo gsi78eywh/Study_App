@@ -13,14 +13,30 @@ public record AskTutorRequest(
     bool IsSocraticMode = false,
     bool IsTeachMeMode = false,
     string? WeakConceptsContext = null,
-    string? RecentMistakesContext = null
+    string? RecentMistakesContext = null,
+    string? StudySetId = null,
+    string? CourseId = null
 );
 
 public record AskTutorResponse(
     string Reply,
     string ModelUsed,
-    DateTime Timestamp
+    DateTime Timestamp,
+    double LatencySeconds = 0.0,
+    int? TokenCount = null,
+    bool NotesAttached = false
 );
+
+public record TutorStatusResponse(
+    bool Online,
+    string Engine,
+    string Model,
+    double LatencyMs = 0.0,
+    string? Message = null
+)
+{
+    public bool Reachable => Online;
+}
 
 public record ExplainQuestionRequest(
     string Prompt,

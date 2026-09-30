@@ -1,4 +1,4 @@
-﻿using StudyApp.Application.DTOs.Ai;
+using StudyApp.Application.DTOs.Ai;
 
 namespace StudyApp.Application.Common.Interfaces;
 
@@ -20,4 +20,6 @@ public interface IAiTutorService
         CancellationToken cancellationToken = default);
 
     Task<bool> IsHealthyAsync(CancellationToken cancellationToken = default);
+
+    Task<TutorStatusResponse> CheckStatusAsync(CancellationToken cancellationToken = default);
 }

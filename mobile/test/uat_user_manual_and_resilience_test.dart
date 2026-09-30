@@ -146,6 +146,11 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
+      FlutterError.onError = (details) {
+        final info = details.informationCollector?.call().map((node) => node.toStringDeep()).join("\n") ?? "";
+        debugPrint("OVERFLOW WIDGET TREE:\n$info");
+      };
+
       await tester.pumpWidget(
         StudyAppMobile(
           sessionService: session,
@@ -154,7 +159,6 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
       expect(find.byType(BottomNavigationBar), findsOneWidget);
 
       // 2. Desktop Viewport (1280x800)

@@ -13,12 +13,14 @@ class ChatMessage {
   final String role; // "user" or "assistant"
   final String text;
   final String? modelUsed;
+  final double? latencySeconds;
   final DateTime timestamp;
 
   ChatMessage({
     required this.role,
     required this.text,
     this.modelUsed,
+    this.latencySeconds,
     required this.timestamp,
   });
 }
@@ -57,6 +59,8 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
   bool _isTeachMeMode = false;
   String? _weakConceptsContext;
   String? _recentMistakesContext;
+  bool? _isTutorOnline = true;
+  String _tutorStatusLabel = "AI Tutor Online";
 
   final List<String> _quickPrompts = [
     "👨‍🏫 Test me: Ask me to explain a concept (Feynman Technique)",
@@ -108,10 +112,12 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
             : "👋 Hi! I'm your **Study Tutor**, powered by Gemini.\n\n"
                 "I can help you master complex coursework, explain tricky equations, break down practice problems, and give you conceptual clarity.\n\n"
                 "What topic or question are we tackling today?",
-        modelUsed: hasGeminiKey ? "gemini-3.6-flash" : "Built-In Academic Engine",
+        modelUsed: hasGeminiKey ? "gemini-3.1-flash-lite" : "Built-In Academic Engine",
         timestamp: DateTime.now(),
       ),
     );
+
+    _checkTutorStatus();
 
     if (widget.initialPrompt != null &&
         widget.initialPrompt!.trim().isNotEmpty) {
@@ -141,6 +147,25 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     });
   }
 
+  Future<void> _checkTutorStatus() async {
+    try {
+      final res = await widget.apiClient.dio.get(
+        "/api/v1/dev/diagnostics",
+      );
+      if (res.statusCode == 200 && res.data is Map && (res.data as Map).containsKey("aiService")) {
+        final aiService = res.data["aiService"] as Map?;
+        final isOnline = aiService?["reachable"] == true;
+        if (mounted) {
+          setState(() {
+            _isTutorOnline = isOnline;
+            _tutorStatusLabel = isOnline ? "AI Tutor Online" : "Tutor Offline";
+          });
+        }
+        return;
+      }
+    } catch (_) {}
+  }
+
   Future<void> _sendMessage(String text) async {
     final query = text.trim();
     if (query.isEmpty || _isLoading) return;
@@ -154,6 +179,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     });
     _scrollToBottom();
 
+    final stopwatch = Stopwatch()..start();
     try {
       final history = _messages
           .where((m) => m.role == "user" || m.role == "assistant")
@@ -185,20 +211,27 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
               : history,
         },
       );
+      stopwatch.stop();
 
       if (response.statusCode == 200 && response.data != null) {
         final reply =
             response.data["reply"] as String? ?? "No response received.";
         final model =
-            response.data["modelUsed"] as String? ?? "gemini-flash-latest";
+            response.data["modelUsed"] as String? ?? "gemini-3.1-flash-lite";
+        final latency = response.data["latencySeconds"] is num
+            ? (response.data["latencySeconds"] as num).toDouble()
+            : (stopwatch.elapsedMilliseconds / 1000.0);
 
         if (mounted) {
           setState(() {
+            _isTutorOnline = true;
+            _tutorStatusLabel = "AI Tutor Online";
             _messages.add(
               ChatMessage(
                 role: "assistant",
                 text: reply,
                 modelUsed: model,
+                latencySeconds: latency,
                 timestamp: DateTime.now(),
               ),
             );
@@ -206,14 +239,18 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
         }
       }
     } catch (e) {
+      stopwatch.stop();
       if (mounted) {
         setState(() {
+          _isTutorOnline = false;
+          _tutorStatusLabel = "Tutor Offline";
           _messages.add(
             ChatMessage(
               role: "assistant",
               text:
-                  "📡 **Tutor is currently offline.**\n\nPlease ensure your backend API is running and reachable, then try again.",
-              modelUsed: "offline-fallback",
+                  "📡 **Tutor is currently offline.**\n\nPlease ensure your backend API is running and reachable, then tap the status badge to retry.",
+              modelUsed: "Offline",
+              latencySeconds: stopwatch.elapsedMilliseconds / 1000.0,
               timestamp: DateTime.now(),
             ),
           );
@@ -321,7 +358,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Study Tutor, powered by Gemini",
+                  "Gemini Study Tutor",
                   style: GoogleFonts.outfit(
                     fontWeight: FontWeight.bold,
                     fontSize: 17,
@@ -329,7 +366,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                   ),
                 ),
                 Text(
-                  "Grounded in course notes & active study sets",
+                  "Google Gemini Multimodal AI Engine",
                   style: GoogleFonts.inter(
                     fontSize: 11,
                     color: context.textSecondary,
@@ -340,39 +377,61 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
           ],
         ),
         actions: [
-          // AI Tutor Online Status Badge (Secure Server-Side AI Gateway)
+          // AI Tutor Online Status Badge (Driven by real server health check)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: const Color(0xFF10B981).withValues(alpha: 0.35),
+            child: InkWell(
+              onTap: _checkTutorStatus,
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: (_isTutorOnline == true
+                          ? const Color(0xFF10B981)
+                          : (_isTutorOnline == false
+                              ? AppColors.danger
+                              : const Color(0xFFF59E0B)))
+                      .withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: (_isTutorOnline == true
+                            ? const Color(0xFF10B981)
+                            : (_isTutorOnline == false
+                                ? AppColors.danger
+                                : const Color(0xFFF59E0B)))
+                        .withValues(alpha: 0.35),
+                  ),
                 ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 7,
-                    height: 7,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF10B981),
-                      shape: BoxShape.circle,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: _isTutorOnline == true
+                            ? const Color(0xFF10B981)
+                            : (_isTutorOnline == false
+                                ? AppColors.danger
+                                : const Color(0xFFF59E0B)),
+                        shape: BoxShape.circle,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    "AI Tutor Online",
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF10B981),
+                    const SizedBox(width: 6),
+                    Text(
+                      _tutorStatusLabel,
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: _isTutorOnline == true
+                            ? const Color(0xFF10B981)
+                            : (_isTutorOnline == false
+                                ? AppColors.danger
+                                : const Color(0xFFF59E0B)),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -655,11 +714,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    _buildFormattedMarkdownText(
-                                      msg.text,
-                                      isUser,
-                                      context,
-                                    ),
+                                    _buildMessageContent(msg.text, isUser, context),
                                     const SizedBox(height: 6),
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
@@ -876,6 +931,167 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildMessageContent(String rawText, bool isUser, BuildContext context) {
+    if (rawText.contains("```mermaid")) {
+      final parts = rawText.split("```mermaid");
+      final beforeText = parts[0].trim();
+      final rest = parts[1];
+      final endIdx = rest.indexOf("```");
+      final mermaidCode = endIdx != -1 ? rest.substring(0, endIdx).trim() : rest.trim();
+      final afterText = endIdx != -1 ? rest.substring(endIdx + 3).trim() : "";
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (beforeText.isNotEmpty) ...[
+            _buildFormattedMarkdownText(beforeText, isUser, context),
+            const SizedBox(height: 10),
+          ],
+          _buildMermaidDiagramCard(mermaidCode, context),
+          if (afterText.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _buildFormattedMarkdownText(afterText, isUser, context),
+          ],
+        ],
+      );
+    }
+    return _buildFormattedMarkdownText(rawText, isUser, context);
+  }
+
+  Widget _buildMermaidDiagramCard(String code, BuildContext context) {
+    final isDark = context.isDarkMode;
+    // Extract node labels from mermaid e.g. A[Order Placed] --> B[Inventory Check]
+    final stepMatches = RegExp(r'\[([^\]]+)\]').allMatches(code).map((m) => m.group(1)!).toList();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF6366F1).withValues(alpha: 0.12),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(11),
+                topRight: Radius.circular(11),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.account_tree_rounded, size: 16, color: Color(0xFF6366F1)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "Flowchart Diagram (Mermaid)",
+                    style: GoogleFonts.outfit(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF6366F1),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy_rounded, size: 14, color: Color(0xFF6366F1)),
+                  tooltip: "Copy Mermaid Code",
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: code));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("Diagram Mermaid syntax copied!"),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          // Flowchart Step Visualization
+          if (stepMatches.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  for (int i = 0; i < stepMatches.length; i++) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.04),
+                            blurRadius: 3,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              "${i + 1}",
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF6366F1),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              stepMatches[i],
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: context.textPrimary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (i < stepMatches.length - 1)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 4),
+                        child: Icon(Icons.arrow_downward_rounded, size: 16, color: Color(0xFF6366F1)),
+                      ),
+                  ],
+                ],
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: SelectableText(
+                code,
+                style: const TextStyle(fontFamily: "monospace", fontSize: 11.5),
+              ),
+            ),
+        ],
       ),
     );
   }

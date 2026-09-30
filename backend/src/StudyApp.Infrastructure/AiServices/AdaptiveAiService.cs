@@ -114,4 +114,14 @@ public class AdaptiveAiService : IAiQuestionGenerator, IAiTutorService
 
         return _geminiService.IsHealthyAsync(cancellationToken);
     }
+
+    public Task<TutorStatusResponse> CheckStatusAsync(CancellationToken cancellationToken = default)
+    {
+        if (IsOpenAiSelected)
+        {
+            return _openAiService.CheckStatusAsync(cancellationToken);
+        }
+
+        return _geminiService.CheckStatusAsync(cancellationToken);
+    }
 }

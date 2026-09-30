@@ -1,5 +1,8 @@
+import "dart:convert";
 import "package:dio/dio.dart";
+import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
+import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
 import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
@@ -42,6 +45,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _lowDataMode = false;
   int? _connectionLatencyMs;
   int _selectedSettingsTab = 0; // 0: Study Preferences, 1: Advanced / Developer
+  int _developerTapCount = 0;
+  bool _developerModeUnlocked = kDebugMode;
+  List<String>? _diagnosticsPlainLines;
 
   @override
   void initState() {
@@ -68,11 +74,97 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  void _handleVersionTap() {
+    if (_developerModeUnlocked) return;
+    setState(() {
+      _developerTapCount++;
+      if (_developerTapCount >= 7) {
+        _developerModeUnlocked = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("🛠️ Developer Mode Unlocked! Advanced configurations are now visible."),
+            backgroundColor: AppColors.accent,
+          ),
+        );
+      } else if (_developerTapCount >= 3) {
+        final remaining = 7 - _developerTapCount;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("You are $remaining steps away from developer options."),
+            duration: const Duration(milliseconds: 700),
+          ),
+        );
+      }
+    });
+  }
+
+  void _showUrlValidationError(String message) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.error_outline_rounded, color: AppColors.danger, size: 22),
+            const SizedBox(width: 8),
+            Text(
+              "Endpoint Validation Failed",
+              style: GoogleFonts.outfit(
+                fontWeight: FontWeight.bold,
+                fontSize: 17,
+                color: ctx.textPrimary,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          message,
+          style: TextStyle(color: ctx.textSecondary, fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            child: const Text("Acknowledge"),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _saveSettings() async {
+    final newUrl = _serverUrlController.text.trim();
+
+    // Validate URL if developer mode is active and URL is provided
+    if (_selectedSettingsTab == 1 && newUrl.isNotEmpty) {
+      final uri = Uri.tryParse(newUrl);
+      if (uri == null || (!uri.isScheme("http") && !uri.isScheme("https")) || uri.host.isEmpty) {
+        _showUrlValidationError("Invalid URL format: Base URL must begin with 'http://' or 'https://'.");
+        return;
+      }
+
+      setState(() => _isSaving = true);
+      try {
+        final dio = Dio(BaseOptions(
+          baseUrl: newUrl,
+          connectTimeout: const Duration(seconds: 3),
+          receiveTimeout: const Duration(seconds: 3),
+        ));
+        final resp = await dio.get("/health");
+        if (resp.statusCode != 200) {
+          throw Exception("Status ${resp.statusCode}");
+        }
+      } catch (e) {
+        setState(() => _isSaving = false);
+        _showUrlValidationError("Server Unreachable: The endpoint '$newUrl' is offline or did not pass the health check. Configurations will NOT be saved to a dead endpoint.");
+        return;
+      }
+    }
+
     setState(() => _isSaving = true);
     await widget.sessionService.setGeminiApiKey(_geminiApiKeyController.text.trim());
 
-    final newUrl = _serverUrlController.text.trim();
     if (newUrl.isNotEmpty) {
       await widget.sessionService.setBaseUrl(newUrl);
     }
@@ -86,7 +178,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("✨ Study configurations and API keys saved successfully!"),
+        content: Text("✨ Study configurations saved successfully!"),
         backgroundColor: AppColors.accent,
         duration: Duration(seconds: 2),
       ),
@@ -99,6 +191,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     setState(() {
       _isTestingConnection = true;
+      _diagnosticsPlainLines = null;
       _connectionTestResult = null;
       _connectionSuccess = null;
       _connectionLatencyMs = null;
@@ -107,8 +200,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final stopwatch = Stopwatch()..start();
 
     try {
+      final token = widget.sessionService.token;
+      final headers = <String, String>{};
+      if (token != null && token.isNotEmpty) {
+        headers["Authorization"] = "Bearer $token";
+      }
+
       final dio = Dio(BaseOptions(
         baseUrl: targetUrl,
+        headers: headers,
         connectTimeout: const Duration(seconds: 4),
         receiveTimeout: const Duration(seconds: 4),
       ));
@@ -119,27 +219,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       if (response.statusCode == 200 && response.data is Map) {
         final data = response.data as Map;
-        final db = data["database"]?["provider"] ?? "Database";
-        final questions = data["database"]?["questionCount"] ?? 0;
-        final env = data["environment"] ?? "Active";
+        final version = data["version"]?.toString() ?? "1.0.0-prod";
+        final aiService = data["aiService"] as Map?;
+        final geminiReachable = aiService?["reachable"] == true;
+        final geminiModel = aiService?["model"]?.toString() ?? "gemini-3.1-flash-lite";
+        final auth = data["auth"] as Map?;
+        final userAccepted = auth?["accepted"] == true;
+        final userName = auth?["name"]?.toString() ?? auth?["email"]?.toString();
+
         if (mounted) {
           setState(() {
             _connectionSuccess = true;
             _connectionLatencyMs = latency;
-            _connectionTestResult = "Connected ($env, $db with $questions questions).";
+            _connectionTestResult = "All systems operational.";
+            _diagnosticsPlainLines = [
+              "Server reachable: yes (${latency}ms)",
+              "Backend version: v$version",
+              "Gemini reachable: ${geminiReachable ? 'yes ($geminiModel)' : 'no'}",
+              "Logged-in user accepted by the server: ${userAccepted ? 'yes ($userName)' : 'no (unauthenticated)'}",
+            ];
           });
         }
       } else {
-        final healthResp = await dio.get("/health");
         stopwatch.stop();
-        final latency2 = stopwatch.elapsedMilliseconds;
         if (mounted) {
           setState(() {
-            _connectionSuccess = healthResp.statusCode == 200;
-            _connectionLatencyMs = healthResp.statusCode == 200 ? latency2 : null;
-            _connectionTestResult = healthResp.statusCode == 200
-                ? "Connected! Server health check passed."
-                : "Server responded with status ${response.statusCode}.";
+            _connectionSuccess = false;
+            _connectionLatencyMs = null;
+            _diagnosticsPlainLines = [
+              "Server reachable: no (HTTP ${response.statusCode})",
+              "Backend version: unreachable",
+              "Gemini reachable: no",
+              "Logged-in user accepted by the server: no",
+            ];
           });
         }
       }
@@ -149,12 +261,175 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {
           _connectionSuccess = false;
           _connectionLatencyMs = null;
-          _connectionTestResult = "Connection failed: Ensure backend is reachable at $targetUrl";
+          final errorMsg = e is DioException ? (e.message ?? "connection refused") : "unreachable";
+          _diagnosticsPlainLines = [
+            "Server reachable: no ($errorMsg)",
+            "Backend version: unreachable",
+            "Gemini reachable: no",
+            "Logged-in user accepted by the server: no",
+          ];
         });
       }
     } finally {
       if (mounted) {
         setState(() => _isTestingConnection = false);
+      }
+    }
+  }
+
+  Future<void> _confirmAndClearChatLogs() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.delete_forever_rounded, color: AppColors.danger, size: 24),
+            const SizedBox(width: 10),
+            Text(
+              "Clear AI Chat Logs?",
+              style: GoogleFonts.outfit(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+                color: ctx.textPrimary,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          "This will permanently delete your AI tutoring conversation history both locally and from the backend server. This action cannot be undone.",
+          style: TextStyle(color: ctx.textSecondary, height: 1.4, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Clear Logs"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final response = await widget.apiClient.dio.delete("/api/v1/ai/chat-logs");
+      if (response.statusCode == 200 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("✨ Cleared: AI chat logs permanently removed on server and local cache."),
+            backgroundColor: Color(0xFF10B981),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Failed to clear server chat logs: $e"),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _exportLearningData() async {
+    try {
+      final userEmail = widget.sessionService.email ?? "student";
+      final data = {
+        "exportFormat": "StudyApp_StudentDataVault_v1",
+        "exportTimestampUtc": DateTime.now().toUtc().toIso8601String(),
+        "user": {
+          "userId": widget.sessionService.userId,
+          "email": widget.sessionService.email,
+          "fullName": widget.sessionService.fullName,
+        },
+        "studySettings": _current.toJson(),
+      };
+
+      final jsonStr = const JsonEncoder.withIndent("  ").convert(data);
+
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: ctx.surfaceColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.download_done_rounded, color: Color(0xFF10B981), size: 22),
+              const SizedBox(width: 10),
+              Text(
+                "Export Learning Data",
+                style: GoogleFonts.outfit(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  color: ctx.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Academic profile and study configurations for $userEmail:",
+                style: TextStyle(color: ctx.textSecondary, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                height: 140,
+                width: double.maxFinite,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: SingleChildScrollView(
+                  child: Text(
+                    jsonStr,
+                    style: const TextStyle(fontFamily: "monospace", fontSize: 11),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Close"),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.copy_rounded, size: 16),
+              label: const Text("Copy JSON"),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: jsonStr));
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text("📋 Learning data JSON copied to clipboard!"),
+                    backgroundColor: Color(0xFF10B981),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Export failed: $e"),
+            backgroundColor: AppColors.danger,
+          ),
+        );
       }
     }
   }
@@ -234,98 +509,99 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         children: [
-          // Segmented Tab Switcher (Study Preferences vs Advanced / Developer)
-          Container(
-            margin: const EdgeInsets.only(bottom: 20),
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: context.surfaceColor,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: context.cardBorderColor),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: InkWell(
-                    onTap: () => setState(() => _selectedSettingsTab = 0),
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: _selectedSettingsTab == 0
-                            ? (isDark ? AppColors.primary : AppColors.primaryDark)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.school_rounded,
-                            size: 16,
-                            color: _selectedSettingsTab == 0
-                                ? Colors.white
-                                : context.textSecondary,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            "Study Preferences",
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
+          // Segmented Tab Switcher (Visible only if developer mode unlocked)
+          if (_developerModeUnlocked)
+            Container(
+              margin: const EdgeInsets.only(bottom: 20),
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: context.surfaceColor,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: context.cardBorderColor),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => setState(() => _selectedSettingsTab = 0),
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _selectedSettingsTab == 0
+                              ? (isDark ? AppColors.primary : AppColors.primaryDark)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.school_rounded,
+                              size: 16,
                               color: _selectedSettingsTab == 0
                                   ? Colors.white
                                   : context.textSecondary,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 8),
+                            Text(
+                              "Study Preferences",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: _selectedSettingsTab == 0
+                                    ? Colors.white
+                                    : context.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-                Expanded(
-                  child: InkWell(
-                    onTap: () => setState(() => _selectedSettingsTab = 1),
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: _selectedSettingsTab == 1
-                            ? (isDark ? AppColors.primary : AppColors.primaryDark)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.tune_rounded,
-                            size: 16,
-                            color: _selectedSettingsTab == 1
-                                ? Colors.white
-                                : context.textSecondary,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            "Advanced & Developer",
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => setState(() => _selectedSettingsTab = 1),
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _selectedSettingsTab == 1
+                              ? (isDark ? AppColors.primary : AppColors.primaryDark)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.tune_rounded,
+                              size: 16,
                               color: _selectedSettingsTab == 1
                                   ? Colors.white
                                   : context.textSecondary,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 8),
+                            Text(
+                              "Advanced & Developer",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: _selectedSettingsTab == 1
+                                    ? Colors.white
+                                    : context.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
 
-          if (_selectedSettingsTab == 0) ...[
+          if (!_developerModeUnlocked || _selectedSettingsTab == 0) ...[
             // DSWD Child Protection, Standards & Accessibility
             _buildChildProtectionSection(),
 
@@ -661,7 +937,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         prefixIcon: const Icon(Icons.link_rounded, size: 18),
                         suffixIcon: IconButton(
                           icon: const Icon(Icons.refresh_rounded, size: 18),
-                          tooltip: "Reset to Default",
+                          tooltip: "Reset to Default (${ApiConstants.defaultBaseUrl})",
                           onPressed: () {
                             _serverUrlController.text = ApiConstants.defaultBaseUrl;
                           },
@@ -675,17 +951,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       runSpacing: 6,
                       children: [
                         ActionChip(
-                          avatar: const Icon(Icons.computer_rounded, size: 14),
-                          label: const Text("Localhost:5000", style: TextStyle(fontSize: 11)),
+                          avatar: const Icon(Icons.cloud_done_rounded, size: 14, color: Color(0xFF10B981)),
+                          label: const Text("Railway (Production)", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                           onPressed: () {
-                            setState(() => _serverUrlController.text = "http://localhost:5000");
+                            setState(() => _serverUrlController.text = ApiConstants.railwayProductionUrl);
                           },
                         ),
                         ActionChip(
                           avatar: const Icon(Icons.phone_android_rounded, size: 14),
                           label: const Text("Android (10.0.2.2)", style: TextStyle(fontSize: 11)),
                           onPressed: () {
-                            setState(() => _serverUrlController.text = "http://10.0.2.2:5000");
+                            setState(() => _serverUrlController.text = ApiConstants.androidEmulatorUrl);
+                          },
+                        ),
+                        ActionChip(
+                          avatar: const Icon(Icons.wifi_rounded, size: 14),
+                          label: const Text("Phone Wi-Fi (172.23.249.209)", style: TextStyle(fontSize: 11)),
+                          onPressed: () {
+                            setState(() => _serverUrlController.text = ApiConstants.localWifiUrl);
+                          },
+                        ),
+                        ActionChip(
+                          avatar: const Icon(Icons.computer_rounded, size: 14),
+                          label: const Text("Localhost:5000", style: TextStyle(fontSize: 11)),
+                          onPressed: () {
+                            setState(() => _serverUrlController.text = ApiConstants.localhostUrl);
                           },
                         ),
                       ],
@@ -715,9 +1005,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onPressed: _isTestingConnection ? null : _testServerConnection,
                       ),
                     ),
-                    if (_connectionTestResult != null) ...[
+                    if (_diagnosticsPlainLines != null) ...[
                       const SizedBox(height: 10),
                       Container(
+                        width: double.infinity,
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: (_connectionSuccess == true ? const Color(0xFF10B981) : AppColors.danger).withValues(alpha: 0.1),
@@ -726,39 +1017,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             color: (_connectionSuccess == true ? const Color(0xFF10B981) : AppColors.danger).withValues(alpha: 0.3),
                           ),
                         ),
-                        child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(
-                              _connectionSuccess == true ? Icons.check_circle_rounded : Icons.error_outline_rounded,
-                              color: _connectionSuccess == true ? const Color(0xFF10B981) : AppColors.danger,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _connectionTestResult!,
-                                    style: TextStyle(
-                                      color: _connectionSuccess == true ? const Color(0xFF10B981) : AppColors.danger,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                            Row(
+                              children: [
+                                Icon(
+                                  _connectionSuccess == true ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+                                  color: _connectionSuccess == true ? const Color(0xFF10B981) : AppColors.danger,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _connectionSuccess == true ? "Server Diagnostics: ONLINE" : "Server Diagnostics: OFFLINE",
+                                  style: TextStyle(
+                                    color: _connectionSuccess == true ? const Color(0xFF10B981) : AppColors.danger,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
                                   ),
-                                  if (_connectionLatencyMs != null) ...[
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      "Round-trip latency: ${_connectionLatencyMs}ms",
-                                      style: TextStyle(
-                                        color: context.textSecondary,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
+                            if (_connectionTestResult != null) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                _connectionTestResult!,
+                                style: TextStyle(
+                                  color: _connectionSuccess == true ? const Color(0xFF10B981) : AppColors.danger,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 8),
+                            for (final line in _diagnosticsPlainLines!)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 2),
+                                child: Text(
+                                  line,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontFamily: "monospace",
+                                    color: context.textPrimary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -851,12 +1155,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         const Icon(Icons.shield_outlined, color: Color(0xFF10B981), size: 20),
                         const SizedBox(width: 8),
-                        Text(
-                          "UNESCO Human-Centered AI Principles",
-                          style: GoogleFonts.outfit(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: context.textPrimary,
+                        Expanded(
+                          child: Text(
+                            "Designed around human-centered AI principles (UNESCO)",
+                            style: GoogleFonts.outfit(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: context.textPrimary,
+                            ),
                           ),
                         ),
                       ],
@@ -874,26 +1180,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         OutlinedButton.icon(
                           icon: const Icon(Icons.download_rounded, size: 16),
                           label: const Text("Export Learning Data (JSON)"),
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text("📦 Study pack & academic profile exported securely."),
-                                backgroundColor: Color(0xFF10B981),
-                              ),
-                            );
-                          },
+                          onPressed: _exportLearningData,
                         ),
                         OutlinedButton.icon(
                           icon: const Icon(Icons.delete_outline_rounded, size: 16, color: AppColors.danger),
                           label: const Text("Clear AI Chat Logs", style: TextStyle(color: AppColors.danger)),
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text("🧹 AI Tutor conversation cache cleared."),
-                                backgroundColor: AppColors.primary,
-                              ),
-                            );
-                          },
+                          onPressed: _confirmAndClearChatLogs,
                         ),
                       ],
                     ),
@@ -937,6 +1229,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
 
           const SizedBox(height: 28),
+
+          // App Version & Build Footer
+          Center(
+            child: InkWell(
+              onTap: _handleVersionTap,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Column(
+                  children: [
+                    Text(
+                      "StudyApp v1.0.0 (Build 104) • Powered by Gemini AI",
+                      style: TextStyle(
+                        color: context.textSecondary,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (!_developerModeUnlocked)
+                      Text(
+                        "Student Edition (tap for developer mode)",
+                        style: TextStyle(
+                          color: context.textSecondary.withValues(alpha: 0.5),
+                          fontSize: 10,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
 
           // Save Button
           ElevatedButton.icon(

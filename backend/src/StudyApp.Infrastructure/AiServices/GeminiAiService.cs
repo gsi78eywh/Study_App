@@ -752,271 +752,160 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
 
     public async Task<AskTutorResponse> AskTutorAsync(
-
         AskTutorRequest request,
-
         CancellationToken cancellationToken = default)
-
     {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         var isExplicitlyOffline = _cloudCallsDisabled ||
-
             string.Equals(request.ApiKey, "none", StringComparison.OrdinalIgnoreCase) ||
-
             string.Equals(request.ApiKey, "disabled", StringComparison.OrdinalIgnoreCase) ||
-
             string.Equals(request.ApiKey, "offline", StringComparison.OrdinalIgnoreCase);
 
-
-
         var effectiveApiKey = !isExplicitlyOffline
-
             ? (!string.IsNullOrWhiteSpace(request.ApiKey)
-
                 ? request.ApiKey.Trim()
-
                 : (!string.IsNullOrWhiteSpace(_apiKey)
-
                     ? _apiKey
-
-                    : (Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? Environment.GetEnvironmentVariable("GOOGLE_API_KEY"))))
-
+                    : (Environment.GetEnvironmentVariable("AiSettings__ApiKey")
+                        ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY")
+                        ?? Environment.GetEnvironmentVariable("GOOGLE_API_KEY"))))
             : null;
 
+        var notesAttached = !string.IsNullOrWhiteSpace(request.ContextTopic) ||
+                            !string.IsNullOrWhiteSpace(request.WeakConceptsContext) ||
+                            !string.IsNullOrWhiteSpace(request.RecentMistakesContext);
 
-
-        var cacheKey = $"tutor_{request.Message.Trim().ToLowerInvariant()}_{request.ContextTopic?.ToLowerInvariant()}_{(effectiveApiKey != null ? "ai" : "local")}";
-
+        var cacheKey = $"tutor_{request.Message.Trim().ToLowerInvariant()}_{request.ContextTopic?.ToLowerInvariant()}_{request.IsSocraticMode}";
         if (_cache.TryGetValue(cacheKey, out var cached) && cached.Data is AskTutorResponse cachedResponse)
-
         {
-
             return cachedResponse;
-
         }
 
-
-
-        // If an API key is available, attempt cloud Gemini API call
-
-        if (!string.IsNullOrWhiteSpace(effectiveApiKey))
-
+        if (string.IsNullOrWhiteSpace(effectiveApiKey) || effectiveApiKey.Contains("YOUR_GEMINI_API_KEY"))
         {
-
-            var systemInstruction = request.IsTeachMeMode
-
-                ? """
-
-                You are 'Gemini Reverse Tutor' operating in 'TEACH THE AI' MODE (Feynman Learning Technique).
-
-                Your pedagogical mission is to let the student demonstrate mastery by teaching you:
-
-                - Act as an intelligent, curious, and inquisitive student learning this subject for the first time.
-
-                - Ask the user to explain the core intuition, mechanisms, and edge cases of the topic.
-
-                - Probe for deep understanding: "Wait, why does that happen? What if the input is empty or negative?"
-
-                - Gently spot check subtle misconceptions: If they confuse terms (e.g. Stack vs Queue), politely ask them to clarify the difference with an everyday analogy.
-
-                - Enthusiastically validate accurate reasoning and challenge them: "That makes complete sense! Can you give me a real-world scenario where a software engineer would choose this over an alternative?"
-
-                - Conclude by rating their conceptual clarity and offering a gold-star takeaway.
-
-                """
-
-                : request.IsSocraticMode
-
-                ? """
-
-                You are 'Gemini Study Tutor' operating in SOCRATIC PEDAGOGICAL MODE.
-
-                Your mission is to build durable, active student understanding, following proven educational principles:
-
-                - DO NOT give away the final answer or solution immediately.
-
-                - Scaffold the student's thinking by providing one focused, clarifying hint at a time.
-
-                - Ask thought-provoking follow-up questions that guide the student to discover the answer themselves.
-
-                - Point out common traps or misconceptions if they are veering off track.
-
-                - If the student asks "What's the answer?", give a targeted hint and ask what they think the next step is.
-
-                - When they reach the correct answer, celebrate their insight and ask a brief reflection question to anchor retention.
-
-                """
-
-                : """
-
-                You are 'Gemini Study Tutor', an encouraging, academically rigorous AI tutor and coding mentor for university students.
-
-                Guidelines:
-
-                - When a student asks for code (e.g. Flutter, Dart, HTML, CSS, JavaScript, Python, C#, Java, SQL), provide complete, working, modern code formatted inside Markdown code blocks with language syntax highlighting and concise line-by-line explanations.
-
-                - When a student asks for code documentation, docstrings, or API specifications, provide comprehensive, industry-standard documentation (e.g. C# XML docs with <summary>, <param>, <returns>, Python PEP 257/Google-style docstrings, JSDoc/TSDoc for TypeScript, and Dartdoc for Flutter) along with test cases and clear architectural notes.
-
-                - Provide clear conceptual explanations followed by step-by-step logic.
-
-                - Break down formulas, equations, or legal/scientific terminology clearly.
-
-                - Connect concepts to practical applications and exam questions.
-
-                - Keep explanations focused and digestible with Markdown formatting.
-
-                - When a student asks for practice, test cases, or debugging help, provide clear explanations with executable test cases.
-
-                """;
-
-
-
-            var promptBuilder = new StringBuilder();
-
-            promptBuilder.AppendLine(systemInstruction);
-
-            if (!string.IsNullOrWhiteSpace(request.ContextTopic))
-
-            {
-
-                promptBuilder.AppendLine($"\nCURRENT COURSE / SUBJECT CONTEXT: {request.ContextTopic}");
-
-            }
-
-            if (!string.IsNullOrWhiteSpace(request.WeakConceptsContext))
-
-            {
-
-                promptBuilder.AppendLine($"\nSTUDENT'S RECENT WEAK CONCEPTS: {request.WeakConceptsContext}");
-
-            }
-
-            if (!string.IsNullOrWhiteSpace(request.RecentMistakesContext))
-
-            {
-
-                promptBuilder.AppendLine($"\nSTUDENT'S RECENT MISCONCEPTION PATTERNS: {request.RecentMistakesContext}");
-
-            }
-
-
-
-            if (request.History != null && request.History.Count > 0)
-
-            {
-
-                promptBuilder.AppendLine("\nRECENT CONVERSATION:");
-
-                foreach (var h in request.History.TakeLast(6))
-
-                {
-
-                    promptBuilder.AppendLine($"{(h.Role == "model" ? "Tutor" : "Student")}: {h.Content}");
-
-                }
-
-            }
-
-
-
-            promptBuilder.AppendLine($"\nSTUDENT QUESTION: {request.Message}");
-
-
-
-            var payload = new
-
-            {
-
-                contents = new[]
-
-                {
-
-                    new
-
-                    {
-
-                        parts = new[]
-
-                        {
-
-                            new { text = promptBuilder.ToString() }
-
-                        }
-
-                    }
-
-                },
-
-                generationConfig = new
-
-                {
-
-                    temperature = 0.5
-
-                },
-
-                safetySettings = ChildSafeSafetySettings
-
-            };
-
-
-
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
-            cts.CancelAfter(TimeSpan.FromSeconds(35));
-
-
-
-            try
-
-            {
-
-                var (responseText, modelUsed) = await CallNativeGeminiWithFallbackAsync(payload, effectiveApiKey, cts.Token);
-
-                if (!string.IsNullOrWhiteSpace(responseText))
-
-                {
-
-                    var response = new AskTutorResponse(responseText, modelUsed, DateTime.UtcNow);
-
-                    _cache[cacheKey] = (DateTime.UtcNow, response);
-
-                    return response;
-
-                }
-
-            }
-
-            catch (Exception ex)
-
-            {
-
-                _logger.LogWarning(ex, "Gemini tutor cloud call error, falling back to built-in academic synthesizer");
-
-            }
-
+            _logger.LogInformation("No valid cloud Gemini API key; using local AcademicTutorSynthesizer.");
+            var localReply = AcademicTutorSynthesizer.SynthesizeResponse(request.Message, request.ContextTopic, request.History);
+            var localResponse = new AskTutorResponse(
+                localReply,
+                "Built-In Academic Engine",
+                DateTime.UtcNow,
+                0.0,
+                null,
+                notesAttached
+            );
+            _cache[cacheKey] = (DateTime.UtcNow, localResponse);
+            return localResponse;
         }
 
+        // Real System Instruction as specified by User Requirements
+        var systemInstruction = request.IsSocraticMode
+            ? """
+            You are a study tutor operating in Socratic mode. Answer the student's actual request. Use the provided course notes first, and say when something isn't in the notes. If you're unsure, say so instead of guessing. If the request is unclear, ask one short clarifying question. If the student asks for a diagram, reply with a Mermaid flowchart in a mermaid code block plus two sentences of explanation. Never invent facts, formulas, or citations. Keep answers under 200 words unless asked for more. In Socratic mode, give hints and questions, not final answers.
+            """
+            : """
+            You are a study tutor. Answer the student's actual request. Use the provided course notes first, and say when something isn't in the notes (e.g. 'That is outside your course notes, but here is a draft:'). If you're unsure, say so instead of guessing. If the request is unclear, ask one short clarifying question. If the student asks for a diagram, reply with a Mermaid flowchart in a mermaid code block plus two sentences of explanation. Never invent facts, formulas, or citations. Keep answers under 200 words unless asked for more.
+            """;
 
+        var contentsList = new List<object>();
+
+        // Add last 6-10 turns of conversation history
+        if (request.History != null && request.History.Count > 0)
+        {
+            foreach (var h in request.History.TakeLast(10))
+            {
+                var role = (string.Equals(h.Role, "assistant", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(h.Role, "model", StringComparison.OrdinalIgnoreCase))
+                    ? "model"
+                    : "user";
+                contentsList.Add(new
+                {
+                    role = role,
+                    parts = new[] { new { text = h.Content } }
+                });
+            }
+        }
+
+        // Build current student prompt with grounded notes if available
+        var currentPromptBuilder = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(request.ContextTopic))
+        {
+            currentPromptBuilder.AppendLine($"[Course Notes / Topic Context]: {request.ContextTopic}");
+        }
+        if (!string.IsNullOrWhiteSpace(request.WeakConceptsContext))
+        {
+            currentPromptBuilder.AppendLine($"[Key Course Notes / High Yield Concepts]: {request.WeakConceptsContext}");
+        }
+        if (!string.IsNullOrWhiteSpace(request.RecentMistakesContext))
+        {
+            currentPromptBuilder.AppendLine($"[Recent Missed Questions / Misconceptions]: {request.RecentMistakesContext}");
+        }
+        if (currentPromptBuilder.Length > 0)
+        {
+            currentPromptBuilder.AppendLine();
+        }
+        currentPromptBuilder.Append(request.Message);
+
+        contentsList.Add(new
+        {
+            role = "user",
+            parts = new[] { new { text = currentPromptBuilder.ToString() } }
+        });
+
+        var payload = new
+        {
+            system_instruction = new
+            {
+                parts = new[] { new { text = systemInstruction } }
+            },
+            contents = contentsList,
+            generationConfig = new
+            {
+                temperature = 0.3
+            },
+            safetySettings = ChildSafeSafetySettings
+        };
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(30));
+
+        var (responseText, modelUsed) = await CallNativeGeminiWithFallbackAsync(payload, effectiveApiKey, cts.Token);
+        stopwatch.Stop();
+
+        if (!string.IsNullOrWhiteSpace(responseText) &&
+            !string.Equals(modelUsed, "Built-In Academic Engine", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(modelUsed, "offline", StringComparison.OrdinalIgnoreCase))
+        {
+            var latencySec = Math.Round(stopwatch.Elapsed.TotalSeconds, 2);
+            _logger.LogInformation("Gemini tutor call successful: model={Model}, latency={Latency}s, notesAttached={NotesAttached}",
+                modelUsed, latencySec, notesAttached);
+
+            var response = new AskTutorResponse(
+                responseText,
+                modelUsed,
+                DateTime.UtcNow,
+                latencySec,
+                null,
+                notesAttached
+            );
+
+            _cache[cacheKey] = (DateTime.UtcNow, response);
+            return response;
+        }
 
         // When offline, no key provided, or cloud Gemini is unreachable, synthesize high-yield academic response
-
         var synthesizedReply = AcademicTutorSynthesizer.SynthesizeResponse(request.Message, request.ContextTopic, request.History);
-
         var fallbackResponse = new AskTutorResponse(
-
             synthesizedReply,
-
             "Built-In Academic Engine",
-
-            DateTime.UtcNow
-
+            DateTime.UtcNow,
+            Math.Round(stopwatch.Elapsed.TotalSeconds, 2),
+            null,
+            notesAttached
         );
 
         _cache[cacheKey] = (DateTime.UtcNow, fallbackResponse);
-
         return fallbackResponse;
-
     }
 
 
@@ -1034,24 +923,15 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         var key = !string.IsNullOrWhiteSpace(apiKeyOverride) ? apiKeyOverride.Trim() : _apiKey;
 
         if (string.IsNullOrWhiteSpace(key) ||
-
             key.Contains("YOUR_GEMINI_API_KEY") ||
-
             string.Equals(key, "none", StringComparison.OrdinalIgnoreCase) ||
-
             string.Equals(key, "disabled", StringComparison.OrdinalIgnoreCase) ||
-
             string.Equals(key, "offline", StringComparison.OrdinalIgnoreCase))
-
         {
-
             return (null, "Built-In Academic Engine");
-
         }
 
-
-
-        var modelsToTry = new[] { _model, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash" }
+        var modelsToTry = new[] { _model, "gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-3.8-flash" }
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -1076,7 +956,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                     try
                     {
                         using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                        attemptCts.CancelAfter(TimeSpan.FromSeconds(6));
+                        attemptCts.CancelAfter(TimeSpan.FromSeconds(15));
 
                         var url = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={key}";
                         using var request = new HttpRequestMessage(HttpMethod.Post, url);
@@ -1132,7 +1012,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                     }
                     catch (OperationCanceledException)
                     {
-                        _logger.LogWarning("Gemini API attempt {Attempt} for {Model} timed out after 6s", attempt, modelName);
+                        _logger.LogWarning("Gemini API attempt {Attempt} for {Model} timed out after 15s", attempt, modelName);
                         break;
                     }
                     catch (Exception ex)
@@ -1580,6 +1460,70 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
     }
 
 
+
+    public async Task<TutorStatusResponse> CheckStatusAsync(CancellationToken cancellationToken = default)
+
+    {
+
+        var key = !string.IsNullOrWhiteSpace(_apiKey)
+
+            ? _apiKey
+
+            : (Environment.GetEnvironmentVariable("AiSettings__ApiKey")
+
+                ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY")
+
+                ?? Environment.GetEnvironmentVariable("GOOGLE_API_KEY"));
+
+
+
+        if (string.IsNullOrWhiteSpace(key) || key.Contains("YOUR_GEMINI_API_KEY") || _cloudCallsDisabled)
+
+        {
+
+            return new TutorStatusResponse(false, "None", "offline", 0, "No API key configured");
+
+        }
+
+
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        try
+
+        {
+
+            using var pingCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models?key={key}";
+
+            using var resp = await _httpClient.GetAsync(url, pingCts.Token);
+
+            sw.Stop();
+
+            if (resp.IsSuccessStatusCode)
+
+            {
+
+                return new TutorStatusResponse(true, "Gemini", _model, Math.Round(sw.Elapsed.TotalMilliseconds, 1), "Online");
+
+            }
+
+            return new TutorStatusResponse(false, "Gemini", "offline", Math.Round(sw.Elapsed.TotalMilliseconds, 1), $"HTTP {(int)resp.StatusCode}");
+
+        }
+
+        catch (Exception ex)
+
+        {
+
+            sw.Stop();
+
+            return new TutorStatusResponse(false, "Gemini", "offline", Math.Round(sw.Elapsed.TotalMilliseconds, 1), ex.Message);
+
+        }
+
+    }
 
 }
 

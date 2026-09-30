@@ -607,30 +607,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _handleOfflineDemoLogin() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    await widget.sessionService.saveAuth(
-      token: "guest_session_token",
-      userId: "guest_${DateTime.now().millisecondsSinceEpoch}",
-      email: "guest@studyapp.app",
-      fullName: "Guest Student",
-    );
-
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => DashboardScreen(
-          apiClient: widget.apiClient,
-          sessionService: widget.sessionService,
-        ),
-      ),
-    );
-  }
-
   void _showServerConfigDialog() {
     final currentBase = widget.sessionService.baseUrl ?? ApiConstants.defaultBaseUrl;
     final urlController = TextEditingController(text: currentBase);
@@ -1061,20 +1037,30 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 16),
 
-                          // Clearly labeled Guest Mode
+                          // Try Demo Student Account (Visually secondary tertiary styling)
                           Center(
-                            child: OutlinedButton.icon(
-                              onPressed: _isLoading ? null : _handleOfflineDemoLogin,
-                              icon: const Icon(Icons.person_outline_rounded, size: 16, color: Color(0xFF10B981)),
+                            child: TextButton.icon(
+                              onPressed: () {
+                                _emailController.text = "dev@studyapp.local";
+                                _passwordController.text = "DevPass123!";
+                                setState(() {
+                                  _errorMessage = null;
+                                });
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text("Demo student credentials loaded."),
+                                    duration: Duration(seconds: 2),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFFF59E0B)),
                               label: const Text(
-                                "Continue as Guest",
+                                "Try Demo Student Account",
                                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                               ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFF10B981),
-                                side: BorderSide(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
-                                padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 20),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              style: TextButton.styleFrom(
+                                foregroundColor: context.textSecondary,
+                                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
                               ),
                             ),
                           ),

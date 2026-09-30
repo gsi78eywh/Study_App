@@ -839,11 +839,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
     _loadTodayStudyPlan();
 
-    if ((result.isUnauthorized ||
-            result.message.contains("401") ||
-            result.message.toLowerCase().contains("unauthorized") ||
-            result.message.toLowerCase().contains("session expired")) &&
-        widget.sessionService.token != "offline_demo_guest_token") {
+    if (result.isUnauthorized ||
+        result.message.contains("401") ||
+        result.message.toLowerCase().contains("unauthorized") ||
+        result.message.toLowerCase().contains("session expired")) {
       await widget.sessionService.clearAuth();
       if (mounted) {
         Navigator.of(context).pushReplacement(
@@ -2063,7 +2062,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             Icon(Icons.verified_user_rounded, color: Colors.white, size: 14),
                             SizedBox(width: 4),
                             Text(
-                              '🛡️ Child safety resources',
+                              '🛡️ DSWD Safe • 1383',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 11,

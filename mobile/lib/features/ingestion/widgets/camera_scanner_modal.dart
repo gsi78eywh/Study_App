@@ -90,7 +90,111 @@ class _CameraScannerModalState extends State<CameraScannerModal>
   String _ocrEngine = "";
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _textController = TextEditingController();
+  static const Map<String, Map<String, String>> _samplePresets = {
+    "biology": {
+      "name": "🧬 Biology: Cellular Respiration & ATP",
+      "title": "Cellular Respiration & Energy Notes",
+      "text": """Cellular Respiration and ATP Synthesis
 
+1. Glycolysis:
+- Occurs in the cytoplasm of cells.
+- Anaerobic process: does not require oxygen.
+- Glucose (6-carbon molecule) is split into two molecules of pyruvate (3 carbons each).
+- Net yield: 2 ATP molecules and 2 NADH molecules per glucose.
+
+2. The Krebs Cycle (Citric Acid Cycle):
+- Located inside the mitochondrial matrix.
+- Aerobic pathway requiring oxygen availability.
+- Pyruvate is converted into Acetyl-CoA before entering the cycle.
+- Produces ATP, NADH, and FADH2 while releasing CO2 as a byproduct.
+
+3. Oxidative Phosphorylation and Electron Transport Chain (ETC):
+- Located on the inner mitochondrial membrane (cristae).
+- High-energy electrons from NADH and FADH2 drive proton pumps into the intermembrane space.
+- Proton gradient drives ATP Synthase to generate approximately 26 to 28 ATP molecules.
+- Oxygen is the terminal electron acceptor, reacting with protons to form water (H2O).
+- Total theoretical maximum yield of cellular respiration is 30 to 32 ATP per glucose.
+
+Key Concepts:
+- ATP Synthase: Rotary motor enzyme synthesizing ATP from ADP and inorganic phosphate.
+- Chemiosmosis: Diffusion of hydrogen ions across a membrane down their electrochemical gradient."""
+    },
+    "cs": {
+      "name": "💻 Computer Science: Data Structures & Trees",
+      "title": "Data Structures & Tree Traversal",
+      "text": """Data Structures: Binary Trees and Graph Traversals
+
+1. Binary Search Tree (BST) Properties:
+- A node-based binary tree data structure.
+- Left subtree of a node contains only nodes with keys lesser than the node's key.
+- Right subtree of a node contains only nodes with keys greater than the node's key.
+- Both left and right subtrees must also be binary search trees.
+- Average search, insert, and delete time complexity is O(log n). Worst case is O(n) for unbalanced trees.
+
+2. Self-Balancing Trees:
+- AVL Tree: Strictly balanced binary search tree where height difference between left and right subtrees is at most 1.
+- Red-Black Tree: Guarantees search in O(log n) time by enforcing color properties and rotations during insert and delete.
+
+3. Tree Traversal Algorithms:
+- Inorder Traversal (Left, Root, Right): Traverses BST in ascending numerical order.
+- Preorder Traversal (Root, Left, Right): Commonly used to create a duplicate copy of the tree.
+- Postorder Traversal (Left, Right, Root): Used to delete or free tree nodes from leaves to root."""
+    },
+    "chemistry": {
+      "name": "🧪 Chemistry: Chemical Equilibrium & Le Chatelier",
+      "title": "Chemical Equilibrium & Reaction Dynamics",
+      "text": """Chemical Equilibrium and Le Chatelier's Principle
+
+1. Dynamic Chemical Equilibrium:
+- Occurs in a reversible chemical reaction when the rate of the forward reaction equals the rate of the reverse reaction.
+- Concentrations of reactants and products remain constant over time.
+- Equilibrium Constant (Keq) expresses the ratio of product concentrations to reactant concentrations at a given temperature.
+
+2. Le Chatelier's Principle:
+- When a chemical system at equilibrium is disturbed by a change in temperature, pressure, or concentration, the system shifts in the direction that counteracts the disturbance.
+- Increasing reactant concentration shifts equilibrium towards products.
+- Increasing pressure shifts equilibrium toward the side with fewer gas moles.
+- For an exothermic reaction, increasing temperature shifts equilibrium toward reactants."""
+    }
+  };
+
+  void _loadSamplePreset(String key) {
+    final preset = _samplePresets[key];
+    if (preset == null) return;
+
+    final dummyPngBytes = _createSimplePlaceholderBytes(preset["title"]!);
+
+    setState(() {
+      _capturedImageBytes = dummyPngBytes;
+      _capturedImageName = "${key}_notes_scan.png";
+      _extractedText = preset["text"]!;
+      _titleController.text = preset["title"]!;
+      _textController.text = preset["text"]!;
+      _charCount = preset["text"]!.length;
+      _wordCount = preset["text"]!.split(RegExp(r"\\s+")).length;
+      _ocrEngine = "Gemini Multimodal Vision (Preset)";
+      _errorMessage = null;
+      _isScanning = false;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("✨ Loaded ${preset["title"]} sample scan!"),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Uint8List _createSimplePlaceholderBytes(String text) {
+    return Uint8List.fromList([
+      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00,
+      0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82
+    ]);
+  }
 
   @override
   void initState() {
@@ -611,7 +715,9 @@ class _CameraScannerModalState extends State<CameraScannerModal>
                   if (_extractedText.isNotEmpty)
                     _buildExtractedResultInspector(context, isDark),
 
-
+                  // Quick Academic Notes Presets
+                  if (_extractedText.isEmpty && !_isScanning)
+                    _buildSamplePresetsSection(context, isDark),
 
                   const SizedBox(height: 24),
                 ],
@@ -1062,6 +1168,60 @@ class _CameraScannerModalState extends State<CameraScannerModal>
     );
   }
 
+  Widget _buildSamplePresetsSection(BuildContext context, bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.bolt_rounded, color: Color(0xFFF59E0B), size: 16),
+            const SizedBox(width: 6),
+            Text(
+              "Or Test with Preset Academic Notes (1-Tap):",
+              style: GoogleFonts.outfit(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: context.textPrimary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        ..._samplePresets.entries.map((entry) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            child: InkWell(
+              onTap: () => _loadSamplePreset(entry.key),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                decoration: BoxDecoration(
+                  color: context.secondaryBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: context.cardBorderColor),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        entry.value["name"]!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: context.textPrimary,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.arrow_forward_ios_rounded, size: 12, color: Color(0xFF6366F1)),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
 }
 
 class _ReticleCorner extends StatelessWidget {
