@@ -24,6 +24,7 @@ class SettingsScreen extends StatefulWidget {
   final SessionService sessionService;
   final SettingsService settingsService;
   final VoidCallback? onLogout;
+  final bool initialDeveloperModeUnlocked;
 
   const SettingsScreen({
     super.key,
@@ -31,6 +32,7 @@ class SettingsScreen extends StatefulWidget {
     required this.sessionService,
     required this.settingsService,
     this.onLogout,
+    this.initialDeveloperModeUnlocked = false,
   });
 
   @override
@@ -47,7 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool? _connectionSuccess;
   bool _lowDataMode = false;
   int? _connectionLatencyMs;
-  bool _developerModeUnlocked = kDebugMode;
+  late bool _developerModeUnlocked;
   bool? _hasGeminiOnServer;
   List<String>? _diagnosticsPlainLines;
 
@@ -57,6 +59,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    _developerModeUnlocked = widget.initialDeveloperModeUnlocked;
     _current = widget.settingsService.settings;
     _geminiApiKeyController = TextEditingController(text: widget.sessionService.geminiApiKey ?? "");
     _serverUrlController = TextEditingController(

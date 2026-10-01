@@ -117,7 +117,7 @@ void main() {
   });
 
   group("SettingsScreen Developer Connection Widget Tests", () {
-    testWidgets("SettingsScreen renders Developer API Connection card and presets", (tester) async {
+    testWidgets("SettingsScreen hides developer options by default for newly signed in users", (tester) async {
       SharedPreferences.setMockInitialValues({
         "jwt_token": "mock-token",
         "user_id": "test-user-id",
@@ -143,7 +143,39 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Scroll down to Developer Card (visible in debug mode)
+      // By default, developer options must NOT be shown to new or general users
+      expect(find.text("🛠️ Developer & Cloud API Connection"), findsNothing);
+      expect(find.text("Backend API Base URL"), findsNothing);
+    });
+
+    testWidgets("SettingsScreen renders Developer API Connection card and presets when unlocked", (tester) async {
+      SharedPreferences.setMockInitialValues({
+        "jwt_token": "mock-token",
+        "user_id": "test-user-id",
+        "user_email": "student@studyapp.test",
+        "user_full_name": "Student Tester",
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final sessionService = SessionService(prefs);
+      ThemeController.init(sessionService);
+      final apiClient = ApiClient(sessionService);
+      final settingsService = SettingsService(prefs);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SettingsScreen(
+              apiClient: apiClient,
+              sessionService: sessionService,
+              settingsService: settingsService,
+              initialDeveloperModeUnlocked: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Scroll down to Developer Card (visible when unlocked)
       await tester.scrollUntilVisible(
         find.text("🛠️ Developer & Cloud API Connection"),
         300,
