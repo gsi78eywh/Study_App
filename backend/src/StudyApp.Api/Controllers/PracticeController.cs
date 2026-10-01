@@ -852,7 +852,11 @@ public sealed class PracticeController : ControllerBase
 
         var questions = await _context.Questions
             .Include(q => q.StudySet)
-            .Where(q => request.MissedQuestionIds.Contains(q.Id))
+                .ThenInclude(s => s!.Course)
+            .Where(q => request.MissedQuestionIds.Contains(q.Id) &&
+                        q.StudySet != null &&
+                        q.StudySet.Course != null &&
+                        q.StudySet.Course.UserId == userId.Value)
             .ToListAsync(cancellationToken);
 
         var targetedTopics = questions

@@ -66,7 +66,7 @@ void main() {
       // Verify Category Selector Tabs (matches tab pill or section banner)
       expect(find.text("Core Workflow Loop"), findsWidgets);
       expect(find.text("Passive Capture (OCR & Video)"), findsWidgets);
-      expect(find.text("Grade Tracker & GWA (USJ-R)"), findsWidgets);
+      expect(find.text("Grade Tracker & GWA"), findsWidgets);
       expect(find.text("Study Priority Engine"), findsWidgets);
       expect(find.text("Resilience & Security"), findsWidgets);
 
@@ -82,9 +82,9 @@ void main() {
       expect(find.text("YouTube & Lecture Transcript Synthesis"), findsOneWidget);
 
       // Tap Section 3: Grade Tracker
-      await tester.tap(find.text("Grade Tracker & GWA (USJ-R)").first);
+      await tester.tap(find.text("Grade Tracker & GWA").first);
       await tester.pumpAndSettle();
-      expect(find.text("Collegiate Grading Scale & Honors"), findsOneWidget);
+      expect(find.text("Configurable Grading Scale & Honors"), findsOneWidget);
       expect(find.text("'What Grade Do I Need' Calculator"), findsOneWidget);
 
       // Tap Section 4: Study Priority Engine

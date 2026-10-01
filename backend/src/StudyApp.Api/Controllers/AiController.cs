@@ -6,6 +6,9 @@ using System.Text;
 using StudyApp.Application.Common.Interfaces;
 using StudyApp.Application.DTOs.Ai;
 
+using System.Security.Claims;
+using StudyApp.Application.Common.Exceptions;
+
 namespace StudyApp.Api.Controllers;
 
 [ApiController]
@@ -31,6 +34,8 @@ public class AiController : ControllerBase
         _logger = logger;
     }
 
+    private Guid? CurrentUserId() => Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId) ? userId : null;
+
     [HttpPost("tutor")]
     public async Task<IActionResult> AskTutor([FromBody] AskTutorRequest request, CancellationToken cancellationToken)
     {
@@ -49,15 +54,17 @@ public class AiController : ControllerBase
 
         var effectiveRequest = request with { ApiKey = effectiveApiKey };
 
-        // Attach course notes grounding if studySetId is provided
+        // Attach course notes grounding if studySetId is provided and owned by the current user
         if (_context != null && !string.IsNullOrWhiteSpace(request.StudySetId) && Guid.TryParse(request.StudySetId, out var setId))
         {
             try
             {
+                var currentUserId = CurrentUserId();
                 var studySet = await _context.StudySets
                     .Include(s => s.Questions)
+                    .Include(s => s.Course)
                     .AsNoTracking()
-                    .FirstOrDefaultAsync(s => s.Id == setId, cancellationToken);
+                    .FirstOrDefaultAsync(s => s.Id == setId && s.Course != null && (currentUserId == null || s.Course.UserId == currentUserId.Value), cancellationToken);
 
                 if (studySet != null)
                 {
@@ -95,6 +102,24 @@ public class AiController : ControllerBase
         {
             var response = await _aiTutorService.AskTutorAsync(effectiveRequest, cancellationToken);
             return Ok(response);
+        }
+        catch (AiUnavailableException ex)
+        {
+            _logger?.LogWarning(ex, "AI Tutor unavailable: {Kind} - {Message}", ex.Kind, ex.Message);
+            var status = ex.Kind switch
+            {
+                AiFailure.RateLimited => 429,
+                AiFailure.Blocked => 422,
+                _ => 503
+            };
+            return StatusCode(status, new AskTutorResponse(
+                ex.Message,
+                "unavailable",
+                DateTime.UtcNow,
+                0.0,
+                null,
+                false
+            ));
         }
         catch (Exception ex)
         {

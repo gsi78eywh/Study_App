@@ -11,6 +11,10 @@ using StudyApp.Application.DTOs.Ingestion;
 using StudyApp.Domain.Entities;
 using StudyApp.Domain.Enums;
 
+using System.Net.Sockets;
+using System.Text;
+using StudyApp.Infrastructure.DocumentParsers;
+
 namespace StudyApp.Api.Controllers;
 
 [ApiController]
@@ -273,7 +277,6 @@ public class IngestionController : ControllerBase
         });
     }
 
-    [AllowAnonymous]
     [HttpPost("scan")]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> ScanDocumentContent(
@@ -409,8 +412,7 @@ public class IngestionController : ControllerBase
         string extractedText = "";
         string candidateTitle = string.IsNullOrWhiteSpace(request.Title) ? uri.Host : request.Title;
 
-        bool isYouTube = request.Url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || 
-                         request.Url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase);
+        bool isYouTube = IsYouTubeUrl(request.Url);
 
         if (isYouTube)
         {
@@ -485,7 +487,6 @@ public class IngestionController : ControllerBase
         });
     }
 
-    [AllowAnonymous]
     [HttpPost("scan-url")]
     public async Task<IActionResult> ScanUrl([FromBody] ScanUrlRequest request)
     {
@@ -501,8 +502,7 @@ public class IngestionController : ControllerBase
         string extractedText = "";
         string candidateTitle = uri.Host;
 
-        bool isYouTubeScan = request.Url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || 
-                             request.Url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase);
+        bool isYouTubeScan = IsYouTubeUrl(request.Url);
 
         if (isYouTubeScan)
         {
@@ -611,8 +611,7 @@ public class IngestionController : ControllerBase
                 return BadRequest(new { message = "Only valid HTTP(S) URLs can be processed." });
             }
 
-            bool isYouTubeT2n = url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) || 
-                               url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase);
+            bool isYouTubeT2n = IsYouTubeUrl(url);
 
             if (isYouTubeT2n)
             {
@@ -774,20 +773,81 @@ public class IngestionController : ControllerBase
         });
     }
 
+    public static bool IsYouTubeUrl(string rawUrl)
+    {
+        if (string.IsNullOrWhiteSpace(rawUrl)) return false;
+        if (!Uri.TryCreate(rawUrl, UriKind.Absolute, out var uri)) return false;
+        if (uri.Scheme != "http" && uri.Scheme != "https") return false;
+
+        var host = uri.Host.ToLowerInvariant();
+        return host == "youtube.com" || host.EndsWith(".youtube.com") ||
+               host == "youtu.be" || host.EndsWith(".youtu.be");
+    }
+
     private static async Task<(string? Text, string? Title)> TryExtractYouTubeContentAsync(string url, CancellationToken ct)
     {
         try
         {
-            if (!url.Contains("youtube.com", StringComparison.OrdinalIgnoreCase) && 
-                !url.Contains("youtu.be", StringComparison.OrdinalIgnoreCase))
+            if (!IsYouTubeUrl(url))
                 return (null, null);
 
-            using var httpClient = new HttpClient();
-            httpClient.Timeout = TimeSpan.FromSeconds(20);
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                return (null, null);
+
+            var handler = new SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+                UseProxy = false,
+                ConnectCallback = async (context, token) =>
+                {
+                    var entry = await Dns.GetHostEntryAsync(context.DnsEndPoint.Host, token);
+                    var publicAddresses = entry.AddressList.Where(ip => !DocumentExtractor.IsPrivateOrLocal(ip)).ToList();
+                    if (publicAddresses.Count == 0)
+                    {
+                        throw new InvalidOperationException("Local or private network URLs cannot be fetched.");
+                    }
+                    var address = publicAddresses.OrderBy(ip => ip.AddressFamily == AddressFamily.InterNetwork ? 0 : 1).First();
+                    var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                    try
+                    {
+                        await socket.ConnectAsync(new IPEndPoint(address, context.DnsEndPoint.Port), token);
+                        return new NetworkStream(socket, ownsSocket: true);
+                    }
+                    catch
+                    {
+                        socket.Dispose();
+                        throw;
+                    }
+                }
+            };
+
+            using var httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
             httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             httpClient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
 
-            var html = await httpClient.GetStringAsync(url, ct);
+            using var response = await httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                return (null, null);
+            }
+
+            const long maxBytes = 5 * 1024 * 1024;
+            if (response.Content.Headers.ContentLength > maxBytes)
+            {
+                return (null, null);
+            }
+
+            using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var ms = new MemoryStream();
+            var buffer = new byte[8192];
+            int read;
+            while ((read = await stream.ReadAsync(buffer, ct)) > 0)
+            {
+                if (ms.Length + read > maxBytes) return (null, null);
+                ms.Write(buffer, 0, read);
+            }
+
+            var html = Encoding.UTF8.GetString(ms.ToArray());
 
             // Extract Title
             string? videoTitle = null;
@@ -1106,8 +1166,11 @@ public class IngestionController : ControllerBase
     [HttpGet("/api/v1/studysets/{id:guid}/export")]
     public async Task<IActionResult> ExportStudySet(Guid id, [FromQuery] string format = "markdown")
     {
+        var currentUserId = CurrentUserId();
+        if (currentUserId is null) return Unauthorized();
+
         var studySet = await _context.StudySets
-            .Where(s => s.Id == id && (s.Course == null || s.Course.UserId == CurrentUserId()))
+            .Where(s => s.Id == id && s.Course != null && s.Course.UserId == currentUserId.Value)
             .Include(s => s.Course)
             .Include(s => s.SourceDocuments)
             .Include(s => s.Questions)

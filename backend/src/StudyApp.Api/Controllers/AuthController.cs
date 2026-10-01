@@ -23,20 +23,24 @@ public class AuthController : ControllerBase
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenGenerator _jwtTokenGenerator;
     private readonly IConfiguration _configuration;
+    private readonly IHostEnvironment _environment;
 
     public AuthController(
         IApplicationDbContext context,
         IPasswordHasher passwordHasher,
         IJwtTokenGenerator jwtTokenGenerator,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         _context = context;
         _passwordHasher = passwordHasher;
         _jwtTokenGenerator = jwtTokenGenerator;
         _configuration = configuration;
+        _environment = environment;
     }
 
     [HttpPost("register")]
+    [AllowAnonymous]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
         var email = request.Email?.Trim().ToLowerInvariant();
@@ -69,6 +73,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
+    [AllowAnonymous]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         var email = request.Email?.Trim().ToLowerInvariant();
@@ -88,6 +93,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("forgot-password")]
+    [AllowAnonymous]
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
     {
         var email = request.Email?.Trim().ToLowerInvariant();
@@ -97,26 +103,25 @@ public class AuthController : ControllerBase
         }
 
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-        if (user == null)
+        string? devResetToken = null;
+        if (user != null)
         {
-            // Consistent response to prevent user enumeration attacks
-            return Ok(new
+            var resetToken = GenerateResetToken(user);
+            if (_environment.IsDevelopment())
             {
-                message = "If an account is associated with this email, password reset instructions have been dispatched.",
-                resetToken = (string?)null
-            });
+                devResetToken = resetToken;
+            }
         }
-
-        var resetToken = GenerateResetToken(user);
 
         return Ok(new
         {
             message = "If an account is associated with this email, password reset instructions have been dispatched.",
-            resetToken
+            resetToken = devResetToken
         });
     }
 
     [HttpPost("reset-password")]
+    [AllowAnonymous]
     public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
     {
         var email = request.Email?.Trim().ToLowerInvariant();
@@ -145,6 +150,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("google")]
     [HttpPost("/auth/google")]
+    [AllowAnonymous]
     public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginRequest request)
     {
         if (string.IsNullOrWhiteSpace(request?.IdToken))
@@ -152,12 +158,18 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Google ID token is required." });
         }
 
+        var configuredClientId = _configuration["Authentication:Google:ClientId"]
+            ?? Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID");
+
+        if (!_environment.IsDevelopment() && string.IsNullOrWhiteSpace(configuredClientId))
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Google Sign-In is not configured on this server." });
+        }
+
         GoogleJsonWebSignature.Payload payload;
         try
         {
             var settings = new GoogleJsonWebSignature.ValidationSettings();
-            var configuredClientId = _configuration["Authentication:Google:ClientId"]
-                ?? Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID");
             if (!string.IsNullOrWhiteSpace(configuredClientId))
             {
                 settings.Audience = new[] { configuredClientId };
@@ -165,9 +177,9 @@ public class AuthController : ControllerBase
 
             payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, settings);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return Unauthorized(new { message = $"Google ID token verification failed: {ex.Message}" });
+            return Unauthorized(new { message = "Invalid or expired Google authentication credentials." });
         }
 
         if (string.IsNullOrWhiteSpace(payload?.Email))
@@ -175,27 +187,52 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Verified Google token did not contain an email address." });
         }
 
+        if (!payload.EmailVerified)
+        {
+            return Unauthorized(new { message = "Google email address has not been verified." });
+        }
+
         var email = payload.Email.Trim().ToLowerInvariant();
+        var googleSubject = payload.Subject;
         var fullName = !string.IsNullOrWhiteSpace(payload.Name)
             ? payload.Name.Trim()
             : (!string.IsNullOrWhiteSpace(payload.GivenName) ? payload.GivenName.Trim() : "Google Student");
 
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+        // Link on GoogleSubject first, then on verified email
+        var user = (!string.IsNullOrWhiteSpace(googleSubject)
+            ? await _context.Users.FirstOrDefaultAsync(u => u.GoogleSubject == googleSubject)
+            : null)
+            ?? await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+
         if (user == null)
         {
             user = new User
             {
                 Email = email,
                 FullName = fullName,
+                GoogleSubject = googleSubject,
                 PasswordHash = _passwordHasher.HashPassword(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)))
             };
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
         }
-        else if (user.FullName == "Google Student" && fullName != "Google Student")
+        else
         {
-            user.FullName = fullName;
-            await _context.SaveChangesAsync();
+            bool modified = false;
+            if (string.IsNullOrEmpty(user.GoogleSubject) && !string.IsNullOrWhiteSpace(googleSubject))
+            {
+                user.GoogleSubject = googleSubject;
+                modified = true;
+            }
+            if (user.FullName == "Google Student" && fullName != "Google Student")
+            {
+                user.FullName = fullName;
+                modified = true;
+            }
+            if (modified)
+            {
+                await _context.SaveChangesAsync();
+            }
         }
 
         var (token, expiresAt) = _jwtTokenGenerator.GenerateToken(user);
@@ -222,6 +259,18 @@ public class AuthController : ControllerBase
             return NotFound(new { message = "User account not found." });
         }
 
+        try
+        {
+            // Clean up non-FK raw SQL records associated with this user
+            if (_context is DbContext dbContext)
+            {
+                await dbContext.Database.ExecuteSqlRawAsync(
+                    "DELETE FROM \"AcademicTasks\" WHERE \"UserId\" = {0}",
+                    userId.ToString());
+            }
+        }
+        catch { }
+
         var userCourses = await _context.Courses
             .Include(c => c.StudySets)
             .Where(c => c.UserId == userId)
@@ -241,54 +290,54 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("oauth")]
+    [AllowAnonymous]
     public async Task<IActionResult> OAuthLogin([FromBody] OAuthLoginRequest request)
     {
         var provider = request.Provider?.Trim().ToLowerInvariant();
-        if (provider != "google" && provider != "apple")
+        if (provider == "apple")
         {
-            return BadRequest(new { message = "Supported OAuth providers are 'google' and 'apple'." });
+            return BadRequest(new { message = "Sign in with Apple is currently not enabled." });
         }
 
-        // For Google, enforce verified token verification via /api/v1/auth/google
-        if (provider == "google")
+        if (provider != "google")
         {
-            if (string.IsNullOrWhiteSpace(request.IdToken))
+            return BadRequest(new { message = "Supported OAuth provider is 'google'." });
+        }
+
+        // For Google, enforce verified token verification via GoogleLogin
+        if (string.IsNullOrWhiteSpace(request.IdToken))
+        {
+            return BadRequest(new { message = "Google Sign-In requires an authenticated ID token. Client-typed emails are disallowed." });
+        }
+
+        // Only allow mock token bypass in Development environment for automated UAT test runs
+        if (_environment.IsDevelopment() && (request.IdToken.StartsWith("mock_") || request.IdToken.StartsWith("oauth_verified_token_")))
+        {
+            var email = request.Email?.Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(email) || !System.Net.Mail.MailAddress.TryCreate(email, out _))
             {
-                return BadRequest(new { message = "Google Sign-In requires an authenticated ID token. Client-typed emails are disallowed." });
+                return BadRequest(new { message = "A valid student email is required for Single Sign-On." });
             }
 
-            if (!request.IdToken.StartsWith("oauth_verified_token_") &&
-                !request.IdToken.StartsWith("mock_"))
+            var fullName = string.IsNullOrWhiteSpace(request.FullName) ? "Google Student" : request.FullName.Trim();
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
+            if (user == null)
             {
-                return await GoogleLogin(new GoogleLoginRequest(request.IdToken));
+                user = new User
+                {
+                    Email = email,
+                    FullName = fullName,
+                    PasswordHash = _passwordHasher.HashPassword(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)))
+                };
+                _context.Users.Add(user);
+                await _context.SaveChangesAsync();
             }
+
+            var (mockToken, mockExpiresAt) = _jwtTokenGenerator.GenerateToken(user);
+            return Ok(new AuthResponse(user.Id, user.Email, user.FullName, mockToken, mockExpiresAt));
         }
 
-        var email = request.Email?.Trim().ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(email) || !System.Net.Mail.MailAddress.TryCreate(email, out _))
-        {
-            return BadRequest(new { message = "A valid student email is required for Single Sign-On." });
-        }
-
-        var fullName = string.IsNullOrWhiteSpace(request.FullName)
-            ? (provider == "google" ? "Google Student" : "Apple Student")
-            : request.FullName.Trim();
-
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-        if (user == null)
-        {
-            user = new User
-            {
-                Email = email,
-                FullName = fullName,
-                PasswordHash = _passwordHasher.HashPassword(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)))
-            };
-            _context.Users.Add(user);
-            await _context.SaveChangesAsync();
-        }
-
-        var (token, expiresAt) = _jwtTokenGenerator.GenerateToken(user);
-        return Ok(new AuthResponse(user.Id, user.Email, user.FullName, token, expiresAt));
+        return await GoogleLogin(new GoogleLoginRequest(request.IdToken));
     }
 
     [HttpGet("me")]

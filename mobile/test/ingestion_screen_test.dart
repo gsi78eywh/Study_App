@@ -49,7 +49,7 @@ void main() {
     // Verify Tabs
     expect(find.text("Paste Text"), findsOneWidget);
     expect(find.text("Upload File / Photo"), findsOneWidget);
-    expect(find.text("Article URL"), findsOneWidget);
+    expect(find.text("Link"), findsOneWidget);
 
     // Switch to Upload File / Photo tab
     await tester.tap(find.text("Upload File / Photo"));

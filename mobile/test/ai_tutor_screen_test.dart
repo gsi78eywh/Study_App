@@ -123,4 +123,38 @@ void main() {
     expect(mockAdapter.lastCapturedRequestBody, contains("AIzaSyLiveTestKey123"));
     expect(mockAdapter.lastCapturedApiKeyHeader, equals("AIzaSyLiveTestKey123"));
   });
+
+  testWidgets("AiTutorScreen supports creating new chats and viewing chat history sheet", (WidgetTester tester) async {
+    final sessionService = await SessionService.init();
+    final apiClient = ApiClient(sessionService);
+    final mockAdapter = MockAiTutorHttpAdapter();
+    apiClient.dio.httpClientAdapter = mockAdapter;
+
+    await tester.pumpWidget(MaterialApp(
+      home: AiTutorScreen(
+        apiClient: apiClient,
+        courses: const [],
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    // Verify New Chat and Chat History buttons exist in AppBar
+    expect(find.byIcon(Icons.add_comment_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.history_rounded), findsOneWidget);
+
+    // Tap Chat History button to open sheet
+    await tester.tap(find.byIcon(Icons.history_rounded));
+    await tester.pumpAndSettle();
+
+    // Verify Chat History sheet is shown with active session
+    expect(find.text("Chat History"), findsOneWidget);
+    expect(find.text("New Study Chat"), findsOneWidget);
+
+    // Tap New Chat in sheet
+    await tester.tap(find.text("New Chat"));
+    await tester.pumpAndSettle();
+
+    // Verify snackbar is shown
+    expect(find.text("✨ New chat session started!"), findsOneWidget);
+  });
 }

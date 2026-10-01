@@ -776,11 +776,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                             !string.IsNullOrWhiteSpace(request.WeakConceptsContext) ||
                             !string.IsNullOrWhiteSpace(request.RecentMistakesContext);
 
-        var cacheKey = $"tutor_{request.Message.Trim().ToLowerInvariant()}_{request.ContextTopic?.ToLowerInvariant()}_{request.IsSocraticMode}";
-        if (_cache.TryGetValue(cacheKey, out var cached) && cached.Data is AskTutorResponse cachedResponse)
-        {
-            return cachedResponse;
-        }
+
 
         if (string.IsNullOrWhiteSpace(effectiveApiKey) || effectiveApiKey.Contains("YOUR_GEMINI_API_KEY"))
         {
@@ -794,7 +790,6 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 null,
                 notesAttached
             );
-            _cache[cacheKey] = (DateTime.UtcNow, localResponse);
             return localResponse;
         }
 
@@ -889,7 +884,6 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 notesAttached
             );
 
-            _cache[cacheKey] = (DateTime.UtcNow, response);
             return response;
         }
 
@@ -904,7 +898,6 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             notesAttached
         );
 
-        _cache[cacheKey] = (DateTime.UtcNow, fallbackResponse);
         return fallbackResponse;
     }
 
@@ -958,8 +951,9 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                         using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                         attemptCts.CancelAfter(TimeSpan.FromSeconds(15));
 
-                        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={key}";
+                        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent";
                         using var request = new HttpRequestMessage(HttpMethod.Post, url);
+                        request.Headers.Add("x-goog-api-key", key);
                         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
                         using var response = await _httpClient.SendAsync(request, attemptCts.Token);

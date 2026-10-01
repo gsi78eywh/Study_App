@@ -56,8 +56,8 @@ void main() {
 
     // 6. Verify "or continue with" divider and Social Auth buttons exist
     expect(find.text("or continue with"), findsOneWidget);
-    expect(find.text("Google"), findsOneWidget);
-    expect(find.text("Apple"), findsOneWidget);
+    expect(find.text("Continue with Google"), findsOneWidget);
+    expect(find.text("Apple"), findsNothing);
 
     // 7. Verify Demo button is rebranded and does NOT expose internal dev email
     expect(find.text("Try Demo Student Account"), findsOneWidget);
@@ -72,15 +72,15 @@ void main() {
     final emailField = tester.widget<TextFormField>(find.widgetWithText(TextFormField, "Email Address"));
     expect(emailField.controller?.text, "dev@studyapp.local");
 
-    // 9. Test secret 5-tap developer gesture on the logo opens Developer Endpoint dialog
-    final logoFinder = find.byIcon(Icons.school_rounded);
-    expect(logoFinder, findsOneWidget);
-    await tester.ensureVisible(logoFinder);
+    // Wait for demo credentials snackbar to dismiss so it doesn't obscure the footer
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
 
-    for (int i = 0; i < 5; i++) {
-      await tester.tap(logoFinder);
-      await tester.pump(const Duration(milliseconds: 100));
-    }
+    // 9. Test long-press on the version footer opens Developer Endpoint dialog in debug builds
+    final footerFinder = find.text("StudyApp v1.0.0");
+    expect(footerFinder, findsOneWidget);
+    await tester.ensureVisible(footerFinder);
+    await tester.longPress(footerFinder);
     await tester.pumpAndSettle();
 
     expect(find.text("Developer Endpoint"), findsOneWidget);
@@ -114,8 +114,8 @@ void main() {
     // Verify all key elements render without any RenderFlex overflow exceptions
     expect(tester.takeException(), isNull);
     expect(find.text("StudyApp"), findsOneWidget);
-    expect(find.text("Google"), findsOneWidget);
-    expect(find.text("Apple"), findsOneWidget);
+    expect(find.text("Continue with Google"), findsOneWidget);
+    expect(find.text("Apple"), findsNothing);
     expect(find.text("Sign In"), findsOneWidget);
   });
 }

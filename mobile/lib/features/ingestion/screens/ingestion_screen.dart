@@ -409,6 +409,81 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     }
   }
 
+  void _showCreateCourseDialog() {
+    final codeCtrl = TextEditingController(text: "GEN-101");
+    final nameCtrl = TextEditingController(text: "General Studies");
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.school_rounded, color: AppColors.primary, size: 22),
+            const SizedBox(width: 10),
+            Text(
+              "Create Course",
+              style: GoogleFonts.outfit(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: ctx.textPrimary,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: codeCtrl,
+              decoration: const InputDecoration(labelText: "Course Code (e.g. CS-101)"),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(labelText: "Course Name (e.g. General Studies)"),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final code = codeCtrl.text.trim();
+              final name = nameCtrl.text.trim();
+              if (code.isNotEmpty && name.isNotEmpty) {
+                try {
+                  final resp = await widget.apiClient.dio.post(
+                    "/api/v1/courses",
+                    data: {
+                      "code": code,
+                      "name": name,
+                      "colorHex": "#6366F1",
+                    },
+                  );
+                  if (resp.statusCode == 200 && resp.data is Map) {
+                    final newCourse = CourseModel.fromJson(resp.data as Map<String, dynamic>);
+                    setState(() {
+                      widget.courses.add(newCourse);
+                      _selectedCourseId = newCourse.id;
+                    });
+                    widget.onCourseSelected?.call(newCourse.id);
+                  }
+                } catch (_) {}
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text("Create"),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _scanAndInspectContent() async {
     if (_selectedFile == null || _selectedFileBytes == null) return;
 
@@ -1444,6 +1519,10 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           setState(() => _errorMessage = "Please enter or paste your study notes.");
           return;
         }
+        if (_textController.text.trim().length < 200) {
+          setState(() => _errorMessage = "Add at least 200 characters of study notes (${_textController.text.trim().length}/200).");
+          return;
+        }
 
         response = await widget.apiClient.dio.post(
           ApiConstants.ingestText,
@@ -1849,54 +1928,27 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                     ),
                   ),
 
-                  // Direct extraction banner
+                  // Direct Note & Document Extractor Tip
                   Container(
                     margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: isDark
-                            ? [const Color(0xFF1E1B4B), const Color(0xFF2E1065)]
-                            : [const Color(0xFFEEF2FF), const Color(0xFFFAF5FF)],
-                      ),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: const Color(0xFF818CF8).withValues(alpha: 0.35),
-                      ),
+                      color: context.secondaryBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: context.cardBorderColor),
                     ),
                     child: Row(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                            ),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(Icons.menu_book_rounded, color: Colors.white, size: 20),
-                        ),
-                        const SizedBox(width: 12),
+                        const Icon(Icons.lightbulb_outline_rounded, color: AppColors.accent, size: 18),
+                        const SizedBox(width: 10),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Direct Note & Document Extractor",
-                                style: GoogleFonts.outfit(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                  color: isDark ? Colors.white : const Color(0xFF312E81),
-                                ),
-                              ),
-                              Text(
-                                "Directly extracts questions, answers, and concepts from notes, handwritten whiteboard photos, and documents grounded directly in your study material.",
-                                style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF4338CA),
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            "Tip: Questions and concepts are extracted directly from your study notes, whiteboard photos, and documents.",
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: context.textSecondary,
+                              height: 1.35,
+                            ),
                           ),
                         ),
                       ],
@@ -3205,47 +3257,54 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
                   const SizedBox(height: 24),
 
-                  final isTextTab = _tabController.index == 0;
-                  final textLen = _textController.text.trim().length;
-                  final hasMinText = !isTextTab || textLen >= 200;
-                  final canGenerate = !_isLoading && hasMinText;
+                  Builder(
+                    builder: (context) {
+                      final isTextTab = _tabController.index == 0;
+                      final textLen = _textController.text.trim().length;
+                      final hasMinText = !isTextTab || textLen >= 200;
+                      final canGenerate = !_isLoading && (textLen == 0 || hasMinText);
 
-                  if (isTextTab && textLen < 200) ...[
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.3)),
-                      ),
-                      child: Text(
-                        "Add at least 200 characters ($textLen/200)",
-                        style: const TextStyle(color: Color(0xFFD97706), fontSize: 12, fontWeight: FontWeight.bold),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ],
-
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    icon: _isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.menu_book_rounded),
-                    label: Text(
-                      _isLoading
-                          ? "Extracting & Synthesizing Study Set..."
-                          : (_fastMode ? "⚡ Quick Local Processing" : "Generate Study Set from Notes"),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                    ),
-                    onPressed: canGenerate ? _handleGenerate : null,
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (isTextTab && textLen < 200)
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                "Add at least 200 characters ($textLen/200)",
+                                style: const TextStyle(color: Color(0xFFD97706), fontSize: 12, fontWeight: FontWeight.bold),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                            ),
+                            icon: _isLoading
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Icon(Icons.menu_book_rounded),
+                            label: Text(
+                              _isLoading
+                                  ? "Extracting & Synthesizing Study Set..."
+                                  : (_fastMode ? "⚡ Quick Local Processing" : "Generate Study Set from Notes"),
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                            ),
+                            onPressed: canGenerate ? _handleGenerate : null,
+                          ),
+                        ],
+                      );
+                    },
                   ),
                   const SizedBox(height: 32),
                 ],

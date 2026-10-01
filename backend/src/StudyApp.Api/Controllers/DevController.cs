@@ -9,6 +9,7 @@ namespace StudyApp.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/dev")]
+[Microsoft.AspNetCore.Authorization.AllowAnonymous]
 public class DevController : ControllerBase
 {
     private readonly IApplicationDbContext _context;
@@ -34,6 +35,11 @@ public class DevController : ControllerBase
     [HttpGet("diagnostics")]
     public async Task<IActionResult> GetDiagnostics()
     {
+        if (!_environment.IsDevelopment())
+        {
+            return NotFound();
+        }
+
         var dbProvider = _context is DbContext dbContext ? dbContext.Database.ProviderName ?? "Unknown" : "Unknown";
         var isSqlite = dbProvider.Contains("Sqlite", StringComparison.OrdinalIgnoreCase);
 
@@ -53,7 +59,7 @@ public class DevController : ControllerBase
 
         // Check authenticated user if token present
         User? authUser = null;
-        var authHeader = Request.Headers.Authorization.FirstOrDefault();
+        var authHeader = Request?.Headers?.Authorization.FirstOrDefault();
         if (!string.IsNullOrWhiteSpace(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
             var token = authHeader.Substring("Bearer ".Length).Trim();
@@ -132,6 +138,11 @@ public class DevController : ControllerBase
     [HttpPost("seed-test-user")]
     public async Task<IActionResult> SeedTestUser()
     {
+        if (!_environment.IsDevelopment())
+        {
+            return NotFound();
+        }
+
         const string testEmail = "dev@studyapp.local";
         const string testPass = "DevPass123!";
 
@@ -219,6 +230,11 @@ public class DevController : ControllerBase
     [HttpGet("endpoints")]
     public IActionResult GetEndpoints()
     {
+        if (!_environment.IsDevelopment())
+        {
+            return NotFound();
+        }
+
         return Ok(new
         {
             auth = new[]

@@ -30,6 +30,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<User>(entity =>
         {
             entity.HasIndex(u => u.Email).IsUnique();
+            entity.HasIndex(u => u.GoogleSubject);
             entity.Property(u => u.Email).HasMaxLength(255).IsRequired();
             entity.Property(u => u.FullName).HasMaxLength(150).IsRequired();
         });

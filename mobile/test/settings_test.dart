@@ -143,18 +143,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Switch to Advanced & Developer tab
-      final advancedTab = find.text("Advanced & Developer");
-      expect(advancedTab, findsOneWidget);
-      await tester.tap(advancedTab);
-      await tester.pumpAndSettle();
-
-      // Scroll down to Developer Card
+      // Scroll down to Developer Card (visible in debug mode)
       await tester.scrollUntilVisible(
         find.text("🛠️ Developer & Cloud API Connection"),
         300,
         scrollable: find.byType(Scrollable).first,
       );
+
       await tester.pumpAndSettle();
 
       // Verify developer card is rendered

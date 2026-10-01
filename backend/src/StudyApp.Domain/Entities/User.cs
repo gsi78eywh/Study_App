@@ -1,4 +1,4 @@
-﻿namespace StudyApp.Domain.Entities;
+namespace StudyApp.Domain.Entities;
 
 public class User
 {
@@ -6,6 +6,9 @@ public class User
     public string Email { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
+    public string? GoogleSubject { get; set; }
+    public bool EmailVerified { get; set; }
+    public string? SecurityStamp { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
     public DateTime? LastSyncAt { get; set; }

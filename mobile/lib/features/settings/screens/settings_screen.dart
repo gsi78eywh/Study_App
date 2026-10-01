@@ -7,14 +7,16 @@ import "package:google_fonts/google_fonts.dart";
 import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/services/child_safety_service.dart";
+import "../../../core/services/notification_service.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../../core/theme/theme_controller.dart";
+import "../../auth/widgets/terms_and_privacy_modal.dart";
+import "../../courses/widgets/user_manual_sheet.dart";
 import "../../quiz/models/quiz_models.dart";
 import "../models/study_settings_model.dart";
 import "../services/settings_service.dart";
 import "../widgets/dswd_safety_modal.dart";
-import "../../courses/widgets/user_manual_sheet.dart";
 
 class SettingsScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -44,10 +46,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool? _connectionSuccess;
   bool _lowDataMode = false;
   int? _connectionLatencyMs;
-  int _selectedSettingsTab = 0; // 0: Study Preferences, 1: Advanced / Developer
-  int _developerTapCount = 0;
   bool _developerModeUnlocked = kDebugMode;
+  bool? _hasGeminiOnServer;
   List<String>? _diagnosticsPlainLines;
+
+  late String _selectedSchoolLevel;
+  late String _selectedGradingScale;
 
   @override
   void initState() {
@@ -57,7 +61,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _serverUrlController = TextEditingController(
       text: widget.sessionService.baseUrl ?? ApiConstants.defaultBaseUrl,
     );
+    _selectedSchoolLevel = widget.sessionService.schoolLevel;
+    _selectedGradingScale = widget.sessionService.gradingScale;
     _loadRemote();
+    _checkServerHealth();
   }
 
   @override
@@ -67,35 +74,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
+  Future<void> _checkServerHealth() async {
+    try {
+      final resp = await widget.apiClient.dio.get("/health");
+      if (resp.statusCode == 200 && resp.data is Map) {
+        if (mounted) {
+          setState(() {
+            _hasGeminiOnServer = resp.data["gemini"] == true;
+          });
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _hasGeminiOnServer = false;
+        });
+      }
+    }
+  }
+
   Future<void> _loadRemote() async {
     final remote = await widget.settingsService.fetchRemoteSettings();
     if (mounted) {
       setState(() => _current = remote);
     }
-  }
-
-  void _handleVersionTap() {
-    if (_developerModeUnlocked) return;
-    setState(() {
-      _developerTapCount++;
-      if (_developerTapCount >= 7) {
-        _developerModeUnlocked = true;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("🛠️ Developer Mode Unlocked! Advanced configurations are now visible."),
-            backgroundColor: AppColors.accent,
-          ),
-        );
-      } else if (_developerTapCount >= 3) {
-        final remaining = 7 - _developerTapCount;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("You are $remaining steps away from developer options."),
-            duration: const Duration(milliseconds: 700),
-          ),
-        );
-      }
-    });
   }
 
   void _showUrlValidationError(String message) {
@@ -136,8 +138,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveSettings() async {
     final newUrl = _serverUrlController.text.trim();
 
-    // Validate URL if developer mode is active and URL is provided
-    if (_selectedSettingsTab == 1 && newUrl.isNotEmpty) {
+    if (kDebugMode && _developerModeUnlocked && newUrl.isNotEmpty) {
       final uri = Uri.tryParse(newUrl);
       if (uri == null || (!uri.isScheme("http") && !uri.isScheme("https")) || uri.host.isEmpty) {
         _showUrlValidationError("Invalid URL format: Base URL must begin with 'http://' or 'https://'.");
@@ -157,7 +158,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       } catch (e) {
         setState(() => _isSaving = false);
-        _showUrlValidationError("Server Unreachable: The endpoint '$newUrl' is offline or did not pass the health check. Configurations will NOT be saved to a dead endpoint.");
+        _showUrlValidationError("Server Unreachable: The endpoint '$newUrl' is offline or did not pass the health check.");
         return;
       }
     }
@@ -168,6 +169,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (newUrl.isNotEmpty) {
       await widget.sessionService.setBaseUrl(newUrl);
     }
+
+    await widget.sessionService.setSchoolLevel(_selectedSchoolLevel);
+    await widget.sessionService.setGradingScale(_selectedGradingScale);
 
     final saved = await widget.settingsService.saveSettings(_current);
     if (!mounted) return;
@@ -241,7 +245,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           });
         }
       } else {
-        stopwatch.stop();
         if (mounted) {
           setState(() {
             _connectionSuccess = false;
@@ -349,12 +352,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
           "userId": widget.sessionService.userId,
           "email": widget.sessionService.email,
           "fullName": widget.sessionService.fullName,
+          "schoolLevel": widget.sessionService.schoolLevel,
+          "gradingScale": widget.sessionService.gradingScale,
         },
         "studySettings": _current.toJson(),
       };
 
       final jsonStr = const JsonEncoder.withIndent("  ").convert(data);
 
+      if (!mounted) return;
       await showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -434,6 +440,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _deleteAccount() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: AppColors.danger, size: 24),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                "Delete My Account?",
+                style: GoogleFonts.outfit(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  color: ctx.textPrimary,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          "Permanently delete your account and all associated courses, flashcards, quizzes, grades, notes, and study progress. This action is irreversible and immediate.",
+          style: TextStyle(color: ctx.textSecondary, height: 1.4, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Delete Permanently"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isSaving = true);
+    try {
+      await widget.apiClient.dio.delete(ApiConstants.deleteAccount);
+    } catch (e) {
+      debugPrint("Delete account API error (proceeding with local wipe): $e");
+    }
+
+    await widget.sessionService.clear();
+    if (mounted) {
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Your account and all associated data have been permanently deleted."),
+          backgroundColor: AppColors.danger,
+          duration: Duration(seconds: 4),
+        ),
+      );
+      widget.onLogout?.call();
+    }
+  }
+
   Future<void> _resetDefaults() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -509,275 +581,125 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         children: [
-          // Segmented Tab Switcher (Visible only if developer mode unlocked)
-          if (_developerModeUnlocked)
-            Container(
-              margin: const EdgeInsets.only(bottom: 20),
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: context.surfaceColor,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: context.cardBorderColor),
-              ),
-              child: Row(
+          // 1. Study Preferences
+          _buildSectionHeader("📚 Study Preferences"),
+          _buildCard([
+            _buildSliderTile(
+              title: "Default Question Count",
+              subtitle: "Number of questions retrieved for practice sessions",
+              value: _current.defaultQuestionCount.toDouble(),
+              min: 5,
+              max: 50,
+              divisions: 9,
+              displayValue: "${_current.defaultQuestionCount} questions",
+              onChanged: (val) {
+                setState(() => _current = _current.copyWith(defaultQuestionCount: val.round()));
+              },
+            ),
+            const Divider(height: 1),
+            _buildDropdownTile(
+              title: "Preferred Practice Mode",
+              subtitle: "Primary assessment mode used when starting study sets",
+              value: _current.preferredStudyMode,
+              items: const [
+                DropdownMenuItem(
+                  value: StudyModeValue.simulatedExam,
+                  child: Text("🎯 Simulated Exam (All Types)"),
+                ),
+                DropdownMenuItem(
+                  value: StudyModeValue.multipleChoice,
+                  child: Text("📚 Multiple Choice Practice"),
+                ),
+                DropdownMenuItem(
+                  value: StudyModeValue.flashcards,
+                  child: Text("🃏 Spaced Repetition Flashcards"),
+                ),
+                DropdownMenuItem(
+                  value: StudyModeValue.matchingType,
+                  child: Text("🧩 Two-Column Matching"),
+                ),
+                DropdownMenuItem(
+                  value: StudyModeValue.rapidFireBlitz,
+                  child: Text("⚡ Rapid-Fire Blitz"),
+                ),
+              ],
+              onChanged: (mode) {
+                if (mode != null) {
+                  setState(() => _current = _current.copyWith(preferredStudyMode: mode));
+                }
+              },
+            ),
+            const Divider(height: 1),
+            _buildSwitchTile(
+              title: "Instant Answer Feedback",
+              subtitle: "Show explanation and rationales immediately after answering",
+              value: _current.instantFeedback,
+              icon: Icons.feedback_outlined,
+              onChanged: (val) => setState(() => _current = _current.copyWith(instantFeedback: val)),
+            ),
+            const Divider(height: 1),
+            _buildSwitchTile(
+              title: "Shuffle Option Choices",
+              subtitle: "Randomize distractor order to prevent positional memorization",
+              value: _current.shuffleOptions,
+              icon: Icons.shuffle_rounded,
+              onChanged: (val) => setState(() => _current = _current.copyWith(shuffleOptions: val)),
+            ),
+            const Divider(height: 1),
+            _buildSliderTile(
+              title: "Daily Study Goal Target",
+              subtitle: "Target daily active recall minutes",
+              value: _current.dailyStudyGoalMinutes.toDouble(),
+              min: 10,
+              max: 120,
+              divisions: 11,
+              displayValue: "${_current.dailyStudyGoalMinutes} min/day",
+              onChanged: (val) {
+                setState(() => _current = _current.copyWith(dailyStudyGoalMinutes: val.round()));
+              },
+            ),
+            const Divider(height: 1),
+            // AI Synthesizer Difficulty
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => setState(() => _selectedSettingsTab = 0),
-                      borderRadius: BorderRadius.circular(10),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        decoration: BoxDecoration(
-                          color: _selectedSettingsTab == 0
-                              ? (isDark ? AppColors.primary : AppColors.primaryDark)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.school_rounded,
-                              size: 16,
-                              color: _selectedSettingsTab == 0
-                                  ? Colors.white
-                                  : context.textSecondary,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              "Study Preferences",
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                                color: _selectedSettingsTab == 0
-                                    ? Colors.white
-                                    : context.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                  Text(
+                    "Default Synthesizer Difficulty",
+                    style: GoogleFonts.outfit(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: context.textPrimary,
                     ),
                   ),
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => setState(() => _selectedSettingsTab = 1),
-                      borderRadius: BorderRadius.circular(10),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        decoration: BoxDecoration(
-                          color: _selectedSettingsTab == 1
-                              ? (isDark ? AppColors.primary : AppColors.primaryDark)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.tune_rounded,
-                              size: 16,
-                              color: _selectedSettingsTab == 1
-                                  ? Colors.white
-                                  : context.textSecondary,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              "Advanced & Developer",
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                                color: _selectedSettingsTab == 1
-                                    ? Colors.white
-                                    : context.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "Complexity of generated questions and distractor rationales",
+                    style: TextStyle(color: context.textSecondary, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildDifficultyChip("Introductory", 1),
+                      _buildDifficultyChip("Intermediate", 2),
+                      _buildDifficultyChip("Advanced", 3),
+                    ],
                   ),
                 ],
               ),
             ),
-
-          if (!_developerModeUnlocked || _selectedSettingsTab == 0) ...[
-            // DSWD Child Protection, Standards & Accessibility
-            _buildChildProtectionSection(),
-
-            // Section 1: Practice & Quiz Configurations
-            _buildSectionHeader("📚 Practice & Exam Configurations"),
-            _buildCard([
-              _buildSliderTile(
-                title: "Default Question Count",
-                subtitle: "Number of questions retrieved for practice sessions",
-                value: _current.defaultQuestionCount.toDouble(),
-                min: 5,
-                max: 50,
-                divisions: 9,
-                displayValue: "${_current.defaultQuestionCount} questions",
-                onChanged: (val) {
-                  setState(() => _current = _current.copyWith(defaultQuestionCount: val.round()));
-                },
-              ),
-              const Divider(height: 1),
-              _buildDropdownTile(
-                title: "Preferred Practice Mode",
-                subtitle: "Primary assessment mode used when starting study sets",
-                value: _current.preferredStudyMode,
-                items: const [
-                  DropdownMenuItem(
-                    value: StudyModeValue.simulatedExam,
-                    child: Text("🎯 Simulated Exam (All Types)"),
-                  ),
-                  DropdownMenuItem(
-                    value: StudyModeValue.multipleChoice,
-                    child: Text("📚 Multiple Choice Practice"),
-                  ),
-                  DropdownMenuItem(
-                    value: StudyModeValue.flashcards,
-                    child: Text("🃏 Spaced Repetition Flashcards"),
-                  ),
-                  DropdownMenuItem(
-                    value: StudyModeValue.matchingType,
-                    child: Text("🧩 Two-Column Matching"),
-                  ),
-                  DropdownMenuItem(
-                    value: StudyModeValue.rapidFireBlitz,
-                    child: Text("⚡ Rapid-Fire Blitz"),
-                  ),
-                ],
-                onChanged: (mode) {
-                  if (mode != null) {
-                    setState(() => _current = _current.copyWith(preferredStudyMode: mode));
-                  }
-                },
-              ),
-              const Divider(height: 1),
-              _buildSwitchTile(
-                title: "Instant Answer Feedback",
-                subtitle: "Show explanation and rationales immediately after answering",
-                value: _current.instantFeedback,
-                icon: Icons.feedback_outlined,
-                onChanged: (val) => setState(() => _current = _current.copyWith(instantFeedback: val)),
-              ),
-              const Divider(height: 1),
-              _buildSwitchTile(
-                title: "Shuffle Option Choices",
-                subtitle: "Randomize distractor order to prevent positional memorization",
-                value: _current.shuffleOptions,
-                icon: Icons.shuffle_rounded,
-                onChanged: (val) => setState(() => _current = _current.copyWith(shuffleOptions: val)),
-              ),
-              const Divider(height: 1),
-              _buildSliderTile(
-                title: "Daily Study Goal Target",
-                subtitle: "Target daily active recall minutes",
-                value: _current.dailyStudyGoalMinutes.toDouble(),
-                min: 10,
-                max: 120,
-                divisions: 11,
-                displayValue: "${_current.dailyStudyGoalMinutes} min/day",
-                onChanged: (val) {
-                  setState(() => _current = _current.copyWith(dailyStudyGoalMinutes: val.round()));
-                },
-              ),
-            ]),
-
-            const SizedBox(height: 20),
-
-            // Section 2: Timer & Pace Configurations
-            _buildSectionHeader("⏱️ Timer & Pace Configurations"),
-            _buildCard([
-              _buildSliderTile(
-                title: "Rapid-Fire Blitz Timer",
-                subtitle: "Countdown clock per question in Rapid-Fire mode",
-                value: _current.blitzSecondsPerQuestion.toDouble(),
-                min: 5,
-                max: 30,
-                divisions: 5,
-                displayValue: "${_current.blitzSecondsPerQuestion} seconds",
-                onChanged: (val) {
-                  setState(() => _current = _current.copyWith(blitzSecondsPerQuestion: val.round()));
-                },
-              ),
-              const Divider(height: 1),
-              _buildSliderTile(
-                title: "Pomodoro Focus Duration",
-                subtitle: "Length of undisturbed study focus sprints",
-                value: _current.pomodoroFocusMinutes.toDouble(),
-                min: 15,
-                max: 60,
-                divisions: 9,
-                displayValue: "${_current.pomodoroFocusMinutes} minutes",
-                onChanged: (val) {
-                  setState(() => _current = _current.copyWith(pomodoroFocusMinutes: val.round()));
-                },
-              ),
-              const Divider(height: 1),
-              _buildSliderTile(
-                title: "Pomodoro Short Break",
-                subtitle: "Rest pause between focus blocks",
-                value: _current.pomodoroShortBreakMinutes.toDouble(),
-                min: 3,
-                max: 15,
-                divisions: 4,
-                displayValue: "${_current.pomodoroShortBreakMinutes} minutes",
-                onChanged: (val) {
-                  setState(() => _current = _current.copyWith(pomodoroShortBreakMinutes: val.round()));
-                },
-              ),
-            ]),
-
-            const SizedBox(height: 20),
-
-            // Section 3: AI Curriculum Synthesis Defaults
-            _buildSectionHeader("🤖 AI Curriculum Synthesis Preferences"),
-            _buildCard([
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Default Synthesizer Difficulty",
-                      style: GoogleFonts.outfit(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: context.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      "Complexity of generated questions and distractor rationales",
-                      style: TextStyle(color: context.textSecondary, fontSize: 12),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        _buildDifficultyChip("Introductory", 1),
-                        const SizedBox(width: 8),
-                        _buildDifficultyChip("Intermediate", 2),
-                        const SizedBox(width: 8),
-                        _buildDifficultyChip("Advanced", 3),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ]),
-
-            const SizedBox(height: 20),
-
-            // Section 4: Appearance & Feedback
-            _buildSectionHeader("🎨 Appearance & Feedback"),
-            _buildCard([
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
+            const Divider(height: 1),
+            // Theme Mode
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
@@ -788,72 +710,662 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                         Text(
-                          "Light, Dark, or System Match",
+                          "Light or Dark Mode",
                           style: TextStyle(color: context.textSecondary, fontSize: 12),
                         ),
                       ],
                     ),
-                    ListenableBuilder(
-                      listenable: ThemeController.instance,
-                      builder: (context, _) {
-                        final currentIsDark = ThemeController.instance.isDarkMode;
-                        return OutlinedButton.icon(
-                          icon: Icon(
-                            currentIsDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-                            size: 16,
+                  ),
+                  const SizedBox(width: 8),
+                  ListenableBuilder(
+                    listenable: ThemeController.instance,
+                    builder: (context, _) {
+                      final currentIsDark = ThemeController.instance.isDarkMode;
+                      return OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        ),
+                        icon: Icon(
+                          currentIsDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+                          size: 16,
+                        ),
+                        label: Text(
+                          currentIsDark ? "Dark Theme" : "Light Theme",
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        onPressed: () => ThemeController.instance.toggleTheme(),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            _buildSwitchTile(
+              title: "Haptic Feedback",
+              subtitle: "Vibrate upon answer submissions and drill completion",
+              value: _current.hapticFeedbackEnabled,
+              icon: Icons.vibration_rounded,
+              onChanged: (val) => setState(() => _current = _current.copyWith(hapticFeedbackEnabled: val)),
+            ),
+            const Divider(height: 1),
+            _buildSwitchTile(
+              title: "Low Data Mode",
+              subtitle: "Compresses network payloads and prioritizes text for spotty campus Wi-Fi",
+              value: _lowDataMode,
+              icon: Icons.data_saver_on_rounded,
+              onChanged: (val) {
+                setState(() => _lowDataMode = val);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(val ? "📶 Low Data Mode activated: network payloads minimized." : "Low Data Mode turned off."),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              },
+            ),
+          ]),
+
+          const SizedBox(height: 20),
+
+          // 2. Timers & Reminders
+          _buildSectionHeader("⏱️ Timers & Reminders"),
+          _buildCard([
+            // Daily Study Session Reminder
+            ListenableBuilder(
+              listenable: NotificationService.instance,
+              builder: (context, _) {
+                final notif = NotificationService.instance;
+                return Column(
+                  children: [
+                    SwitchListTile(
+                      secondary: const Icon(Icons.notifications_active_outlined, color: AppColors.accent),
+                      title: Text(
+                        "Daily Study Reminder",
+                        style: GoogleFonts.outfit(
+                          fontWeight: FontWeight.bold,
+                          color: context.textPrimary,
+                          fontSize: 14,
+                        ),
+                      ),
+                      subtitle: Text(
+                        "Keep your study momentum alive with a scheduled daily alert",
+                        style: TextStyle(color: context.textSecondary, fontSize: 12),
+                      ),
+                      value: notif.dailyReminderEnabled,
+                      activeThumbColor: AppColors.accent,
+                      onChanged: (val) => notif.setDailyReminderEnabled(val),
+                    ),
+                    if (notif.dailyReminderEnabled) ...[
+                      const Divider(height: 1),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              "Reminder Time",
+                              style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.access_time_rounded, size: 16),
+                              label: Text(notif.reminderTimeFormatted),
+                              onPressed: () async {
+                                final picked = await showTimePicker(
+                                  context: context,
+                                  initialTime: TimeOfDay(hour: notif.reminderHour, minute: notif.reminderMinute),
+                                );
+                                if (picked != null) {
+                                  notif.setReminderTime(picked.hour, picked.minute);
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
+            ),
+            const Divider(height: 1),
+            // Eye break reminder (default 20 min based on 20-20-20 rule)
+            ListenableBuilder(
+              listenable: ChildSafetyService.instance,
+              builder: (context, _) {
+                final cs = ChildSafetyService.instance;
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Eye break reminder",
+                              style: GoogleFonts.outfit(
+                                fontWeight: FontWeight.bold,
+                                color: context.textPrimary,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              "Periodic pause based on the 20-20-20 eye-care rule",
+                              style: TextStyle(color: context.textSecondary, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      DropdownButton<int>(
+                        value: cs.eyeBreakMinutes,
+                        underline: const SizedBox(),
+                        items: const [
+                          DropdownMenuItem(value: 20, child: Text("Every 20 mins (Recommended)")),
+                          DropdownMenuItem(value: 30, child: Text("Every 30 mins")),
+                          DropdownMenuItem(value: 45, child: Text("Every 45 mins")),
+                          DropdownMenuItem(value: 0, child: Text("Disabled")),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) cs.setEyeBreakMinutes(val);
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const Divider(height: 1),
+            _buildSliderTile(
+              title: "Pomodoro Focus Duration",
+              subtitle: "Length of undisturbed study focus sprints",
+              value: _current.pomodoroFocusMinutes.toDouble(),
+              min: 15,
+              max: 60,
+              divisions: 9,
+              displayValue: "${_current.pomodoroFocusMinutes} minutes",
+              onChanged: (val) {
+                setState(() => _current = _current.copyWith(pomodoroFocusMinutes: val.round()));
+              },
+            ),
+            const Divider(height: 1),
+            _buildSliderTile(
+              title: "Pomodoro Short Break",
+              subtitle: "Rest pause between focus blocks",
+              value: _current.pomodoroShortBreakMinutes.toDouble(),
+              min: 3,
+              max: 15,
+              divisions: 4,
+              displayValue: "${_current.pomodoroShortBreakMinutes} minutes",
+              onChanged: (val) {
+                setState(() => _current = _current.copyWith(pomodoroShortBreakMinutes: val.round()));
+              },
+            ),
+            const Divider(height: 1),
+            _buildSliderTile(
+              title: "Rapid-Fire Blitz Timer",
+              subtitle: "Countdown clock per question in Rapid-Fire mode",
+              value: _current.blitzSecondsPerQuestion.toDouble(),
+              min: 5,
+              max: 30,
+              divisions: 5,
+              displayValue: "${_current.blitzSecondsPerQuestion} seconds",
+              onChanged: (val) {
+                setState(() => _current = _current.copyWith(blitzSecondsPerQuestion: val.round()));
+              },
+            ),
+          ]),
+
+          const SizedBox(height: 20),
+
+          // 3. Accessibility & Wellbeing
+          _buildSectionHeader("🌱 Accessibility & Wellbeing"),
+          _buildCard([
+            ListenableBuilder(
+              listenable: ChildSafetyService.instance,
+              builder: (context, _) {
+                final cs = ChildSafetyService.instance;
+                return Column(
+                  children: [
+                    _buildSwitchTile(
+                      title: "Junior Learner Mode (Grades 1–6)",
+                      subtitle: "Enables simplified vocabulary, cheerful encouragement, and age-calibrated learning guardrails",
+                      icon: Icons.child_care_rounded,
+                      value: cs.isJuniorMode,
+                      onChanged: (val) => cs.setJuniorMode(val),
+                    ),
+                    if (cs.isJuniorMode) ...[
+                      const Divider(height: 1),
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    "Learner Grade Level",
+                                    style: GoogleFonts.outfit(
+                                      fontWeight: FontWeight.bold,
+                                      color: context.textPrimary,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    cs.gradeLevelText,
+                                    style: const TextStyle(
+                                      color: Color(0xFFD97706),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              children: List.generate(6, (i) {
+                                final grade = i + 1;
+                                final isSelected = cs.gradeLevel == grade;
+                                return ChoiceChip(
+                                  label: Text("Grade $grade"),
+                                  selected: isSelected,
+                                  onSelected: (selected) {
+                                    if (selected) cs.setGradeLevel(grade);
+                                  },
+                                );
+                              }),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const Divider(height: 1),
+                    // Text size
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  "Text size",
+                                  style: GoogleFonts.outfit(
+                                    fontWeight: FontWeight.bold,
+                                    color: context.textPrimary,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.teal.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  cs.textScale == AccessibilityTextScale.normal
+                                      ? "Normal (100%)"
+                                      : (cs.textScale == AccessibilityTextScale.large
+                                          ? "Large (120%)"
+                                          : "XL (135%)"),
+                                  style: const TextStyle(
+                                    color: Colors.teal,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          label: Text(currentIsDark ? "Dark Theme" : "Light Theme"),
-                          onPressed: () => ThemeController.instance.toggleTheme(),
-                        );
-                      },
+                          const SizedBox(height: 4),
+                          Text(
+                            "Adjust app typography scale for comfortable reading",
+                            style: TextStyle(color: context.textSecondary, fontSize: 12),
+                          ),
+                          const SizedBox(height: 10),
+                          SegmentedButton<AccessibilityTextScale>(
+                            segments: const [
+                              ButtonSegment(
+                                value: AccessibilityTextScale.normal,
+                                label: Text("Normal A"),
+                              ),
+                              ButtonSegment(
+                                value: AccessibilityTextScale.large,
+                                label: Text("Large A+"),
+                              ),
+                              ButtonSegment(
+                                value: AccessibilityTextScale.extraLarge,
+                                label: Text("XL A++"),
+                              ),
+                            ],
+                            selected: {cs.textScale},
+                            onSelectionChanged: (set) {
+                              cs.setTextScale(set.first);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    _buildSwitchTile(
+                      title: "Read Aloud (Text-to-Speech)",
+                      subtitle: "Enable audio buttons across questions, flashcards, and explanations",
+                      icon: Icons.record_voice_over_rounded,
+                      value: cs.readAloudEnabled,
+                      onChanged: (val) => cs.setReadAloudEnabled(val),
                     ),
                   ],
+                );
+              },
+            ),
+            const Divider(height: 1),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
                 ),
+                child: const Icon(Icons.menu_book_rounded, color: Color(0xFF10B981), size: 20),
               ),
-              const Divider(height: 1),
-              _buildSwitchTile(
-                title: "Haptic Feedback",
-                subtitle: "Vibrate upon answer submissions and quiz completion",
-                value: _current.hapticFeedbackEnabled,
-                icon: Icons.vibration_rounded,
-                onChanged: (val) => setState(() => _current = _current.copyWith(hapticFeedbackEnabled: val)),
+              title: Text(
+                "User Manual & Feature Guide",
+                style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
               ),
-            ]),
+              subtitle: const Text(
+                "Explore Passive Capture, Grade Tracker, Study Priority Engine, and study workflows",
+                style: TextStyle(fontSize: 12),
+              ),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+              onTap: () => UserManualSheet.show(context),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.teal.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text("🛡️", style: TextStyle(fontSize: 20)),
+              ),
+              title: Text(
+                "Child Safety Resources",
+                style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              subtitle: const Text(
+                "View MAKABATA 1383 Helpline, Bantay Bata 163, DepEd CPU, and safety protections",
+                style: TextStyle(fontSize: 12),
+              ),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+              onTap: () => DswdSafetyModal.show(context),
+            ),
+          ]),
 
+          const SizedBox(height: 20),
+
+          // 4. Student Account
+          _buildSectionHeader("👤 Student Account"),
+          _buildCard([
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                        child: Text(
+                          (widget.sessionService.fullName ?? "S").isNotEmpty
+                              ? (widget.sessionService.fullName ?? "S").substring(0, 1).toUpperCase()
+                              : "S",
+                          style: const TextStyle(
+                            color: AppColors.primaryLight,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 17,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.sessionService.fullName ?? "Student",
+                              style: GoogleFonts.outfit(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                                color: context.textPrimary,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              widget.sessionService.email ?? "Offline Session",
+                              style: TextStyle(color: context.textSecondary, fontSize: 12),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  // School Level Selector
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "School Level",
+                              style: GoogleFonts.outfit(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: context.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              "Curriculum and grading adaptation",
+                              style: TextStyle(color: context.textSecondary, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                      DropdownButton<String>(
+                        value: _selectedSchoolLevel,
+                        underline: const SizedBox(),
+                        items: const [
+                          DropdownMenuItem(value: "Elementary", child: Text("Elementary")),
+                          DropdownMenuItem(value: "High School", child: Text("High School")),
+                          DropdownMenuItem(value: "College", child: Text("College")),
+                          DropdownMenuItem(value: "Post-Graduate", child: Text("Post-Graduate")),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() => _selectedSchoolLevel = val);
+                            widget.sessionService.setSchoolLevel(val);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Divider(height: 1),
+                  const SizedBox(height: 8),
+                  // Grading Scale Selector
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Grading Scale",
+                              style: GoogleFonts.outfit(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: context.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              "Target GPA and assessment metrics",
+                              style: TextStyle(color: context.textSecondary, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                      DropdownButton<String>(
+                        value: _selectedGradingScale,
+                        underline: const SizedBox(),
+                        items: const [
+                          DropdownMenuItem(value: "USJ-R (1.00 - 5.00)", child: Text("1.00 - 5.00")),
+                          DropdownMenuItem(value: "Percentage (0 - 100%)", child: Text("0 - 100%")),
+                          DropdownMenuItem(value: "GPA (4.0 Scale)", child: Text("4.0 GPA")),
+                          DropdownMenuItem(value: "Letter Grade (A - F)", child: Text("A - F")),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() => _selectedGradingScale = val);
+                            widget.sessionService.setGradingScale(val);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.danger,
+                            side: const BorderSide(color: AppColors.danger),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                          icon: const Icon(Icons.logout_rounded, size: 16),
+                          label: const Text("Sign Out", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                          onPressed: widget.onLogout,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextButton.icon(
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.danger,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                          icon: const Icon(Icons.delete_forever_rounded, size: 16),
+                          label: const Text("Delete Account", style: TextStyle(fontSize: 12)),
+                          onPressed: _deleteAccount,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ]),
+
+          const SizedBox(height: 20),
+
+          // 5. Privacy & Data Governance
+          _buildSectionHeader("🔐 Privacy & Data Governance"),
+          _buildCard([
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.shield_outlined, color: Color(0xFF10B981), size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "Data Protection & Ownership",
+                          style: GoogleFonts.outfit(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: context.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    "Your study notes, quiz logs, and scanned materials remain under your explicit control. AI is deployed as a learning companion to guide and test you—never to harvest personal academic data.",
+                    style: TextStyle(color: context.textSecondary, fontSize: 12, height: 1.4),
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.download_rounded, size: 16),
+                        label: const Text("Export Learning Data (JSON)"),
+                        onPressed: _exportLearningData,
+                      ),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.delete_outline_rounded, size: 16, color: AppColors.danger),
+                        label: const Text("Clear AI Chat Logs", style: TextStyle(color: AppColors.danger)),
+                        onPressed: _confirmAndClearChatLogs,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              leading: const Icon(Icons.privacy_tip_outlined, size: 20),
+              title: const Text("Privacy Policy", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+              onTap: () => TermsAndPrivacyModal.showPrivacy(context),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              leading: const Icon(Icons.article_outlined, size: 20),
+              title: const Text("Terms of Service", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+              onTap: () => TermsAndPrivacyModal.showTerms(context),
+            ),
+          ]),
+
+          // Developer Section (Only if debug build & unlocked)
+          if (kDebugMode && _developerModeUnlocked) ...[
             const SizedBox(height: 20),
-
-            // Section 5: Account & Logout
-            _buildSectionHeader("👤 Student Profile"),
-            _buildCard([
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: AppColors.primary.withValues(alpha: 0.15),
-                  child: const Icon(Icons.person, color: AppColors.primaryLight),
-                ),
-                title: Text(
-                  widget.sessionService.fullName ?? "Student",
-                  style: GoogleFonts.outfit(
-                    fontWeight: FontWeight.bold,
-                    color: context.textPrimary,
-                  ),
-                ),
-                subtitle: Text(
-                  widget.sessionService.email ?? "Offline Session",
-                  style: TextStyle(color: context.textSecondary, fontSize: 12),
-                ),
-                trailing: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.danger,
-                    side: const BorderSide(color: AppColors.danger),
-                  ),
-                  icon: const Icon(Icons.logout_rounded, size: 16),
-                  label: const Text("Sign Out"),
-                  onPressed: widget.onLogout,
-                ),
-              ),
-            ]),
-          ] else ...[
-            // Developer & Server Connection Section
             _buildSectionHeader("🛠️ Developer & Cloud API Connection"),
             _buildCard([
               Padding(
@@ -1071,188 +1583,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ]),
-
-            const SizedBox(height: 20),
-
-            // Section: Google Gemini AI & Vision OCR
-            _buildSectionHeader("🤖 AI & Vision OCR Cloud Engine"),
-            _buildCard([
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(Icons.verified_user_rounded, color: Color(0xFF10B981), size: 20),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Server-Side AI Gateway",
-                                style: GoogleFonts.outfit(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                  color: context.textPrimary,
-                                ),
-                              ),
-                              Text(
-                                "AI queries and OCR extraction are processed securely via the backend server. No client-side API keys exposed.",
-                                style: TextStyle(color: context.textSecondary, fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ]),
-
-            const SizedBox(height: 20),
-
-            // Section 5: Offline & Low Data Mode
-            _buildSectionHeader("📴 Offline & Data Saver"),
-            _buildCard([
-              _buildSwitchTile(
-                title: "Low Data Mode",
-                subtitle: "Compresses network payloads, delays image loading, and prioritizes concise text for spotty campus Wi-Fi",
-                value: _lowDataMode,
-                icon: Icons.data_saver_on_rounded,
-                onChanged: (val) {
-                  setState(() => _lowDataMode = val);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(val ? "📶 Low Data Mode activated: network payloads minimized." : "Low Data Mode turned off."),
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                },
-              ),
-            ]),
-
-            const SizedBox(height: 20),
-
-            // Section 6: Student Data Vault & AI Privacy
-            _buildSectionHeader("🔐 Student Data Vault & AI Privacy"),
-            _buildCard([
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.shield_outlined, color: Color(0xFF10B981), size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            "Designed around human-centered AI principles (UNESCO)",
-                            style: GoogleFonts.outfit(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                              color: context.textPrimary,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      "Your study notes, quiz logs, and scanned materials remain under your explicit control. AI is deployed as a learning companion to guide and test you—never to harvest personal academic data.",
-                      style: TextStyle(color: context.textSecondary, fontSize: 12, height: 1.4),
-                    ),
-                    const SizedBox(height: 14),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.download_rounded, size: 16),
-                          label: const Text("Export Learning Data (JSON)"),
-                          onPressed: _exportLearningData,
-                        ),
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.delete_outline_rounded, size: 16, color: AppColors.danger),
-                          label: const Text("Clear AI Chat Logs", style: TextStyle(color: AppColors.danger)),
-                          onPressed: _confirmAndClearChatLogs,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ]),
-
-            const SizedBox(height: 20),
-
-            // Section 7: Account & Logout
-            _buildSectionHeader("👤 Student Profile"),
-            _buildCard([
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: AppColors.primary.withValues(alpha: 0.15),
-                  child: const Icon(Icons.person, color: AppColors.primaryLight),
-                ),
-                title: Text(
-                  widget.sessionService.fullName ?? "Student",
-                  style: GoogleFonts.outfit(
-                    fontWeight: FontWeight.bold,
-                    color: context.textPrimary,
-                  ),
-                ),
-                subtitle: Text(
-                  widget.sessionService.email ?? "Offline Session",
-                  style: TextStyle(color: context.textSecondary, fontSize: 12),
-                ),
-                trailing: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.danger,
-                    side: const BorderSide(color: AppColors.danger),
-                  ),
-                  icon: const Icon(Icons.logout_rounded, size: 16),
-                  label: const Text("Sign Out"),
-                  onPressed: widget.onLogout,
-                ),
-              ),
-            ]),
           ],
 
           const SizedBox(height: 28),
 
           // App Version & Build Footer
           Center(
-            child: InkWell(
-              onTap: _handleVersionTap,
-              borderRadius: BorderRadius.circular(8),
+            child: GestureDetector(
+              key: const Key("version_footer"),
+              onLongPress: kDebugMode
+                  ? () {
+                      setState(() {
+                        _developerModeUnlocked = !_developerModeUnlocked;
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(_developerModeUnlocked
+                              ? "🛠️ Developer configurations visible."
+                              : "🔒 Developer configurations hidden."),
+                          backgroundColor: AppColors.accent,
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  : null,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 child: Column(
                   children: [
                     Text(
-                      "StudyApp v1.0.0 (Build 104) • Powered by Gemini AI",
+                      _hasGeminiOnServer == true
+                          ? "StudyApp v1.0.0 (Build 104) • Powered by Gemini AI"
+                          : "StudyApp v1.0.0 (Build 104)",
                       style: TextStyle(
                         color: context.textSecondary,
                         fontSize: 11.5,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    if (!_developerModeUnlocked)
-                      Text(
-                        "Student Edition (tap for developer mode)",
-                        style: TextStyle(
-                          color: context.textSecondary.withValues(alpha: 0.5),
-                          fontSize: 10,
+                    if (kDebugMode && !_developerModeUnlocked)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          "(Debug build • Long press to reveal developer options)",
+                          style: TextStyle(
+                            color: context.textSecondary.withValues(alpha: 0.5),
+                            fontSize: 10,
+                          ),
                         ),
                       ),
                   ],
@@ -1279,11 +1656,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   )
                 : const Icon(Icons.save_rounded),
             label: Text(
-              _isSaving
-                  ? "Saving Configurations..."
-                  : (_selectedSettingsTab == 0
-                      ? "Save Study Preferences"
-                      : "Save Advanced & Developer Configurations"),
+              _isSaving ? "Saving Configurations..." : "Save Study Preferences",
               style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             onPressed: _isSaving ? null : _saveSettings,
@@ -1292,257 +1665,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 40),
         ],
       ),
-    );
-  }
-
-  Widget _buildChildProtectionSection() {
-    return ListenableBuilder(
-      listenable: ChildSafetyService.instance,
-      builder: (context, _) {
-        final cs = ChildSafetyService.instance;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSectionHeader("🛡️ DSWD Child Protection, Standards & Accessibility"),
-            _buildCard([
-              // Junior Learner Mode Toggle
-              _buildSwitchTile(
-                title: "Junior Learner Mode (Grades 1–6)",
-                subtitle: "Enables simplified vocabulary, cheerful encouragement, and age-calibrated learning guardrails (DSWD compliant)",
-                icon: Icons.child_care_rounded,
-                value: cs.isJuniorMode,
-                onChanged: (val) => cs.setJuniorMode(val),
-              ),
-              if (cs.isJuniorMode) ...[
-                Divider(color: context.cardBorderColor, height: 1),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              "Learner Grade Level",
-                              style: GoogleFonts.outfit(
-                                fontWeight: FontWeight.bold,
-                                color: context.textPrimary,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              cs.gradeLevelText,
-                              style: const TextStyle(
-                                color: Color(0xFFD97706),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        children: List.generate(6, (i) {
-                          final grade = i + 1;
-                          final isSelected = cs.gradeLevel == grade;
-                          return ChoiceChip(
-                            label: Text("Grade $grade"),
-                            selected: isSelected,
-                            onSelected: (selected) {
-                              if (selected) cs.setGradeLevel(grade);
-                            },
-                          );
-                        }),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              Divider(color: context.cardBorderColor, height: 1),
-              // Dynamic Accessibility Text Scaling (WCAG 2.1 AA)
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            "Text Size & Accessibility (WCAG 2.1 AA / RA 11650)",
-                            style: GoogleFonts.outfit(
-                              fontWeight: FontWeight.bold,
-                              color: context.textPrimary,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: Colors.teal.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            cs.textScale == AccessibilityTextScale.normal
-                                ? "Normal (100%)"
-                                : (cs.textScale == AccessibilityTextScale.large
-                                    ? "Large (120%)"
-                                    : "Extra Large (135%)"),
-                            style: const TextStyle(
-                              color: Colors.teal,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      "Increases app typography scale for young readers and students with visual or reading needs",
-                      style: TextStyle(color: context.textSecondary, fontSize: 12),
-                    ),
-                    const SizedBox(height: 10),
-                    SegmentedButton<AccessibilityTextScale>(
-                      segments: const [
-                        ButtonSegment(
-                          value: AccessibilityTextScale.normal,
-                          label: Text("Normal A"),
-                        ),
-                        ButtonSegment(
-                          value: AccessibilityTextScale.large,
-                          label: Text("Large A+"),
-                        ),
-                        ButtonSegment(
-                          value: AccessibilityTextScale.extraLarge,
-                          label: Text("XL A++"),
-                        ),
-                      ],
-                      selected: {cs.textScale},
-                      onSelectionChanged: (set) {
-                        cs.setTextScale(set.first);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              Divider(color: context.cardBorderColor, height: 1),
-              // Audio Speech Synthesis Toggle
-              _buildSwitchTile(
-                title: "🔊 Read Aloud (Text-to-Speech)",
-                subtitle: "Enable audio buttons across questions, flashcards, and explanations for auditory learners",
-                icon: Icons.record_voice_over_rounded,
-                value: cs.readAloudEnabled,
-                onChanged: (val) => cs.setReadAloudEnabled(val),
-              ),
-              Divider(color: context.cardBorderColor, height: 1),
-              // 20-20-20 Eye Break Interval
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "🌿 Digital Health (20-20-20 Eye Break)",
-                            style: GoogleFonts.outfit(
-                              fontWeight: FontWeight.bold,
-                              color: context.textPrimary,
-                              fontSize: 14,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            "Periodic pause to prevent ocular strain in children per DSWD PES guidelines",
-                            style: TextStyle(color: context.textSecondary, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                    DropdownButton<int>(
-                      value: cs.eyeBreakMinutes,
-                      underline: const SizedBox(),
-                      items: const [
-                        DropdownMenuItem(value: 20, child: Text("Every 20 mins (Recommended)")),
-                        DropdownMenuItem(value: 30, child: Text("Every 30 mins")),
-                        DropdownMenuItem(value: 45, child: Text("Every 45 mins")),
-                        DropdownMenuItem(value: 0, child: Text("Disabled")),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) cs.setEyeBreakMinutes(val);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              Divider(color: context.cardBorderColor, height: 1),
-              // DSWD Child Safeguard Policy & Hotline Hub Card
-              ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.menu_book_rounded, color: Color(0xFF10B981), size: 20),
-                ),
-                title: Text(
-                  "User Manual & Feature Guide",
-                  style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                subtitle: const Text(
-                  "Explore Passive Capture, USJ-R Grade Tracker, Study Priority Engine, and study workflows",
-                  style: TextStyle(fontSize: 12),
-                ),
-                trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
-                onTap: () => UserManualSheet.show(context),
-              ),
-              const Divider(height: 1),
-              ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.teal.shade50,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Text("🛡️", style: TextStyle(fontSize: 20)),
-                ),
-                title: Text(
-                  "DSWD Child Safeguarding & Safety Hub",
-                  style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                subtitle: const Text(
-                  "View MAKABATA 1383 Helpline, Bantay Bata 163, DepEd CPU, and child privacy protections",
-                  style: TextStyle(fontSize: 12),
-                ),
-                trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
-                onTap: () => DswdSafetyModal.show(context),
-              ),
-            ]),
-            const SizedBox(height: 20),
-          ],
-        );
-      },
     );
   }
 
@@ -1594,14 +1716,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                title,
-                style: GoogleFonts.outfit(
-                  fontWeight: FontWeight.bold,
-                  color: context.textPrimary,
-                  fontSize: 14,
+              Expanded(
+                child: Text(
+                  title,
+                  style: GoogleFonts.outfit(
+                    fontWeight: FontWeight.bold,
+                    color: context.textPrimary,
+                    fontSize: 14,
+                  ),
                 ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
@@ -1635,8 +1760,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     : null,
               ),
               const SizedBox(width: 4),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 320),
+              Expanded(
                 child: Slider(
                   value: value.clamp(min, max),
                   min: min,

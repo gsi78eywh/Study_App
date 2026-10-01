@@ -156,9 +156,10 @@ public class DocumentExtractor : IDocumentExtractor
 
                     {
 
-                        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
+                        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
 
                         using var request = new HttpRequestMessage(HttpMethod.Post, url);
+                        request.Headers.Add("x-goog-api-key", apiKey);
 
                         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
@@ -876,8 +877,8 @@ public class DocumentExtractor : IDocumentExtractor
                     continue;
                 }
 
-                // Strip UI navigation controls, buttons, map widgets
-                if (Regex.IsMatch(text, @"^(?:Interactive Highland Map|Click to (?:enlarge|view|open)|Close|Submit|Cancel|Open Menu|Toggle Navigation|Follow Us|Share on|Read More|Back to top|View on map|Get directions)$", RegexOptions.IgnoreCase))
+                // Strip UI navigation controls, buttons
+                if (Regex.IsMatch(text, @"^(?:Click to (?:enlarge|view|open)|Close|Submit|Cancel|Open Menu|Toggle Navigation|Follow Us|Share on|Read More|Back to top|View on map|Get directions)$", RegexOptions.IgnoreCase))
                 {
                     continue;
                 }
@@ -1023,6 +1024,8 @@ public class DocumentExtractor : IDocumentExtractor
 
             },
 
+            UseProxy = false,
+            MaxAutomaticRedirections = 3,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
 
             PooledConnectionLifetime = TimeSpan.FromMinutes(1)
@@ -1110,39 +1113,41 @@ public class DocumentExtractor : IDocumentExtractor
     }
 
     public static bool IsPrivateOrLocal(IPAddress address)
-
     {
+        if (address.IsIPv4MappedToIPv6)
+        {
+            address = address.MapToIPv4();
+        }
 
         if (IPAddress.IsLoopback(address) || address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || address.IsIPv6Multicast)
-
         {
-
             return true;
-
         }
 
         if (address.AddressFamily == AddressFamily.InterNetworkV6)
-
         {
-
-            return address.GetAddressBytes()[0] is 0xfc or 0xfd;
-
+            var b0 = address.GetAddressBytes()[0];
+            return (b0 & 0xfe) == 0xfc;
         }
 
-        var bytes = address.GetAddressBytes();
+        if (address.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var bytes = address.GetAddressBytes();
+            byte b0 = bytes[0], b1 = bytes[1];
 
-        return bytes[0] == 10 ||
+            if (b0 == 0) return true;
+            if (b0 == 10) return true;
+            if (b0 == 100 && (b1 & 0xc0) == 64) return true;
+            if (b0 == 127) return true;
+            if (b0 == 169 && b1 == 254) return true;
+            if (b0 == 172 && (b1 >= 16 && b1 <= 31)) return true;
+            if (b0 == 192 && b1 == 0 && bytes[2] == 0) return true;
+            if (b0 == 192 && b1 == 168) return true;
+            if (b0 == 198 && (b1 & 0xfe) == 18) return true;
+            if (b0 >= 224) return true;
+        }
 
-               bytes[0] == 127 ||
-
-               bytes[0] == 0 ||
-
-               (bytes[0] == 169 && bytes[1] == 254) ||
-
-               (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) ||
-
-               (bytes[0] == 192 && bytes[1] == 168);
-
+        return false;
     }
 
     private static string LimitText(string input)

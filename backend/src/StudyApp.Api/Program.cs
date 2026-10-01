@@ -13,6 +13,8 @@ using Microsoft.IdentityModel.Tokens;
 using StudyApp.Application.Common.Interfaces;
 using StudyApp.Domain.Entities;
 using StudyApp.Domain.Enums;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Authorization;
 using StudyApp.Infrastructure.AiServices;
 using StudyApp.Infrastructure.Data;
 using StudyApp.Infrastructure.DocumentParsers;
@@ -79,7 +81,7 @@ static string ResolvePreferredUrl(string? configuredUrl)
     return preferred.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? "http://localhost:5000";
 }
 
-static string ResolveDatabaseConnectionString(IConfiguration configuration)
+static string ResolveDatabaseConnectionString(IConfiguration configuration, IHostEnvironment environment)
 {
     var envDatabaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL")
         ?? Environment.GetEnvironmentVariable("POSTGRESQL_URL");
@@ -92,14 +94,14 @@ static string ResolveDatabaseConnectionString(IConfiguration configuration)
             try
             {
                 var uri = new Uri(envDatabaseUrl);
-                var userInfo = uri.UserInfo.Split(':');
+                var userInfo = uri.UserInfo.Split(':', 2);
                 var username = userInfo.Length > 0 ? Uri.UnescapeDataString(userInfo[0]) : "";
                 var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
                 var host = uri.Host;
                 var port = uri.Port > 0 ? uri.Port : 5432;
                 var database = uri.AbsolutePath.TrimStart('/');
 
-                return $"Host={host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Prefer;Trust Server Certificate=true;";
+                return $"Host={host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true;";
             }
             catch
             {
@@ -107,6 +109,11 @@ static string ResolveDatabaseConnectionString(IConfiguration configuration)
             }
         }
         return envDatabaseUrl;
+    }
+
+    if (!environment.IsDevelopment())
+    {
+        throw new InvalidOperationException("Production deployment requires DATABASE_URL or POSTGRESQL_URL PostgreSQL connection string.");
     }
 
     return configuration.GetConnectionString("DefaultConnection") ?? "Data Source=studyapp.db";
@@ -154,7 +161,7 @@ else if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCOR
 }
 
 // 1. Add DbContext with production PostgreSQL and SQLite local fallback support
-var connectionString = ResolveDatabaseConnectionString(builder.Configuration);
+var connectionString = ResolveDatabaseConnectionString(builder.Configuration, builder.Environment);
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
 {
@@ -273,6 +280,22 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
+// Configure Forwarded Headers for reverse proxies (Railway, Render, K8s)
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// Configure Fallback Authorization Policy (all endpoints require auth unless [AllowAnonymous])
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
+
 // 5. Configure Production CORS for Flutter Mobile & Web Clients
 var configCors = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 var envCors = Environment.GetEnvironmentVariable("CORS_ALLOWED_ORIGINS");
@@ -286,28 +309,23 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowMobileClient", policy =>
     {
-        if (allCorsOrigins.Length == 0 || allCorsOrigins.Contains("*"))
+        if (builder.Environment.IsDevelopment())
         {
             policy.SetIsOriginAllowed(_ => true)
                   .AllowAnyHeader()
                   .AllowAnyMethod()
                   .AllowCredentials();
         }
-        else
+        else if (allCorsOrigins.Length > 0 && !allCorsOrigins.Contains("*"))
         {
             policy.WithOrigins(allCorsOrigins)
-                  .SetIsOriginAllowed(origin =>
-                  {
-                      if (builder.Environment.IsDevelopment())
-                      {
-                          if (origin.StartsWith("http://localhost:") || origin.StartsWith("http://127.0.0.1:"))
-                              return true;
-                      }
-                      return allCorsOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase);
-                  })
                   .AllowAnyHeader()
                   .AllowAnyMethod()
                   .AllowCredentials();
+        }
+        else
+        {
+            policy.WithOrigins("https://localhost");
         }
     });
 });
@@ -317,7 +335,10 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.User?.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "global",
+            partitionKey: httpContext.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? httpContext.User?.Identity?.Name
+                ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                ?? "global",
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 AutoReplenishment = true,
@@ -337,7 +358,10 @@ builder.Services.AddRateLimiter(options =>
         }));
 
     options.AddPolicy("ingestion", httpContext => RateLimitPartition.GetFixedWindowLimiter(
-        httpContext.User?.Identity?.Name ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        httpContext.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? httpContext.User?.Identity?.Name
+            ?? httpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown",
         _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = builder.Environment.IsDevelopment() ? 500 : 30,
@@ -431,6 +455,12 @@ using (var scope = app.Services.CreateScope())
 
         try
         {
+            db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN \"GoogleSubject\" TEXT NULL;");
+        }
+        catch { }
+
+        try
+        {
             db.Database.ExecuteSqlRaw("ALTER TABLE \"UserSettings\" ADD COLUMN \"LowDataMode\" INTEGER DEFAULT 0;");
         }
         catch { }
@@ -482,6 +512,8 @@ using (var scope = app.Services.CreateScope())
     Console.WriteLine("[Database] Database schema verified and ready for student records.");
 }
 
+app.UseForwardedHeaders();
+
 app.UseExceptionHandler(exceptionApp => exceptionApp.Run(async context =>
 {
     var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
@@ -494,16 +526,16 @@ app.UseExceptionHandler(exceptionApp => exceptionApp.Run(async context =>
         .ExecuteAsync(context);
 }));
 
-app.UseCors("AllowMobileClient");
-app.UseRateLimiter();
-app.UseAuthentication();
-app.UseAuthorization();
-
 if (!app.Environment.IsDevelopment())
 {
     app.UseHsts();
     app.UseHttpsRedirection();
 }
+
+app.UseCors("AllowMobileClient");
+app.UseAuthentication();
+app.UseRateLimiter();
+app.UseAuthorization();
 
 // A safe health check (no stack or database details leaked)
 app.MapGet("/health", async (ApplicationDbContext db, IConfiguration config, CancellationToken cancellationToken) =>
@@ -518,7 +550,20 @@ app.MapGet("/health", async (ApplicationDbContext db, IConfiguration config, Can
         : Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Database unavailable.");
 }).AllowAnonymous();
 
-// Minimal, secure root and health routes. Zero architecture, framework version, database, or endpoint roadmap disclosure.
+app.MapGet("/health/live", () => Results.Ok(new { status = "alive", timestamp = DateTime.UtcNow })).AllowAnonymous();
+
+app.MapGet("/health/ready", async (ApplicationDbContext db, IConfiguration config, CancellationToken cancellationToken) =>
+{
+    var canConnect = await db.Database.CanConnectAsync(cancellationToken);
+    var geminiKey = config["AiSettings:ApiKey"] ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
+    var hasGemini = !string.IsNullOrWhiteSpace(geminiKey) && !geminiKey.Contains("YOUR_GEMINI_API_KEY") && geminiKey != "disabled" && geminiKey != "offline";
+
+    return canConnect
+        ? Results.Ok(new { ready = true, db = true, gemini = hasGemini, timestamp = DateTime.UtcNow })
+        : Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Database unavailable.");
+}).AllowAnonymous();
+
+// Minimal, secure root route
 app.MapGet("/", () => Results.Ok(new { status = "healthy", service = "StudyApp API" })).AllowAnonymous();
 
 app.MapControllers();

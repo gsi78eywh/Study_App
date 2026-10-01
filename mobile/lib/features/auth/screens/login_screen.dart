@@ -180,88 +180,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _showGoogleAccountRecoveryDialog(String email) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: ctx.surfaceColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            const Icon(Icons.lock_reset_rounded, color: Color(0xFF4285F4), size: 22),
-            const SizedBox(width: 10),
-            Text(
-              "Google Account Recovery",
-              style: GoogleFonts.outfit(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: ctx.textPrimary,
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "If you forgot the password for your Google/Gmail account ($email), Google manages credentials securely through their official recovery portal:",
-              style: TextStyle(fontSize: 13, color: ctx.textSecondary, height: 1.4),
-            ),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF4285F4).withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF4285F4).withValues(alpha: 0.3)),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.security_rounded, color: Color(0xFF4285F4), size: 18),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      "accounts.google.com/signin/recovery",
-                      style: TextStyle(
-                        fontFamily: "monospace",
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF4285F4),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              "Alternatively, if you created a direct StudyApp password for this email, you can send an instant password recovery token right now.",
-              style: TextStyle(fontSize: 12.5, color: ctx.textSecondary),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("Close"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _emailController.text = email;
-              _showForgotPasswordDialog();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text("Send StudyApp Reset Code"),
-          ),
-        ],
-      ),
-    );
-  }
 
   // End-to-End Forgot Password & Reset Flow
   void _showForgotPasswordDialog() {
@@ -485,17 +403,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  String _currentServerLabel() {
-    final url = widget.sessionService.baseUrl ?? ApiConstants.defaultBaseUrl;
-    if (url.contains("172.23.249.209")) return "PC Wi-Fi:5000";
-    if (url.contains("127.0.0.1") || url.contains("localhost")) return "Local:5000";
-    try {
-      final uri = Uri.parse(url);
-      return uri.host.isNotEmpty ? uri.host : "Server";
-    } catch (_) {
-      return "Server";
-    }
-  }
 
   void _showServerConfigDialog() {
     if (!kDebugMode) return;
@@ -885,7 +792,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 },
                                 icon: const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFFF59E0B)),
                                 label: const Text(
-                                  "Demo Account (Sample Mode • No Cloud Sync)",
+                                  "Try Demo Student Account",
                                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                                 ),
                                 style: TextButton.styleFrom(

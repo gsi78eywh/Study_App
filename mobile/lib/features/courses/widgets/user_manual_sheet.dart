@@ -60,7 +60,7 @@ class _UserManualSheetState extends State<UserManualSheet> {
         ),
         _ManualItem(
           heading: "2. Track Academic Standing",
-          summary: "No more surprise failing grades at the end of the term. The Grade Tracker runs real-time collegiate GWA calculations using the USJ-R scale and computes required exam scores.",
+          summary: "No more surprise failing grades at the end of the term. The Grade Tracker runs real-time collegiate GWA calculations using configurable scales (such as USJ-R, percentage, or GPA) and computes required exam scores.",
           steps: [
             "Tap 'Grade Tracker' on any course row",
             "Input Prelim, Midterm, and Semi-Final scores",
@@ -97,7 +97,7 @@ class _UserManualSheetState extends State<UserManualSheet> {
           heading: "YouTube & Lecture Transcript Synthesis",
           summary: "Paste any educational YouTube lecture URL or audio transcript. The engine strips timestamp clutter, structures the lecture into Cornell Notes (Summary, Cues, Notes), and automatically creates active recall flashcards.",
           steps: [
-            "Go to Ingest / Studio ➔ Tab 3 'YouTube & Transcripts'",
+            "Go to Ingest / Studio ➔ Tab 3 'Link'",
             "Paste the video URL or lecture transcript",
             "Tap 'Synthesize Structured Notes & Auto-Flashcards'",
           ],
@@ -105,17 +105,17 @@ class _UserManualSheetState extends State<UserManualSheet> {
       ],
     ),
     const _ManualSection(
-      title: "Grade Tracker & GWA (USJ-R)",
+      title: "Grade Tracker & GWA",
       icon: Icons.assessment_rounded,
       badgeColor: Color(0xFFF59E0B),
-      description: "University of San Jose-Recoletos grading scale & exam target calculations.",
+      description: "Configurable grading scales (USJ-R Recoletos, Percentage, GPA) & exam target calculations.",
       items: [
         _ManualItem(
-          heading: "Collegiate Grading Scale & Honors",
-          summary: "Based on USJ-R standards: 1.0 (97-100%), 1.1-1.5 (Dean's List / Superior), 1.6-2.5 (Good/Very Good), 2.6-3.0 (Passing Cutoff 75.0%), and 5.0 (Failure / < 75%). Tracks Latin Honors (Summa, Magna, Cum Laude).",
+          heading: "Configurable Grading Scale & Honors",
+          summary: "Supports multiple grading scales: USJ-R (1.0-5.0), Percentage (0-100%), and 4.0 GPA. For USJ-R standards: 1.0 (97-100%), 1.1-1.5 (Dean's List / Superior), 1.6-2.5 (Good/Very Good), 2.6-3.0 (Passing Cutoff 75.0%), and 5.0 (Failure / < 75%). Tracks Latin Honors (Summa, Magna, Cum Laude).",
           steps: [
-            "Passing threshold is strictly 75.0% (3.0 GWA)",
-            "Scores below 75% trigger an immediate Academic Risk probation warning",
+            "Passing threshold defaults to 75.0% (3.0 GWA on USJ-R)",
+            "Scores below the cutoff trigger an immediate Academic Risk probation warning",
             "Term weights default to: Prelim 20%, Midterm 20%, Semi-Final 20%, Final 40%",
           ],
         ),
@@ -140,8 +140,8 @@ class _UserManualSheetState extends State<UserManualSheet> {
           heading: "How Priority Scoring Works",
           summary: "Priority Score (100 pts max) = Grade Risk (0-40 pts) + Exam Deadline Proximity (0-35 pts) + Question Retention Gaps (0-25 pts). The course with the highest urgency becomes today's hero session.",
           steps: [
-            "🚨 CRITICAL RISK (+40 pts): Running grade < 75.0% (USJ-R failing zone)",
-            "⚠️ BORDERLINE DANGER (+32 pts): Running grade between 75.0% and 78.0%",
+            "🚨 CRITICAL RISK (+40 pts): Running grade < passing threshold",
+            "⚠️ BORDERLINE DANGER (+32 pts): Running grade near danger threshold",
             "🎯 TARGET BEHIND (+18 pts): Running grade is below your personal target",
             "📅 EXAM PROXIMITY: Exam in <= 2 days (+35 pts), <= 7 days (+25 pts)",
           ],
@@ -174,10 +174,10 @@ class _UserManualSheetState extends State<UserManualSheet> {
         ),
         _ManualItem(
           heading: "Device Availability & Security",
-          summary: "Responsive on phones, foldables, tablets, and desktop browsers without layout overflows. Student tokens are stored in secure storage, and child safety standards (DSWD Makabata 1383) are strictly adhered to.",
+          summary: "Responsive on phones, foldables, tablets, and desktop browsers without layout overflows. Student tokens are stored in secure storage, and child safety safeguards are supported.",
           steps: [
             "No backend architecture or API keys are exposed to public screens",
-            "Access DSWD Makabata 1383 child safeguard from the top menu anytime",
+            "Access Child Safety Resources from Settings anytime",
             "Data syncs safely with token-authenticated endpoints only",
           ],
         ),

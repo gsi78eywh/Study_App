@@ -1,3 +1,4 @@
+import "dart:convert";
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
@@ -23,6 +24,61 @@ class ChatMessage {
     this.latencySeconds,
     required this.timestamp,
   });
+
+  Map<String, dynamic> toJson() => {
+    "role": role,
+    "text": text,
+    "modelUsed": modelUsed,
+    "latencySeconds": latencySeconds,
+    "timestamp": timestamp.toIso8601String(),
+  };
+
+  factory ChatMessage.fromJson(Map<String, dynamic> json) {
+    return ChatMessage(
+      role: json["role"] as String? ?? "assistant",
+      text: json["text"] as String? ?? "",
+      modelUsed: json["modelUsed"] as String?,
+      latencySeconds: (json["latencySeconds"] as num?)?.toDouble(),
+      timestamp: DateTime.tryParse(json["timestamp"]?.toString() ?? "") ?? DateTime.now(),
+    );
+  }
+}
+
+class ChatSession {
+  final String id;
+  String title;
+  final DateTime createdAt;
+  DateTime updatedAt;
+  final List<ChatMessage> messages;
+
+  ChatSession({
+    required this.id,
+    required this.title,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.messages,
+  });
+
+  Map<String, dynamic> toJson() => {
+    "id": id,
+    "title": title,
+    "createdAt": createdAt.toIso8601String(),
+    "updatedAt": updatedAt.toIso8601String(),
+    "messages": messages.map((m) => m.toJson()).toList(),
+  };
+
+  factory ChatSession.fromJson(Map<String, dynamic> json) {
+    return ChatSession(
+      id: json["id"] as String? ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      title: json["title"] as String? ?? "Study Chat",
+      createdAt: DateTime.tryParse(json["createdAt"]?.toString() ?? "") ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(json["updatedAt"]?.toString() ?? "") ?? DateTime.now(),
+      messages: (json["messages"] as List?)
+              ?.map((m) => ChatMessage.fromJson(m as Map<String, dynamic>))
+              .toList() ??
+          [],
+    );
+  }
 }
 
 class AiTutorScreen extends StatefulWidget {
@@ -62,6 +118,10 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
   bool? _isTutorOnline = true;
   String _tutorStatusLabel = "AI Tutor Online";
 
+  static const String _sessionsPrefKey = "ai_tutor_saved_sessions_v1";
+  final List<ChatSession> _sessions = [];
+  String? _activeSessionId;
+
   final List<String> _quickPrompts = [
     "👨‍🏫 Test me: Ask me to explain a concept (Feynman Technique)",
     "💡 Give me a hint (don't reveal the answer)",
@@ -88,6 +148,277 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     return _quickPrompts;
   }
 
+  ChatMessage _createDefaultGreeting() {
+    final hasGeminiKey =
+        widget.apiClient.sessionService.geminiApiKey?.isNotEmpty ?? false;
+    final isJunior = ChildSafetyService.instance.isJuniorMode;
+    return ChatMessage(
+      role: "assistant",
+      text: isJunior
+          ? "👋 Hello friend! I'm your **Study Buddy**, powered by Gemini AI!\n\n"
+              "I can explain lessons simply, tell fun learning stories, give gentle hints, and help you practice without stress! 🌟\n\n"
+              "What topic would you like to explore today?"
+          : "👋 Hi! I'm your **Study Tutor**, powered by Gemini.\n\n"
+              "I can help you master complex coursework, explain tricky equations, break down practice problems, and give you conceptual clarity.\n\n"
+              "What topic or question are we tackling today?",
+      modelUsed: hasGeminiKey ? "gemini-3.1-flash-lite" : "Built-In Academic Engine",
+      timestamp: DateTime.now(),
+    );
+  }
+
+  void _loadSessions() {
+    try {
+      final raw = widget.apiClient.sessionService.prefs.getString(_sessionsPrefKey);
+      if (raw != null && raw.isNotEmpty) {
+        final list = jsonDecode(raw) as List;
+        _sessions.clear();
+        for (final item in list) {
+          _sessions.add(ChatSession.fromJson(item as Map<String, dynamic>));
+        }
+      }
+    } catch (e) {
+      debugPrint("Error loading chat sessions: $e");
+    }
+
+    if (_sessions.isEmpty) {
+      final newSession = ChatSession(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        title: "New Study Chat",
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        messages: [_createDefaultGreeting()],
+      );
+      _sessions.add(newSession);
+    }
+
+    _activeSessionId = _sessions.first.id;
+    _messages.clear();
+    _messages.addAll(_sessions.first.messages);
+  }
+
+  Future<void> _saveSessions() async {
+    try {
+      final current = _sessions.where((s) => s.id == _activeSessionId).firstOrNull;
+      if (current != null) {
+        current.messages.clear();
+        current.messages.addAll(_messages);
+        current.updatedAt = DateTime.now();
+      }
+
+      final encoded = jsonEncode(_sessions.map((s) => s.toJson()).toList());
+      await widget.apiClient.sessionService.prefs.setString(_sessionsPrefKey, encoded);
+    } catch (e) {
+      debugPrint("Error saving chat sessions: $e");
+    }
+  }
+
+  void _createNewChat() {
+    final newSession = ChatSession(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: "New Study Chat",
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      messages: [_createDefaultGreeting()],
+    );
+    setState(() {
+      _sessions.insert(0, newSession);
+      _activeSessionId = newSession.id;
+      _messages.clear();
+      _messages.addAll(newSession.messages);
+    });
+    _saveSessions();
+    _scrollToBottom();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("✨ New chat session started!"),
+        duration: Duration(milliseconds: 1500),
+      ),
+    );
+  }
+
+  void _switchSession(ChatSession session) {
+    _saveSessions();
+    setState(() {
+      _activeSessionId = session.id;
+      _messages.clear();
+      _messages.addAll(session.messages);
+    });
+    _scrollToBottom();
+  }
+
+  void _deleteSession(String sessionId) {
+    setState(() {
+      _sessions.removeWhere((s) => s.id == sessionId);
+      if (_activeSessionId == sessionId) {
+        if (_sessions.isNotEmpty) {
+          _activeSessionId = _sessions.first.id;
+          _messages.clear();
+          _messages.addAll(_sessions.first.messages);
+        } else {
+          final newSession = ChatSession(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            title: "New Study Chat",
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            messages: [_createDefaultGreeting()],
+          );
+          _sessions.add(newSession);
+          _activeSessionId = newSession.id;
+          _messages.clear();
+          _messages.addAll(newSession.messages);
+        }
+      }
+    });
+    _saveSessions();
+  }
+
+  void _showChatHistorySheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: context.surfaceColor,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (modalCtx, setModalState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.55,
+              minChildSize: 0.35,
+              maxChildSize: 0.85,
+              expand: false,
+              builder: (sheetCtx, scrollController) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  child: Column(
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.forum_outlined, size: 20, color: AppColors.accent),
+                              const SizedBox(width: 8),
+                              Text(
+                                "Chat History",
+                                style: GoogleFonts.outfit(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                  color: context.textPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.add_rounded, size: 16),
+                            label: const Text("New Chat", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _createNewChat();
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: _sessions.isEmpty
+                            ? Center(
+                                child: Text(
+                                  "No chat sessions found.",
+                                  style: TextStyle(color: context.textSecondary),
+                                ),
+                              )
+                            : ListView.separated(
+                                controller: scrollController,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                itemCount: _sessions.length,
+                                separatorBuilder: (_, _) => const Divider(height: 1),
+                                itemBuilder: (itemCtx, index) {
+                                  final s = _sessions[index];
+                                  final isActive = s.id == _activeSessionId;
+                                  final userMsgCount = s.messages.where((m) => m.role == "user").length;
+                                  return ListTile(
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      side: isActive
+                                          ? const BorderSide(color: AppColors.accent, width: 1.5)
+                                          : BorderSide.none,
+                                    ),
+                                    tileColor: isActive
+                                        ? AppColors.accent.withValues(alpha: 0.08)
+                                        : Colors.transparent,
+                                    leading: CircleAvatar(
+                                      radius: 18,
+                                      backgroundColor: isActive
+                                          ? AppColors.accent.withValues(alpha: 0.2)
+                                          : context.cardBorderColor,
+                                      child: Icon(
+                                        isActive ? Icons.chat_bubble_rounded : Icons.chat_bubble_outline_rounded,
+                                        size: 16,
+                                        color: isActive ? AppColors.accent : context.textSecondary,
+                                      ),
+                                    ),
+                                    title: Text(
+                                      s.title,
+                                      style: GoogleFonts.outfit(
+                                        fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
+                                        fontSize: 14,
+                                        color: context.textPrimary,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    subtitle: Text(
+                                      "$userMsgCount queries • ${s.updatedAt.month}/${s.updatedAt.day} ${s.updatedAt.hour.toString().padLeft(2, '0')}:${s.updatedAt.minute.toString().padLeft(2, '0')}",
+                                      style: TextStyle(color: context.textSecondary, fontSize: 11),
+                                    ),
+                                    trailing: IconButton(
+                                      icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),
+                                      tooltip: "Delete Chat",
+                                      onPressed: () {
+                                        _deleteSession(s.id);
+                                        setModalState(() {});
+                                      },
+                                    ),
+                                    onTap: () {
+                                      _switchSession(s);
+                                      Navigator.pop(ctx);
+                                    },
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -98,25 +429,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
         widget.initialCourseContext ??
         (widget.courses.isNotEmpty ? widget.courses.first.name : null);
 
-    // Initial greeting from Tutor
-    final hasGeminiKey =
-        widget.apiClient.sessionService.geminiApiKey?.isNotEmpty ?? false;
-    final isJunior = ChildSafetyService.instance.isJuniorMode;
-    _messages.add(
-      ChatMessage(
-        role: "assistant",
-        text: isJunior
-            ? "👋 Hello friend! I'm your **Study Buddy**, powered by Gemini AI!\n\n"
-                "I can explain lessons simply, tell fun learning stories, give gentle hints, and help you practice without stress! 🌟\n\n"
-                "What topic would you like to explore today?"
-            : "👋 Hi! I'm your **Study Tutor**, powered by Gemini.\n\n"
-                "I can help you master complex coursework, explain tricky equations, break down practice problems, and give you conceptual clarity.\n\n"
-                "What topic or question are we tackling today?",
-        modelUsed: hasGeminiKey ? "gemini-3.1-flash-lite" : "Built-In Academic Engine",
-        timestamp: DateTime.now(),
-      ),
-    );
-
+    _loadSessions();
     _checkTutorStatus();
 
     if (widget.initialPrompt != null &&
@@ -149,9 +462,33 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
 
   Future<void> _checkTutorStatus() async {
     try {
-      final res = await widget.apiClient.dio.get(
-        "/api/v1/dev/diagnostics",
-      );
+      final res = await widget.apiClient.dio.get(ApiConstants.health);
+      if (res.statusCode == 200) {
+        bool isGemini = false;
+        bool isOnline = true;
+        if (res.data is Map) {
+          final data = res.data as Map;
+          isGemini = data["gemini"] == true;
+          if (data.containsKey("ok")) {
+            isOnline = data["ok"] == true;
+          } else if (data.containsKey("status")) {
+            isOnline = data["status"] == "healthy";
+          }
+        }
+        if (mounted) {
+          setState(() {
+            _isTutorOnline = isOnline;
+            _tutorStatusLabel = isOnline
+                ? (isGemini ? "Gemini Online" : "AI Tutor Online")
+                : "Tutor Offline";
+          });
+        }
+        return;
+      }
+    } catch (_) {}
+
+    try {
+      final res = await widget.apiClient.dio.get("/api/v1/dev/diagnostics");
       if (res.statusCode == 200 && res.data is Map && (res.data as Map).containsKey("aiService")) {
         final aiService = res.data["aiService"] as Map?;
         final isOnline = aiService?["reachable"] == true;
@@ -177,6 +514,14 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
       );
       _isLoading = true;
     });
+
+    // Auto-update session title from first user query if still generic
+    final active = _sessions.where((s) => s.id == _activeSessionId).firstOrNull;
+    if (active != null && (active.title == "New Study Chat" || active.messages.length <= 1)) {
+      final clean = query.replaceAll(RegExp(r'\s+'), ' ').trim();
+      active.title = clean.length > 32 ? "${clean.substring(0, 32)}..." : clean;
+    }
+
     _scrollToBottom();
 
     final stopwatch = Stopwatch()..start();
@@ -261,6 +606,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
         setState(() => _isLoading = false);
         _scrollToBottom();
       }
+      _saveSessions();
     }
   }
 
@@ -377,9 +723,19 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.add_comment_outlined, size: 20),
+            tooltip: "New Chat",
+            onPressed: _createNewChat,
+          ),
+          IconButton(
+            icon: const Icon(Icons.history_rounded, size: 22),
+            tooltip: "Chat History",
+            onPressed: _showChatHistorySheet,
+          ),
           // AI Tutor Online Status Badge (Driven by real server health check)
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
             child: InkWell(
               onTap: _checkTutorStatus,
               borderRadius: BorderRadius.circular(14),

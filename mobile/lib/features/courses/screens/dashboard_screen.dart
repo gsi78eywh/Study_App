@@ -3,6 +3,7 @@ import "package:dio/dio.dart";
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
+import "package:shared_preferences/shared_preferences.dart";
 
 import "../../../core/network/api_client.dart";
 import "../../../core/services/child_safety_service.dart";
@@ -103,10 +104,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final sampleCourses = _courses.where((c) => c.isSample).toList();
       for (final c in sampleCourses) {
         try {
-          await widget.apiClient.deleteCourse(c.id);
+          await widget.apiClient.dio.delete("/api/v1/courses/${c.id}");
         } catch (_) {}
       }
-      await widget.sessionService.setHasSampleData(false);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool("has_loaded_sample_data", false);
       await _fetchCoursesAndSync(fullFetch: true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1960,52 +1962,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildQuickActionChip({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback? onTap,
-    bool isLoading = false,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          height: 38,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: color.withValues(alpha: 0.35), width: 1.2),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (isLoading)
-                SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: color),
-                )
-              else
-                Icon(icon, size: 16, color: color),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: GoogleFonts.inter(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildChildSafetyBanner(BuildContext context) {
     return ListenableBuilder(
@@ -2417,9 +2373,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           sum + c.studySets.fold<int>(0, (s, set) => s + set.questionCount),
     );
     final studentName = widget.sessionService.fullName?.trim();
-    final displayName = (studentName != null && studentName.isNotEmpty)
-        ? studentName
-        : "Student";
+    final displayName = (studentName != null &&
+            studentName.isNotEmpty &&
+            studentName.toLowerCase() != 'google student')
+        ? (studentName.toLowerCase().startsWith('google student ')
+            ? studentName.substring(15).trim()
+            : studentName)
+        : 'Student';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -2443,9 +2403,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           runSpacing: 4,
                           children: [
                             Text(
-                              _courses.isEmpty
-                                  ? "Welcome, ${(widget.sessionService.fullName?.trim() != null && widget.sessionService.fullName!.trim().isNotEmpty && !widget.sessionService.fullName!.trim().toLowerCase().contains('google student')) ? widget.sessionService.fullName!.trim().split(RegExp(r'\s+')).first : 'Student'} 👋"
-                                  : "Welcome back, ${(widget.sessionService.fullName?.trim() != null && widget.sessionService.fullName!.trim().isNotEmpty && !widget.sessionService.fullName!.trim().toLowerCase().contains('google student')) ? widget.sessionService.fullName!.trim().split(RegExp(r'\s+')).first : 'Student'} 👋",
+                              "Welcome back, $displayName 👋",
                               style: GoogleFonts.outfit(
                                 fontSize: 22,
                                 fontWeight: FontWeight.bold,

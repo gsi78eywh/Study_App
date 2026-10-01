@@ -55,6 +55,14 @@ class SessionService {
     await _prefs.setBool(_keyMinorConsent, hasMinorConsent);
   }
 
+  Future<void> setSchoolLevel(String level) async {
+    await _prefs.setString(_keySchoolLevel, level);
+  }
+
+  Future<void> setGradingScale(String scale) async {
+    await _prefs.setString(_keyGradingScale, scale);
+  }
+
   Future<void> setSampleDataLoaded(bool loaded) async {
     await _prefs.setBool(_keySampleDataLoaded, loaded);
   }
@@ -88,7 +96,33 @@ class SessionService {
     await _prefs.setString(_keyThemeMode, val);
   }
 
-  bool get isAuthenticated => token != null && token!.isNotEmpty;
+  static const String _keyLastActive = "last_active_timestamp";
+  static const Duration inactivityTimeout = Duration(hours: 4);
+
+  DateTime? get lastActiveAt {
+    final str = _prefs.getString(_keyLastActive);
+    return str != null ? DateTime.tryParse(str) : null;
+  }
+
+  bool get isSessionExpired {
+    final dt = lastActiveAt;
+    if (dt == null) return false;
+    return DateTime.now().difference(dt) > inactivityTimeout;
+  }
+
+  Future<void> recordActivity() async {
+    await _prefs.setString(_keyLastActive, DateTime.now().toIso8601String());
+  }
+
+  bool get isAuthenticated {
+    if (token == null || token!.isEmpty) return false;
+    if (isSessionExpired) {
+      clear();
+      return false;
+    }
+    return true;
+  }
+
   bool get hasValidToken => isAuthenticated;
 
   Future<void> saveAuth({
@@ -101,6 +135,7 @@ class SessionService {
     await _prefs.setString(_keyUserId, userId);
     await _prefs.setString(_keyEmail, email);
     await _prefs.setString(_keyFullName, fullName);
+    await recordActivity();
   }
 
   Future<void> setBaseUrl(String url) async {
@@ -119,7 +154,9 @@ class SessionService {
     await _prefs.remove(_keyFullName);
     await _prefs.remove(_keyLastSync);
     await _prefs.remove(_keyGeminiApiKey);
+    await _prefs.remove(_keyLastActive);
   }
 
+  Future<void> clearSession() => clear();
   Future<void> clearAuth() => clear();
 }
