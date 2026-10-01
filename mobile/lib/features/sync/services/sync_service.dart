@@ -79,17 +79,32 @@ class SyncService {
             continue;
           }
           final existing = courseMap[id];
-          courseMap[id] = CourseModel(
-            id: id,
-            code: raw["code"] ?? existing?.code ?? "COURSE",
-            name: raw["name"] ?? existing?.name ?? "Untitled Course",
-            colorHex: raw["colorHex"] ?? existing?.colorHex ?? "#6366F1",
-            createdAt:
-                DateTime.tryParse(raw["updatedAt"] ?? "") ??
-                existing?.createdAt ??
-                DateTime.now(),
-            studySets: existing?.studySets ?? [],
-          );
+          courseMap[id] = existing != null
+              ? existing.copyWith(
+                  code: raw["code"] ?? existing.code,
+                  name: raw["name"] ?? existing.name,
+                  colorHex: raw["colorHex"] ?? existing.colorHex,
+                  updatedAt: DateTime.tryParse(raw["updatedAt"] ?? "") ?? DateTime.now(),
+                  examDate: raw["examDate"] != null
+                      ? DateTime.tryParse(raw["examDate"])
+                      : existing.examDate,
+                  examTitle: raw["examTitle"]?.toString() ?? existing.examTitle,
+                )
+              : CourseModel(
+                  id: id,
+                  code: raw["code"] ?? "COURSE",
+                  name: raw["name"] ?? "Untitled Course",
+                  colorHex: raw["colorHex"] ?? "#6366F1",
+                  createdAt:
+                      DateTime.tryParse(raw["updatedAt"] ?? "") ?? DateTime.now(),
+                  updatedAt:
+                      DateTime.tryParse(raw["updatedAt"] ?? "") ?? DateTime.now(),
+                  examDate: raw["examDate"] != null
+                      ? DateTime.tryParse(raw["examDate"])
+                      : null,
+                  examTitle: raw["examTitle"]?.toString(),
+                  studySets: [],
+                );
         }
 
         // Attach updated sets
@@ -126,14 +141,7 @@ class SyncService {
             }
           }
 
-          courseMap[courseId] = CourseModel(
-            id: targetCourse.id,
-            code: targetCourse.code,
-            name: targetCourse.name,
-            colorHex: targetCourse.colorHex,
-            createdAt: targetCourse.createdAt,
-            studySets: setList,
-          );
+          courseMap[courseId] = targetCourse.copyWith(studySets: setList);
         }
 
         return SyncResult(

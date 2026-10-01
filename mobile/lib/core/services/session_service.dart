@@ -99,6 +99,16 @@ class SessionService {
   static const String _keyLastActive = "last_active_timestamp";
   static const Duration inactivityTimeout = Duration(hours: 4);
 
+  static const _keepKeys = {_keyThemeMode, _keyBaseUrl};
+
+  Future<void> clearAllUserData() async {
+    for (final k in _prefs.getKeys().toList()) {
+      if (!_keepKeys.contains(k)) {
+        await _prefs.remove(k);
+      }
+    }
+  }
+
   DateTime? get lastActiveAt {
     final str = _prefs.getString(_keyLastActive);
     return str != null ? DateTime.tryParse(str) : null;
@@ -114,13 +124,14 @@ class SessionService {
     await _prefs.setString(_keyLastActive, DateTime.now().toIso8601String());
   }
 
-  bool get isAuthenticated {
-    if (token == null || token!.isEmpty) return false;
+  // Side-effect free getter
+  bool get isAuthenticated =>
+      token != null && token!.isNotEmpty && !isSessionExpired;
+
+  Future<void> expireIfInactive() async {
     if (isSessionExpired) {
-      clear();
-      return false;
+      await clearAllUserData();
     }
-    return true;
   }
 
   bool get hasValidToken => isAuthenticated;
@@ -131,6 +142,12 @@ class SessionService {
     required String email,
     required String fullName,
   }) async {
+    final prev = _prefs.getString("last_user_id");
+    if (prev != null && prev != userId) {
+      await clearAllUserData();
+    }
+    await _prefs.setString("last_user_id", userId);
+
     await _prefs.setString(_keyToken, token);
     await _prefs.setString(_keyUserId, userId);
     await _prefs.setString(_keyEmail, email);
@@ -147,16 +164,7 @@ class SessionService {
     await _prefs.setString(_keyLastSync, timestamp.toIso8601String());
   }
 
-  Future<void> clear() async {
-    await _prefs.remove(_keyToken);
-    await _prefs.remove(_keyUserId);
-    await _prefs.remove(_keyEmail);
-    await _prefs.remove(_keyFullName);
-    await _prefs.remove(_keyLastSync);
-    await _prefs.remove(_keyGeminiApiKey);
-    await _prefs.remove(_keyLastActive);
-  }
-
-  Future<void> clearSession() => clear();
-  Future<void> clearAuth() => clear();
+  Future<void> clear() async => clearAllUserData();
+  Future<void> clearSession() async => clearAllUserData();
+  Future<void> clearAuth() async => clearAllUserData();
 }

@@ -6,6 +6,7 @@ import "package:google_fonts/google_fonts.dart";
 import "package:shared_preferences/shared_preferences.dart";
 
 import "../../../core/network/api_client.dart";
+import "../../../core/services/app_session.dart";
 import "../../../core/services/child_safety_service.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
@@ -169,7 +170,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           apiClient: widget.apiClient,
           onExamSaved: (newSet) {
             setState(() {
-              if (!course.studySets.any((s) => s.id == newSet.id)) {
+              final idx = _courses.indexWhere((c) => c.id == course.id);
+              if (idx >= 0) {
+                if (!_courses[idx].studySets.any((s) => s.id == newSet.id)) {
+                  _courses[idx] = _courses[idx].copyWith(
+                    studySets: [newSet, ..._courses[idx].studySets],
+                  );
+                }
+              } else if (!course.studySets.any((s) => s.id == newSet.id)) {
                 course.studySets.insert(0, newSet);
               }
             });
@@ -236,6 +244,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Timer? _eyeBreakMonitoringTimer;
+  bool _eyeBreakOpen = false;
+
+  final Set<int> _builtTabs = {0};
+  Widget _lazy(int i, Widget Function() build) => _builtTabs.contains(i) ? build() : const SizedBox.shrink();
 
   @override
   void initState() {
@@ -267,8 +279,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _initEyeBreakMonitoring() {
     _eyeBreakMonitoringTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (!mounted) return;
-      if (ChildSafetyService.instance.shouldPromptEyeBreak) {
-        EyeBreakDialog.show(context);
+      if (!_eyeBreakOpen && ChildSafetyService.instance.shouldPromptEyeBreak) {
+        _eyeBreakOpen = true;
+        EyeBreakDialog.show(context).whenComplete(() => _eyeBreakOpen = false);
       }
     });
   }
@@ -1660,14 +1673,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ..removeWhere((s) => s.id == set.id);
                   final idx = _courses.indexWhere((c) => c.id == course.id);
                   if (idx >= 0) {
-                    _courses[idx] = CourseModel(
-                      id: course.id,
-                      code: course.code,
-                      name: course.name,
-                      colorHex: course.colorHex,
-                      createdAt: course.createdAt,
-                      updatedAt: DateTime.now(),
+                    _courses[idx] = course.copyWith(
                       studySets: newSets,
+                      updatedAt: DateTime.now(),
                     );
                   }
                 });
@@ -1950,7 +1958,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _handleLogout() async {
-    await widget.sessionService.clearAuth();
+    await AppSession.signOut(api: widget.apiClient, session: widget.sessionService);
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
@@ -3392,7 +3400,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             Text(
                                               set.attemptsCount == 0
                                                   ? "Not started"
-                                                  : "${set.masteryScore > 0 ? set.masteryScore.round() : 85}% Ready",
+                                                  : (set.masteryScore > 0 ? "${set.masteryScore.round()}% Ready" : "No data yet"),
                                               style: TextStyle(
                                                 color: set.attemptsCount == 0
                                                     ? context.textSecondary
@@ -3820,6 +3828,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _builtTabs.add(_currentTabIndex);
     final isDark = context.isDarkMode;
     final isDesktop = MediaQuery.sizeOf(context).width >= 768;
 
@@ -3832,57 +3841,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
               index: _currentTabIndex,
               children: [
                 // Tab 0: Courses
-                _buildCoursesTab(),
+                _lazy(0, () => _buildCoursesTab()),
                 // Tab 1: Flashcards
-                FlashcardsScreen(
-                  courses: _courses,
-                  apiClient: widget.apiClient,
-                  onLoadStarterPack: _loadStarterDemoPack,
-                  onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
-                  onCardDeleted: () => _fetchCoursesAndSync(fullFetch: true),
+                _lazy(
+                  1,
+                  () => FlashcardsScreen(
+                    courses: _courses,
+                    apiClient: widget.apiClient,
+                    onLoadStarterPack: _loadStarterDemoPack,
+                    onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
+                    onCardDeleted: () => _fetchCoursesAndSync(fullFetch: true),
+                  ),
                 ),
                 // Tab 2: Notebook
-                NotebookScreen(
-                  courses: _courses,
-                  apiClient: widget.apiClient,
-                  onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
-                  onLoadStarterPack: _loadStarterDemoPack,
+                _lazy(
+                  2,
+                  () => NotebookScreen(
+                    courses: _courses,
+                    apiClient: widget.apiClient,
+                    onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
+                    onLoadStarterPack: _loadStarterDemoPack,
+                  ),
                 ),
                 // Tab 3: AI Studio
-                IngestionScreen(
-                  courses: _courses,
-                  apiClient: widget.apiClient,
-                  initialCourseId: _activeCourseId,
-                  onCourseSelected: (id) => setState(() => _activeCourseId = id),
-                  draftTitle: _studioDraftTitle,
-                  draftContent: _studioDraftContent,
-                  draftRevision: _studioDraftRevision,
-                  onStudySetCreated: (newSet) async {
-                    await _fetchCoursesAndSync();
-                    if (!mounted) return;
-                    setState(() {
-                      final course = _courses.firstWhere(
-                        (c) => c.id == newSet.courseId,
-                        orElse: () => _courses.isNotEmpty
-                            ? _courses.first
-                            : CourseModel(
-                                id: newSet.courseId,
-                                code: "GEN-101",
-                                name: "General Studies",
-                                colorHex: "#6366F1",
-                                createdAt: DateTime.now(),
-                                studySets: [newSet],
-                              ),
-                      );
-                      if (!course.studySets.any((s) => s.id == newSet.id)) {
-                        course.studySets.insert(0, newSet);
-                      }
-                      _currentTabIndex = 0;
-                    });
-                  },
+                _lazy(
+                  3,
+                  () => IngestionScreen(
+                    courses: _courses,
+                    apiClient: widget.apiClient,
+                    initialCourseId: _activeCourseId,
+                    settingsService: _settingsService,
+                    onCourseSelected: (id) => setState(() => _activeCourseId = id),
+                    draftTitle: _studioDraftTitle,
+                    draftContent: _studioDraftContent,
+                    draftRevision: _studioDraftRevision,
+                    onStudySetCreated: (newSet) async {
+                      await _fetchCoursesAndSync();
+                      if (!mounted) return;
+                      setState(() {
+                        final course = _courses.firstWhere(
+                          (c) => c.id == newSet.courseId,
+                          orElse: () => _courses.isNotEmpty
+                              ? _courses.first
+                              : CourseModel(
+                                  id: newSet.courseId,
+                                  code: "GEN-101",
+                                  name: "General Studies",
+                                  colorHex: "#6366F1",
+                                  createdAt: DateTime.now(),
+                                  studySets: [newSet],
+                                ),
+                        );
+                        if (!course.studySets.any((s) => s.id == newSet.id)) {
+                          course.studySets.insert(0, newSet);
+                        }
+                        _currentTabIndex = 0;
+                      });
+                    },
+                  ),
                 ),
                 // Tab 4: AI Tutor
-                AiTutorScreen(apiClient: widget.apiClient, courses: _courses),
+                _lazy(4, () => AiTutorScreen(apiClient: widget.apiClient, courses: _courses)),
               ],
             ),
           ),

@@ -265,13 +265,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         filename: file.name,
       );
 
-      final geminiKey = widget.apiClient.sessionService.geminiApiKey;
       final formDataMap = <String, dynamic>{
         "file": multipartFile,
       };
-      if (geminiKey != null && geminiKey.isNotEmpty) {
-        formDataMap["apiKey"] = geminiKey;
-      }
 
       final response = await widget.apiClient.dio.post(
         ApiConstants.scanContent,
@@ -498,13 +494,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         filename: _selectedFile!.name,
       );
 
-      final geminiKey = widget.apiClient.sessionService.geminiApiKey;
       final formDataMap = <String, dynamic>{
         "file": multipartFile,
       };
-      if (geminiKey != null && geminiKey.isNotEmpty) {
-        formDataMap["apiKey"] = geminiKey;
-      }
 
       final response = await widget.apiClient.dio.post(
         ApiConstants.scanContent,
@@ -557,13 +549,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
       });
 
       final multipartFile = MultipartFile.fromBytes(bytes, filename: file.name);
-      final geminiKey = widget.apiClient.sessionService.geminiApiKey;
       final formDataMap = <String, dynamic>{
         "file": multipartFile,
       };
-      if (geminiKey != null && geminiKey.isNotEmpty) {
-        formDataMap["apiKey"] = geminiKey;
-      }
 
       final response = await widget.apiClient.dio.post(
         ApiConstants.scanContent,
@@ -1121,13 +1109,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         filename: _selectedFile!.name,
       );
 
-      final geminiKey = widget.apiClient.sessionService.geminiApiKey;
       final formDataMap = <String, dynamic>{
         "file": multipartFile,
       };
-      if (geminiKey != null && geminiKey.isNotEmpty) {
-        formDataMap["apiKey"] = geminiKey;
-      }
 
       final response = await widget.apiClient.dio.post(
         ApiConstants.scanContent,
@@ -1608,11 +1592,6 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               orElse: () => _questionSetVariants.first,
           )["id"] as String,
         };
-
-        final geminiKey = widget.apiClient.sessionService.geminiApiKey;
-        if (geminiKey != null && geminiKey.isNotEmpty) {
-          formDataMap["apiKey"] = geminiKey;
-        }
 
         final formData = FormData.fromMap(formDataMap);
 
@@ -2130,8 +2109,11 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                   const SizedBox(height: 20),
 
                   // Tab View Content
-                  SizedBox(
-                    height: 310,
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: 310,
+                      maxHeight: (340.0 * MediaQuery.textScalerOf(context).scale(1.0)).clamp(310.0, 540.0),
+                    ),
                     child: TabBarView(
                       controller: _tabController,
                       children: [

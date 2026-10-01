@@ -30,6 +30,7 @@ class ChildSafetyService extends ChangeNotifier {
   int _eyeBreakMinutes = 20; // 20-20-20 screen rule per DSWD PES
   bool _kidSafeAiFilter = true;
   DateTime _lastEyeBreakTime = DateTime.now();
+  DateTime? _snoozedUntil;
 
   ChildSafetyService._([this._prefs]) {
     _loadFromPrefs();
@@ -43,6 +44,11 @@ class ChildSafetyService extends ChangeNotifier {
 
   static ChildSafetyService get instance {
     return _instance ??= ChildSafetyService._(null);
+  }
+
+  Future<void> reloadFromPrefs() async {
+    _loadFromPrefs();
+    notifyListeners();
   }
 
   void _loadFromPrefs() {
@@ -59,6 +65,7 @@ class ChildSafetyService extends ChangeNotifier {
     _eyeBreakMinutes = _prefs.getInt(keyEyeBreakMinutes) ?? 20;
     _kidSafeAiFilter = _prefs.getBool(keyKidSafeAi) ?? true;
     _lastEyeBreakTime = DateTime.now();
+    _snoozedUntil = null;
   }
 
   // Getters
@@ -86,10 +93,19 @@ class ChildSafetyService extends ChangeNotifier {
   int get minutesSinceLastBreak => DateTime.now().difference(_lastEyeBreakTime).inMinutes;
   bool get shouldPromptEyeBreak {
     if (_eyeBreakMinutes <= 0) return false;
-    return minutesSinceLastBreak >= _eyeBreakMinutes;
+    final now = DateTime.now();
+    if (_snoozedUntil != null && now.isBefore(_snoozedUntil!)) return false;
+    return now.difference(_lastEyeBreakTime).inMinutes >= _eyeBreakMinutes;
   }
+
+  void snoozeEyeBreak([int minutes = 10]) {
+    _snoozedUntil = DateTime.now().add(Duration(minutes: minutes));
+    notifyListeners();
+  }
+
   void resetEyeBreakTimer() {
     _lastEyeBreakTime = DateTime.now();
+    _snoozedUntil = null;
     notifyListeners();
   }
 

@@ -207,7 +207,7 @@ class _ProgressiveExamStudioState extends State<ProgressiveExamStudio> {
           "identification",
           "true_false",
           "cloze",
-          "flashcard"
+          "flashcards"
         ],
         "targetCount": 15,
         "setIndex": 0,
@@ -270,6 +270,14 @@ class _ProgressiveExamStudioState extends State<ProgressiveExamStudio> {
             _updateVisibleQuestions();
           });
           widget.onExamSaved(studySet);
+        }
+      } else {
+        _stageTimer?.cancel();
+        if (mounted) {
+          setState(() {
+            _isApiLoading = false;
+            _errorMessage = "Received unexpected server response format.";
+          });
         }
       }
     } on DioException catch (e) {

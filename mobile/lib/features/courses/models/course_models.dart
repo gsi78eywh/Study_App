@@ -52,6 +52,30 @@ class CourseModel {
     );
   }
 
+  CourseModel copyWith({
+    String? id,
+    String? code,
+    String? name,
+    String? colorHex,
+    DateTime? examDate,
+    String? examTitle,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    List<StudySetModel>? studySets,
+  }) {
+    return CourseModel(
+      id: id ?? this.id,
+      code: code ?? this.code,
+      name: name ?? this.name,
+      colorHex: colorHex ?? this.colorHex,
+      examDate: examDate ?? this.examDate,
+      examTitle: examTitle ?? this.examTitle,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      studySets: studySets ?? this.studySets,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
         "id": id,
         "code": code,
@@ -93,13 +117,14 @@ class StudySetModel {
       courseId: json["courseId"]?.toString() ?? "",
       title: json["title"] ?? "",
       description: json["description"] ?? json["summary"],
-      questionCount: json["questionCount"] ?? (json["questions"] as List?)?.length ?? 0,
+      questionCount: (json["questionCount"] as num?)?.toInt() ??
+          ((json["questions"] as List?)?.length ?? 0),
       createdAt: DateTime.tryParse(json["createdAt"] ?? "") ?? DateTime.now(),
       bulletPoints: (json["highYieldBulletPoints"] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
           [],
-      attemptsCount: json["attemptsCount"] as int? ?? 0,
+      attemptsCount: (json["attemptsCount"] as num?)?.toInt() ?? 0,
       masteryScore: (json["masteryScore"] as num?)?.toDouble() ?? 0.0,
     );
   }

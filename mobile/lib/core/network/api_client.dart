@@ -44,13 +44,17 @@ class ApiClient {
           }
           return handler.next(options);
         },
+        onResponse: (response, handler) {
+          sessionService.recordActivity();
+          return handler.next(response);
+        },
         onError: (DioException e, handler) async {
           // Automatic retry with backoff for transient delays and HTTP 429 rate limits on idempotent GETs
           final isGet = e.requestOptions.method.toUpperCase() == "GET";
           final isTimeout = e.type == DioExceptionType.connectionTimeout ||
                             e.type == DioExceptionType.receiveTimeout;
           final isRateLimited = e.response?.statusCode == 429;
-          final retryCount = (e.requestOptions.extra["retry_count"] as int?) ?? 0;
+          final retryCount = (e.requestOptions.extra["retry_count"] as num?)?.toInt() ?? 0;
 
           if ((isTimeout || isRateLimited) && isGet && retryCount < 2) {
             e.requestOptions.extra["retry_count"] = retryCount + 1;
@@ -62,8 +66,10 @@ class ApiClient {
             } catch (_) {}
           }
 
-          // Automatic host fallback across USB reverse port (127.0.0.1), local Wi-Fi (192.168.1.11), and emulator (10.0.2.2)
-          if (e.type == DioExceptionType.connectionError &&
+          // Restrict the host fallback so credentials and POST bodies are never replayed
+          if (kDebugMode &&
+              e.requestOptions.method.toUpperCase() == "GET" &&
+              e.type == DioExceptionType.connectionError &&
               defaultTargetPlatform == TargetPlatform.android &&
               e.requestOptions.extra["tried_alternate_host"] != true) {
             e.requestOptions.extra["tried_alternate_host"] = true;
@@ -140,6 +146,20 @@ class ApiClient {
 
   void updateBaseUrl(String newUrl) {
     dio.options.baseUrl = newUrl;
+  }
+
+  void clearCaches() {
+    _cachedTodayStudyPlan = null;
+    _cachedGradeSummary = null;
+  }
+
+  Future<bool> deleteAccount() async {
+    try {
+      final res = await dio.delete(ApiConstants.deleteAccount);
+      return res.statusCode == 200 || res.statusCode == 204;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<bool> checkBackendHealth() async {

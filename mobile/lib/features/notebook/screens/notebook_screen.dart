@@ -60,7 +60,9 @@ class _NotebookScreenState extends State<NotebookScreen> {
   @override
   void didUpdateWidget(covariant NotebookScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.courses.length != widget.courses.length || (_notes.isEmpty && widget.courses.isNotEmpty)) {
+    final oldIds = oldWidget.courses.map((c) => c.id).toSet();
+    final newIds = widget.courses.map((c) => c.id).toSet();
+    if (oldIds.length != newIds.length || !oldIds.containsAll(newIds)) {
       _fetchRemoteNotes();
     }
   }
@@ -85,11 +87,8 @@ class _NotebookScreenState extends State<NotebookScreen> {
         }).toList();
 
         setState(() {
-          for (final r in remoteNotes) {
-            if (!_notes.any((n) => n.id == r.id)) {
-              _notes.insert(0, r);
-            }
-          }
+          _notes.clear();
+          _notes.addAll(remoteNotes);
         });
       }
     } catch (_) {
@@ -327,29 +326,20 @@ class _NotebookScreenState extends State<NotebookScreen> {
                     }
                     return;
                   }
-                  final response = await widget.apiClient.dio.post(
+                  await widget.apiClient.dio.post(
                     "/api/v1/notebooks",
                     data: {
                       "courseId": course.id,
                       "title": title,
                       "contentMarkdown": content,
+                      "tags": tags.isEmpty ? "#Notes" : tags,
                     },
-                  );
-                  final saved = response.data as Map<String, dynamic>;
-                  final newNote = NoteItem(
-                    id:
-                        saved["id"]?.toString() ??
-                        "note-${DateTime.now().millisecondsSinceEpoch}",
-                    courseCode: selectedCourse,
-                    title: title,
-                    content: content,
-                    tags: tags.isEmpty ? "#Notes" : tags,
-                    updatedAt: DateTime.now(),
                   );
                   if (!mounted) return;
                   if (!ctx.mounted) return;
-                  setState(() => _notes.insert(0, newNote));
                   Navigator.pop(ctx);
+                  await _fetchRemoteNotes();
+                  if (!mounted) return;
 
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
@@ -371,6 +361,156 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 }
               },
               child: const Text("Save Note"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmDeleteNote(NoteItem note) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          "Delete Note?",
+          style: GoogleFonts.outfit(
+            fontWeight: FontWeight.bold,
+            color: ctx.textPrimary,
+          ),
+        ),
+        content: Text(
+          "Are you sure you want to delete '${note.title}'? This action cannot be undone.",
+          style: TextStyle(color: ctx.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await widget.apiClient.dio.delete("/api/v1/notebooks/${note.id}");
+                setState(() => _notes.removeWhere((n) => n.id == note.id));
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Note deleted")),
+                  );
+                }
+              } catch (_) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("Could not delete note. Check your connection."),
+                      backgroundColor: AppColors.danger,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text("Delete"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditNoteDialog(NoteItem note) {
+    final titleController = TextEditingController(text: note.title);
+    final contentController = TextEditingController(text: note.content);
+    final tagsController = TextEditingController(text: note.tags);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => AlertDialog(
+          backgroundColor: ctx.surfaceColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            "Edit Lecture Note",
+            style: GoogleFonts.outfit(
+              color: ctx.textPrimary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: 480,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: titleController,
+                    style: TextStyle(color: ctx.textPrimary),
+                    decoration: const InputDecoration(labelText: "Note Title"),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: tagsController,
+                    style: TextStyle(color: ctx.textPrimary),
+                    decoration: const InputDecoration(labelText: "Tags"),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: contentController,
+                    maxLines: 6,
+                    style: TextStyle(color: ctx.textPrimary),
+                    decoration: const InputDecoration(labelText: "Note Content"),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final title = titleController.text.trim();
+                final content = contentController.text.trim();
+                final tags = tagsController.text.trim();
+
+                if (title.isEmpty || content.isEmpty) return;
+
+                try {
+                  await widget.apiClient.dio.put(
+                    "/api/v1/notebooks/${note.id}",
+                    data: {
+                      "title": title,
+                      "contentMarkdown": content,
+                      "tags": tags.isEmpty ? "#Notes" : tags,
+                    },
+                  );
+                  if (!mounted) return;
+                  if (!ctx.mounted) return;
+                  Navigator.pop(ctx);
+                  await _fetchRemoteNotes();
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("Note updated"),
+                      backgroundColor: AppColors.accent,
+                    ),
+                  );
+                } catch (_) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("Could not update note. Check your connection."),
+                      backgroundColor: AppColors.danger,
+                    ),
+                  );
+                }
+              },
+              child: const Text("Save Changes"),
             ),
           ],
         ),
@@ -455,6 +595,22 @@ class _NotebookScreenState extends State<NotebookScreen> {
                   duration: Duration(seconds: 2),
                 ),
               );
+            },
+          ),
+          TextButton.icon(
+            icon: const Icon(Icons.edit_outlined, size: 16),
+            label: const Text("Edit"),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _showEditNoteDialog(note);
+            },
+          ),
+          TextButton.icon(
+            icon: const Icon(Icons.delete_outline_rounded, size: 16, color: AppColors.danger),
+            label: const Text("Delete", style: TextStyle(color: AppColors.danger)),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _confirmDeleteNote(note);
             },
           ),
           if (widget.onNavigateToStudio != null)
@@ -819,8 +975,23 @@ class _NotebookScreenState extends State<NotebookScreen> {
                             ),
                             const SizedBox(height: 12),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
                               children: [
+                                IconButton(
+                                  icon: const Icon(Icons.edit_outlined, size: 18),
+                                  tooltip: "Edit Note",
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  onPressed: () => _showEditNoteDialog(note),
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),
+                                  tooltip: "Delete Note",
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  onPressed: () => _confirmDeleteNote(note),
+                                ),
+                                const Spacer(),
                                 if (widget.onNavigateToStudio != null)
                                   TextButton.icon(
                                     style: TextButton.styleFrom(

@@ -60,8 +60,8 @@ class _QuizSummaryScreenState extends State<QuizSummaryScreen> {
       final data = response.data as Map<String, dynamic>;
       if (!mounted) return;
       setState(() {
-        _authoritativeScore = data["score"] as int?;
-        _authoritativeTotal = data["totalQuestions"] as int?;
+        _authoritativeScore = (data["score"] as num?)?.toInt();
+        _authoritativeTotal = (data["totalQuestions"] as num?)?.toInt();
         _isSyncing = false;
         _syncStatus = "Graded and recorded by the server";
       });

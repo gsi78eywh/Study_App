@@ -12,6 +12,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final sessionService = await SessionService.init();
+  await sessionService.expireIfInactive();
   await ChildSafetyService.init(sessionService.prefs);
   await NotificationService.instance.init();
   final themeController = ThemeController.init(sessionService);
@@ -24,7 +25,7 @@ void main() async {
   ));
 }
 
-class StudyAppMobile extends StatelessWidget {
+class StudyAppMobile extends StatefulWidget {
   final SessionService sessionService;
   final ApiClient apiClient;
   final ThemeController themeController;
@@ -37,9 +38,33 @@ class StudyAppMobile extends StatelessWidget {
   });
 
   @override
+  State<StudyAppMobile> createState() => _StudyAppMobileState();
+}
+
+class _StudyAppMobileState extends State<StudyAppMobile> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      widget.sessionService.recordActivity();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([themeController, ChildSafetyService.instance]),
+      listenable: Listenable.merge([widget.themeController, ChildSafetyService.instance]),
       builder: (context, _) {
         final childSafety = ChildSafetyService.instance;
         return MaterialApp(
@@ -47,20 +72,20 @@ class StudyAppMobile extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
-          themeMode: themeController.themeMode,
+          themeMode: widget.themeController.themeMode,
           builder: (context, child) {
-            // Apply DSWD WCAG 2.1 AA Dynamic Text Scaling with safe viewport bounds
-            final safeFactor = childSafety.textScaleFactor.clamp(0.85, 1.22);
+            final system = MediaQuery.textScalerOf(context).scale(1.0);
+            final factor = (system * childSafety.textScaleFactor).clamp(0.85, 1.6);
             return MediaQuery(
               data: MediaQuery.of(context).copyWith(
-                textScaler: TextScaler.linear(safeFactor),
+                textScaler: TextScaler.linear(factor),
               ),
               child: child ?? const SizedBox.shrink(),
             );
           },
-          home: sessionService.isAuthenticated
-              ? DashboardScreen(apiClient: apiClient, sessionService: sessionService)
-              : LoginScreen(apiClient: apiClient, sessionService: sessionService),
+          home: widget.sessionService.isAuthenticated
+              ? DashboardScreen(apiClient: widget.apiClient, sessionService: widget.sessionService)
+              : LoginScreen(apiClient: widget.apiClient, sessionService: widget.sessionService),
         );
       },
     );

@@ -37,7 +37,9 @@ class _GradeTrackerSheetState extends State<GradeTrackerSheet> with SingleTicker
   String? _errorMessage;
 
   // What-If Calculator State
-  CourseGradeModel? _selectedWhatIfCourse;
+  String? _whatIfCourseId;
+  CourseGradeModel? get _whatIfCourse =>
+      _summary?.courses.where((c) => c.courseId == _whatIfCourseId).firstOrNull;
   double _targetGwa = 1.75;
   WhatIfResultModel? _whatIfResult;
   bool _isCalculatingWhatIf = false;
@@ -53,6 +55,16 @@ class _GradeTrackerSheetState extends State<GradeTrackerSheet> with SingleTicker
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  double? _parseGrade(String t) {
+    final s = t.trim();
+    if (s.isEmpty) return null;
+    final v = double.tryParse(s);
+    if (v == null || v < 0 || v > 100) {
+      throw const FormatException("Grades must be between 0 and 100.");
+    }
+    return v;
   }
 
   Future<void> _loadGrades() async {
@@ -75,27 +87,28 @@ class _GradeTrackerSheetState extends State<GradeTrackerSheet> with SingleTicker
     setState(() {
       _summary = summary;
       _isLoading = false;
-      if (summary.courses.isNotEmpty && _selectedWhatIfCourse == null) {
-        _selectedWhatIfCourse = summary.courses.first;
+      if (summary.courses.isNotEmpty && _whatIfCourseId == null) {
+        _whatIfCourseId = summary.courses.first.courseId;
         _runWhatIfCalculation();
       }
     });
   }
 
   Future<void> _runWhatIfCalculation() async {
-    if (_selectedWhatIfCourse == null) return;
+    final course = _whatIfCourse;
+    if (course == null) return;
     setState(() => _isCalculatingWhatIf = true);
 
     final res = await widget.apiClient.calculateWhatIf(
-      courseId: _selectedWhatIfCourse!.courseId,
+      courseId: course.courseId,
       targetGwa: _targetGwa,
-      prelimGrade: _selectedWhatIfCourse!.prelimGrade,
-      midtermGrade: _selectedWhatIfCourse!.midtermGrade,
-      semiFinalGrade: _selectedWhatIfCourse!.semiFinalGrade,
-      prelimWeight: _selectedWhatIfCourse!.prelimWeight,
-      midtermWeight: _selectedWhatIfCourse!.midtermWeight,
-      semiFinalWeight: _selectedWhatIfCourse!.semiFinalWeight,
-      finalWeight: _selectedWhatIfCourse!.finalWeight,
+      prelimGrade: course.prelimGrade,
+      midtermGrade: course.midtermGrade,
+      semiFinalGrade: course.semiFinalGrade,
+      prelimWeight: course.prelimWeight,
+      midtermWeight: course.midtermWeight,
+      semiFinalWeight: course.semiFinalWeight,
+      finalWeight: course.finalWeight,
     );
 
     if (!mounted) return;
@@ -112,6 +125,7 @@ class _GradeTrackerSheetState extends State<GradeTrackerSheet> with SingleTicker
     final finalController = TextEditingController(text: course.finalGrade?.toStringAsFixed(1) ?? "");
     final unitsController = TextEditingController(text: course.units.toStringAsFixed(1));
     bool isSaving = false;
+    String? error;
 
     showDialog(
       context: context,
@@ -146,6 +160,24 @@ class _GradeTrackerSheetState extends State<GradeTrackerSheet> with SingleTicker
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (error != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline, color: Colors.red, size: 16),
+                        const SizedBox(width: 6),
+                        Expanded(child: Text(error!, style: const TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.w500))),
+                      ],
+                    ),
+                  ),
+                ],
                 Text("USJ-R Term Grade Inputs (0 - 100%)", style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 12, color: ctx.textPrimary)),
                 const SizedBox(height: 10),
                 Row(
@@ -182,35 +214,54 @@ class _GradeTrackerSheetState extends State<GradeTrackerSheet> with SingleTicker
               onPressed: isSaving
                   ? null
                   : () async {
-                      setDialogState(() => isSaving = true);
-                      final pGrade = double.tryParse(prelimController.text.trim());
-                      final mGrade = double.tryParse(midtermController.text.trim());
-                      final sfGrade = double.tryParse(semiFinalController.text.trim());
-                      final fGrade = double.tryParse(finalController.text.trim());
-                      final units = double.tryParse(unitsController.text.trim()) ?? 3.0;
+                      double? p, m, sf, f;
+                      try {
+                        p = _parseGrade(prelimController.text);
+                        m = _parseGrade(midtermController.text);
+                        sf = _parseGrade(semiFinalController.text);
+                        f = _parseGrade(finalController.text);
+                      } on FormatException catch (e) {
+                        setDialogState(() => error = e.message);
+                        return;
+                      }
 
-                      final success = await widget.apiClient.updateCourseGrades(
+                      final units = double.tryParse(unitsController.text.trim());
+                      if (units == null || units <= 0) {
+                        setDialogState(() => error = 'Units must be greater than 0.');
+                        return;
+                      }
+
+                      setDialogState(() {
+                        isSaving = true;
+                        error = null;
+                      });
+
+                      final ok = await widget.apiClient.updateCourseGrades(
                         course.courseId,
                         {
                           "units": units,
-                          "prelimGrade": pGrade,
-                          "midtermGrade": mGrade,
-                          "semiFinalGrade": sfGrade,
-                          "finalGrade": fGrade,
-                          "prelimWeight": 0.20,
-                          "midtermWeight": 0.20,
-                          "semiFinalWeight": 0.20,
-                          "finalWeight": 0.40,
+                          "prelimGrade": p,
+                          "midtermGrade": m,
+                          "semiFinalGrade": sf,
+                          "finalGrade": f,
+                          "prelimWeight": course.prelimWeight,
+                          "midtermWeight": course.midtermWeight,
+                          "semiFinalWeight": course.semiFinalWeight,
+                          "finalWeight": course.finalWeight,
                         },
                       );
 
-                      if (ctx.mounted) {
-                        Navigator.of(ctx).pop();
-                      }
+                      if (!ctx.mounted) return;
 
-                      if (success) {
+                      if (ok) {
+                        Navigator.of(ctx).pop();
                         _loadGrades();
                         widget.onGradesUpdated?.call();
+                      } else {
+                        setDialogState(() {
+                          isSaving = false;
+                          error = 'Could not save. Check your connection.';
+                        });
                       }
                     },
               child: isSaving
@@ -619,17 +670,17 @@ class _GradeTrackerSheetState extends State<GradeTrackerSheet> with SingleTicker
             border: Border.all(color: context.cardBorderColor),
           ),
           child: DropdownButtonHideUnderline(
-            child: DropdownButton<CourseGradeModel>(
+            child: DropdownButton<String>(
               isExpanded: true,
-              value: _selectedWhatIfCourse,
+              value: s.courses.any((c) => c.courseId == _whatIfCourseId) ? _whatIfCourseId : null,
               items: s.courses.map((c) {
-                return DropdownMenuItem(
-                  value: c,
+                return DropdownMenuItem<String>(
+                  value: c.courseId,
                   child: Text("${c.courseCode} — ${c.courseName}", maxLines: 1, overflow: TextOverflow.ellipsis),
                 );
               }).toList(),
-              onChanged: (c) {
-                setState(() => _selectedWhatIfCourse = c);
+              onChanged: (id) {
+                setState(() => _whatIfCourseId = id);
                 _runWhatIfCalculation();
               },
             ),

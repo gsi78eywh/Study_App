@@ -57,6 +57,11 @@ class NotificationService extends ChangeNotifier {
     return "$hour12:$minuteStr $period";
   }
 
+  Future<void> reloadFromPrefs() async {
+    _notifications.clear();
+    await init();
+  }
+
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     _dailyReminderEnabled = prefs.getBool(_keyDailyReminder) ?? true;
@@ -65,56 +70,9 @@ class NotificationService extends ChangeNotifier {
     _streakAlertsEnabled = prefs.getBool(_keyStreakAlerts) ?? true;
     _mistakeAlertsEnabled = prefs.getBool(_keyMistakeAlerts) ?? true;
 
-    if (_notifications.isEmpty) {
-      _seedDefaultNotifications();
-    }
     notifyListeners();
   }
 
-  void _seedDefaultNotifications() {
-    _notifications.addAll([
-      AppNotificationItem(
-        id: "notif-daily-1",
-        title: "⏰ Daily Study Session Ready",
-        message: "Your personalized 25-minute study plan is generated. Review your top priority course today!",
-        timestamp: DateTime.now().subtract(const Duration(minutes: 30)),
-        icon: Icons.bolt_rounded,
-        color: const Color(0xFF6366F1),
-        category: "study_reminder",
-        isRead: true,
-      ),
-      AppNotificationItem(
-        id: "notif-streak-1",
-        title: "🔥 Keep Your Study Streak Alive",
-        message: "Complete 1 quick drill or 3 flashcards today to extend your streak counter!",
-        timestamp: DateTime.now().subtract(const Duration(hours: 2)),
-        icon: Icons.local_fire_department_rounded,
-        color: const Color(0xFFF97316),
-        category: "streak_alert",
-        isRead: true,
-      ),
-      AppNotificationItem(
-        id: "notif-mistake-1",
-        title: "🧠 Mistake Bank Spaced Retrieval",
-        message: "Review flagged mistake concepts to consolidate retention before upcoming exams.",
-        timestamp: DateTime.now().subtract(const Duration(hours: 5)),
-        icon: Icons.psychology_alt_rounded,
-        color: const Color(0xFFEC4899),
-        category: "mistake_review",
-        isRead: true,
-      ),
-      AppNotificationItem(
-        id: "notif-wellness-1",
-        title: "🌿 Eye Wellness & 20-20-20 Rest",
-        message: "Every 20 minutes of digital reading, rest your eyes on an object 20 feet away for 20 seconds.",
-        timestamp: DateTime.now().subtract(const Duration(hours: 8)),
-        icon: Icons.remove_red_eye_outlined,
-        color: const Color(0xFF10B981),
-        category: "wellness",
-        isRead: true,
-      ),
-    ]);
-  }
 
   Future<void> setDailyReminderEnabled(bool enabled) async {
     _dailyReminderEnabled = enabled;

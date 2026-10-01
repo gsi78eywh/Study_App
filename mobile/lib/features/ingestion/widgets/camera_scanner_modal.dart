@@ -1,5 +1,5 @@
 import "dart:async";
-import "dart:typed_data";
+import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
 import "package:dio/dio.dart";
 import "package:google_fonts/google_fonts.dart";
@@ -171,7 +171,7 @@ Key Concepts:
       _titleController.text = preset["title"]!;
       _textController.text = preset["text"]!;
       _charCount = preset["text"]!.length;
-      _wordCount = preset["text"]!.split(RegExp(r"\\s+")).length;
+      _wordCount = preset["text"]!.split(RegExp(r"\s+")).length;
       _ocrEngine = "Gemini Multimodal Vision (Preset)";
       _errorMessage = null;
       _isScanning = false;
@@ -275,13 +275,9 @@ Key Concepts:
 
     try {
       final multipartFile = MultipartFile.fromBytes(imageBytes, filename: filename);
-      final geminiKey = widget.apiClient.sessionService.geminiApiKey;
       final formDataMap = <String, dynamic>{
         "file": multipartFile,
       };
-      if (geminiKey != null && geminiKey.isNotEmpty) {
-        formDataMap["apiKey"] = geminiKey;
-      }
 
       final response = await widget.apiClient.dio.post(
         ApiConstants.scanContent,
@@ -350,16 +346,14 @@ Key Concepts:
     setState(() => _isGeneratingFlashcards = true);
 
     try {
-      final geminiKey = widget.apiClient.sessionService.geminiApiKey;
       await widget.apiClient.dio.post(
         ApiConstants.ingestText,
         data: {
           "courseId": _selectedCourseId.isNotEmpty ? _selectedCourseId : null,
           "title": title,
           "content": text,
-          "questionTypes": ["Identification", "MultipleChoice"],
+          "questionTypes": ["identification", "multiple_choice"],
           "targetCount": 8,
-          "apiKey": geminiKey,
         },
       );
 
@@ -407,8 +401,8 @@ Key Concepts:
       );
 
       if (mounted) {
-        Navigator.of(context).pop();
         if (success) {
+          Navigator.of(context).pop();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Row(
@@ -423,6 +417,10 @@ Key Concepts:
             ),
           );
         } else {
+          setState(() {
+            _isSavingToNotebook = false;
+            _errorMessage = "Failed to save note to Course Notebook. Please check connection.";
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text("Failed to save note to Course Notebook. Please check connection."),
@@ -1169,6 +1167,7 @@ Key Concepts:
   }
 
   Widget _buildSamplePresetsSection(BuildContext context, bool isDark) {
+    if (!kDebugMode) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1177,7 +1176,7 @@ Key Concepts:
             const Icon(Icons.bolt_rounded, color: Color(0xFFF59E0B), size: 16),
             const SizedBox(width: 6),
             Text(
-              "Or Test with Preset Academic Notes (1-Tap):",
+              "Sample Academic Notes (Sample):",
               style: GoogleFonts.outfit(
                 fontSize: 13,
                 fontWeight: FontWeight.bold,

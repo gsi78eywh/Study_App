@@ -126,9 +126,9 @@ class TermsAndPrivacyModal {
                 ),
                 _buildSection(
                   ctx,
-                  title: "2. Encrypted Local Storage & Secure Token Auth",
+                  title: "2. Local Storage & Secure Token Auth",
                   body:
-                      "Session tokens and user configurations are encrypted in your device's secure shared preferences. Authentication uses industry-standard salted BCrypt hashing and signed JWT authentication.",
+                      "Session tokens and user configurations are stored in your device's private app preferences. Authentication uses industry-standard salted BCrypt hashing and signed JWT authentication.",
                 ),
                 _buildSection(
                   ctx,

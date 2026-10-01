@@ -35,8 +35,8 @@ class TodayStudyPlanModel {
       courseName: json["courseName"]?.toString() ?? "General",
       courseCode: json["courseCode"]?.toString() ?? "COURSE",
       examDate: json["examDate"] != null ? DateTime.tryParse(json["examDate"]) : null,
-      daysUntilExam: json["daysUntilExam"] as int?,
-      totalEstimatedMinutes: (json["totalEstimatedMinutes"] as int?) ?? 25,
+      daysUntilExam: (json["daysUntilExam"] as num?)?.toInt(),
+      totalEstimatedMinutes: (json["totalEstimatedMinutes"] as num?)?.toInt() ?? 25,
       priorities: (json["priorities"] as List<dynamic>?)
               ?.map((p) => CoursePriorityModel.fromJson(p as Map<String, dynamic>))
               .toList() ??
@@ -81,7 +81,7 @@ class CoursePriorityModel {
       topicName: json["topicName"]?.toString() ?? "Topic",
       masteryPercent: (json["masteryPercent"] as num?)?.toDouble() ?? 50.0,
       status: json["status"]?.toString() ?? "Needs Review",
-      missedCount: (json["missedCount"] as int?) ?? 0,
+      missedCount: (json["missedCount"] as num?)?.toInt() ?? 0,
       courseId: json["courseId"]?.toString(),
     );
   }
@@ -120,12 +120,12 @@ class StudyPlanStepModel {
 
   factory StudyPlanStepModel.fromJson(Map<String, dynamic> json) {
     return StudyPlanStepModel(
-      stepNumber: (json["stepNumber"] as int?) ?? 1,
+      stepNumber: (json["stepNumber"] as num?)?.toInt() ?? 1,
       stepType: json["stepType"]?.toString() ?? "retrieval_practice",
       title: json["title"]?.toString() ?? "Review",
-      durationMinutes: (json["durationMinutes"] as int?) ?? 5,
+      durationMinutes: (json["durationMinutes"] as num?)?.toInt() ?? 5,
       reason: json["reason"]?.toString() ?? "Reinforce memory retention.",
-      itemCount: (json["itemCount"] as int?) ?? 5,
+      itemCount: (json["itemCount"] as num?)?.toInt() ?? 5,
       targetStudySetId: json["targetStudySetId"]?.toString(),
       targetTopic: json["targetTopic"]?.toString(),
     );
@@ -162,26 +162,29 @@ class ExplainableReadinessModel {
   double get flashcardRetention => flashcardRetentionPercent / 100.0;
   double get spacingConsistencyScore => (spacingDaysActive / 7.0).clamp(0.0, 1.0);
   String get recommendationSummary => summaryExplanation;
-  String get readinessStatus => overallReadinessPercent >= 80
-      ? "Exam Ready"
-      : (overallReadinessPercent >= 60 ? "Needs Review" : "High Priority");
+  String get readinessStatus {
+    if (overallReadinessPercent <= 0) return "No data yet";
+    return overallReadinessPercent >= 80
+        ? "Exam Ready"
+        : (overallReadinessPercent >= 60 ? "Needs Review" : "High Priority");
+  }
 
   factory ExplainableReadinessModel.fromJson(Map<String, dynamic> json) {
     return ExplainableReadinessModel(
-      overallReadinessPercent: (json["overallReadinessPercent"] as num?)?.toDouble() ?? 70.0,
-      questionAccuracyPercent: (json["questionAccuracyPercent"] as num?)?.toDouble() ?? 70.0,
-      flashcardRetentionPercent: (json["flashcardRetentionPercent"] as num?)?.toDouble() ?? 75.0,
-      spacingDaysActive: (json["spacingDaysActive"] as int?) ?? 1,
-      unresolvedMistakesCount: (json["unresolvedMistakesCount"] as int?) ?? 0,
+      overallReadinessPercent: (json["overallReadinessPercent"] as num?)?.toDouble() ?? 0.0,
+      questionAccuracyPercent: (json["questionAccuracyPercent"] as num?)?.toDouble() ?? 0.0,
+      flashcardRetentionPercent: (json["flashcardRetentionPercent"] as num?)?.toDouble() ?? 0.0,
+      spacingDaysActive: (json["spacingDaysActive"] as num?)?.toInt() ?? 0,
+      unresolvedMistakesCount: (json["unresolvedMistakesCount"] as num?)?.toInt() ?? 0,
       summaryExplanation: json["summaryExplanation"]?.toString() ??
-          "Balanced retention based on active recall practice and spacing consistency.",
+          "No data yet",
       courseId: json["courseId"]?.toString(),
       courseName: json["courseName"]?.toString(),
-      daysUntilExam: json["daysUntilExam"] as int?,
+      daysUntilExam: (json["daysUntilExam"] as num?)?.toInt(),
       topicMastery: (json["topicMastery"] as List<dynamic>?)
               ?.map((t) => TopicMasteryItemModel(
                     topicName: t["topicName"]?.toString() ?? "Topic",
-                    masteryPercentage: (t["masteryPercentage"] as num?)?.toDouble() ?? 0.5,
+                    masteryPercentage: (t["masteryPercentage"] as num?)?.toDouble() ?? 0.0,
                   ))
               .toList() ??
           [],
@@ -190,12 +193,12 @@ class ExplainableReadinessModel {
 
   factory ExplainableReadinessModel.defaultEmpty() {
     return ExplainableReadinessModel(
-      overallReadinessPercent: 65.0,
-      questionAccuracyPercent: 70.0,
-      flashcardRetentionPercent: 70.0,
-      spacingDaysActive: 1,
+      overallReadinessPercent: 0.0,
+      questionAccuracyPercent: 0.0,
+      flashcardRetentionPercent: 0.0,
+      spacingDaysActive: 0,
       unresolvedMistakesCount: 0,
-      summaryExplanation: "Begin practice sessions to calculate personalized readiness metrics.",
+      summaryExplanation: "No data yet",
     );
   }
 }
@@ -247,7 +250,7 @@ class MistakeBankItemModel {
       options: (json["options"] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
       correctAnswer: json["correctAnswer"]?.toString() ?? "",
       explanation: json["explanation"]?.toString() ?? "",
-      missCount: (json["missCount"] as int?) ?? 1,
+      missCount: (json["missCount"] as num?)?.toInt() ?? 1,
       lastMissedAt: DateTime.tryParse(json["lastMissedAt"] ?? "") ?? DateTime.now(),
       lastSubmittedAnswer: json["lastSubmittedAnswer"]?.toString(),
       misconceptionPattern: json["misconceptionPattern"]?.toString() ?? "Missed concept in practice.",
@@ -277,7 +280,7 @@ class SmartSessionPayloadModel {
   factory SmartSessionPayloadModel.fromJson(Map<String, dynamic> json) {
     return SmartSessionPayloadModel(
       sessionTitle: json["sessionTitle"]?.toString() ?? "⚡ Smart Study Session",
-      estimatedMinutes: (json["estimatedMinutes"] as int?) ?? 25,
+      estimatedMinutes: (json["estimatedMinutes"] as num?)?.toInt() ?? 25,
       flashcards: (json["flashcards"] as List<dynamic>?)
               ?.map((f) => SmartSessionFlashcardModel.fromJson(f as Map<String, dynamic>))
               .toList() ??
@@ -418,13 +421,13 @@ class StudentBrainProfileModel {
 
   factory StudentBrainProfileModel.fromJson(Map<String, dynamic> json) {
     return StudentBrainProfileModel(
-      coursesCount: (json["coursesCount"] as int?) ?? 0,
-      activeSubjectsCount: (json["activeSubjectsCount"] as int?) ?? 0,
-      upcomingDeadlinesCount: (json["upcomingDeadlinesCount"] as int?) ?? 0,
-      weakConceptsCount: (json["weakConceptsCount"] as int?) ?? 0,
-      masteredConceptsCount: (json["masteredConceptsCount"] as int?) ?? 0,
-      pendingReviewsCount: (json["pendingReviewsCount"] as int?) ?? 0,
-      upcomingExamsCount: (json["upcomingExamsCount"] as int?) ?? 0,
+      coursesCount: (json["coursesCount"] as num?)?.toInt() ?? 0,
+      activeSubjectsCount: (json["activeSubjectsCount"] as num?)?.toInt() ?? 0,
+      upcomingDeadlinesCount: (json["upcomingDeadlinesCount"] as num?)?.toInt() ?? 0,
+      weakConceptsCount: (json["weakConceptsCount"] as num?)?.toInt() ?? 0,
+      masteredConceptsCount: (json["masteredConceptsCount"] as num?)?.toInt() ?? 0,
+      pendingReviewsCount: (json["pendingReviewsCount"] as num?)?.toInt() ?? 0,
+      upcomingExamsCount: (json["upcomingExamsCount"] as num?)?.toInt() ?? 0,
       priorityCourse: json["priorityCourse"]?.toString() ?? "No Courses Enrolled",
       priorityCourseCode: json["priorityCourseCode"]?.toString() ?? "",
       priorityMasteryPercent: (json["priorityMasteryPercent"] as num?)?.toDouble() ?? 0.0,
@@ -549,10 +552,10 @@ class RecoveryPlanResponseModel {
 
   factory RecoveryPlanResponseModel.fromJson(Map<String, dynamic> json) {
     return RecoveryPlanResponseModel(
-      missedCount: (json["missedCount"] as int?) ?? 0,
+      missedCount: (json["missedCount"] as num?)?.toInt() ?? 0,
       targetedTopics: (json["targetedTopics"] as List<dynamic>?)?.map((t) => t.toString()).toList() ?? [],
       recoveryAction: json["recoveryAction"]?.toString() ?? "Targeted retrieval practice",
-      recommendedMinutes: (json["recommendedMinutes"] as int?) ?? 15,
+      recommendedMinutes: (json["recommendedMinutes"] as num?)?.toInt() ?? 15,
       message: json["message"]?.toString() ?? "Recovery plan synthesized.",
     );
   }

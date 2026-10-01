@@ -119,9 +119,9 @@ void main() {
     // Verify tutor reply appears
     expect(find.textContaining("Flutter Development Setup"), findsOneWidget);
 
-    // Verify adapter captured the apiKey in request
-    expect(mockAdapter.lastCapturedRequestBody, contains("AIzaSyLiveTestKey123"));
+    // Verify adapter captured the apiKey in secure header and not in body
     expect(mockAdapter.lastCapturedApiKeyHeader, equals("AIzaSyLiveTestKey123"));
+    expect(mockAdapter.lastCapturedRequestBody, isNot(contains("AIzaSyLiveTestKey123")));
   });
 
   testWidgets("AiTutorScreen supports creating new chats and viewing chat history sheet", (WidgetTester tester) async {

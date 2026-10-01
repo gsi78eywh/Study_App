@@ -286,68 +286,75 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
     }
 
     bool hasNewCards = false;
-    for (final set in setsToFetch) {
-      try {
-        final response = await widget.apiClient!.dio.get(
-          "/api/v1/studysets/${set.id}/questions",
-          queryParameters: force ? {"_t": DateTime.now().millisecondsSinceEpoch} : null,
-        );
-        if (response.statusCode == 200 && response.data is List) {
-          final List list = response.data;
-          final questions = list.map((item) => QuestionModel.fromJson(item as Map<String, dynamic>)).toList();
+    const chunkSize = 4;
+    for (var i = 0; i < setsToFetch.length; i += chunkSize) {
+      final chunk = setsToFetch.sublist(
+        i,
+        (i + chunkSize > setsToFetch.length) ? setsToFetch.length : i + chunkSize,
+      );
+      await Future.wait(chunk.map((set) async {
+        try {
+          final response = await widget.apiClient!.dio.get(
+            "/api/v1/studysets/${set.id}/questions",
+            queryParameters: force ? {"_t": DateTime.now().millisecondsSinceEpoch} : null,
+          );
+          if (response.statusCode == 200 && response.data is List) {
+            final List list = response.data;
+            final questions = list.map((item) => QuestionModel.fromJson(item as Map<String, dynamic>)).toList();
 
-          if (questions.isNotEmpty) {
-            _allCards.removeWhere((c) => c.studySetId == set.id);
+            if (questions.isNotEmpty) {
+              _allCards.removeWhere((c) => c.studySetId == set.id);
 
-            final course = widget.courses.isNotEmpty
-                ? widget.courses.firstWhere(
-                    (c) => c.studySets.any((s) => s.id == set.id),
-                    orElse: () => widget.courses.first,
-                  )
-                : CourseModel(
-                    id: set.courseId,
-                    code: "GEN-101",
-                    name: "General Studies",
-                    colorHex: "#6366F1",
-                    createdAt: DateTime.now(),
-                    studySets: [set],
-                  );
+              final course = widget.courses.isNotEmpty
+                  ? widget.courses.firstWhere(
+                      (c) => c.studySets.any((s) => s.id == set.id),
+                      orElse: () => widget.courses.first,
+                    )
+                  : CourseModel(
+                      id: set.courseId,
+                      code: "GEN-101",
+                      name: "General Studies",
+                      colorHex: "#6366F1",
+                      createdAt: DateTime.now(),
+                      studySets: [set],
+                    );
 
-            for (final q in questions) {
-              final correctOpt = q.options.firstWhere(
-                (o) => o.isCorrect,
-                orElse: () => q.options.isNotEmpty
-                    ? q.options.first
-                    : QuestionOptionModel(id: "none", optionText: "Verified Concept", isCorrect: true),
-              );
+              for (final q in questions) {
+                final correctOpt = q.options.firstWhere(
+                  (o) => o.isCorrect,
+                  orElse: () => q.options.isNotEmpty
+                      ? q.options.first
+                      : QuestionOptionModel(id: "none", optionText: "Verified Concept", isCorrect: true),
+                );
 
-              final cleanFront = _cleanFlashcardFront(q.prompt);
-              final cleanBackAnswer = _cleanOptionAnswer(correctOpt.optionText);
+                final cleanFront = _cleanFlashcardFront(q.prompt);
+                final cleanBackAnswer = _cleanOptionAnswer(correctOpt.optionText);
 
-              final backText = StringBuffer();
-              backText.writeln(cleanBackAnswer);
-              if (q.explanation != null && q.explanation!.trim().isNotEmpty) {
-                final cleanExpl = _cleanExplanation(q.explanation!.trim());
-                backText.writeln("\n💡 $cleanExpl");
+                final backText = StringBuffer();
+                backText.writeln(cleanBackAnswer);
+                if (q.explanation != null && q.explanation!.trim().isNotEmpty) {
+                  final cleanExpl = _cleanExplanation(q.explanation!.trim());
+                  backText.writeln("\n💡 $cleanExpl");
+                }
+
+                _allCards.add(FlashcardItem(
+                  id: "card-${q.id}",
+                  questionId: q.id,
+                  courseCode: course.code,
+                  studySetId: set.id,
+                  studySetTitle: set.title,
+                  front: cleanFront,
+                  back: backText.toString().trim(),
+                  category: set.title,
+                  hint: q.hints.isNotEmpty ? q.hints.first : null,
+                  dimensionTag: q.dimensionTag,
+                ));
               }
-
-              _allCards.add(FlashcardItem(
-                id: "card-${q.id}",
-                questionId: q.id,
-                courseCode: course.code,
-                studySetId: set.id,
-                studySetTitle: set.title,
-                front: cleanFront,
-                back: backText.toString().trim(),
-                category: set.title,
-                hint: q.hints.isNotEmpty ? q.hints.first : null,
-                dimensionTag: q.dimensionTag,
-              ));
+              hasNewCards = true;
             }
-            hasNewCards = true;
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }));
     }
 
     if ((hasNewCards || force) && mounted) {

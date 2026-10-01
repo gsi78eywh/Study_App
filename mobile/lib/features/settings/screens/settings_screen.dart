@@ -6,6 +6,7 @@ import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
 import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
+import "../../../core/services/app_session.dart";
 import "../../../core/services/child_safety_service.dart";
 import "../../../core/services/notification_service.dart";
 import "../../../core/services/session_service.dart";
@@ -321,6 +322,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed != true || !mounted) return;
 
     try {
+      await widget.sessionService.prefs.remove('ai_tutor_saved_sessions_v1');
       final response = await widget.apiClient.dio.delete("/api/v1/ai/chat-logs");
       if (response.statusCode == 200 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -486,15 +488,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed != true || !mounted) return;
 
     setState(() => _isSaving = true);
-    try {
-      await widget.apiClient.dio.delete(ApiConstants.deleteAccount);
-    } catch (e) {
-      debugPrint("Delete account API error (proceeding with local wipe): $e");
-    }
-
-    await widget.sessionService.clear();
-    if (mounted) {
-      setState(() => _isSaving = false);
+    final ok = await AppSession.deleteAccount(api: widget.apiClient, session: widget.sessionService);
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+    if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("Your account and all associated data have been permanently deleted."),
@@ -503,6 +500,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
       widget.onLogout?.call();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Could not delete account. Check your connection and try again."),
+          backgroundColor: AppColors.danger,
+          duration: Duration(seconds: 4),
+        ),
+      );
     }
   }
 

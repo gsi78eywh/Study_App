@@ -205,6 +205,16 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
         current.updatedAt = DateTime.now();
       }
 
+      // Cap to 30 sessions x 100 messages
+      if (_sessions.length > 30) {
+        _sessions.removeRange(30, _sessions.length);
+      }
+      for (final s in _sessions) {
+        if (s.messages.length > 100) {
+          s.messages.removeRange(0, s.messages.length - 100);
+        }
+      }
+
       final encoded = jsonEncode(_sessions.map((s) => s.toJson()).toList());
       await widget.apiClient.sessionService.prefs.setString(_sessionsPrefKey, encoded);
     } catch (e) {
@@ -441,6 +451,14 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
   }
 
   @override
+  void didUpdateWidget(AiTutorScreen old) {
+    super.didUpdateWidget(old);
+    if (_selectedCourseContext == null && widget.courses.isNotEmpty) {
+      setState(() => _selectedCourseContext = widget.courses.first.name);
+    }
+  }
+
+  @override
   void dispose() {
     AudioSpeechHelper.instance.stop();
     _textController.dispose();
@@ -507,6 +525,13 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     final query = text.trim();
     if (query.isEmpty || _isLoading) return;
 
+    // _sendMessage: build history BEFORE adding the new message; drop greeting and offline bubbles
+    final history = _messages
+        .skip(_messages.isNotEmpty && _messages.first.role == 'assistant' ? 1 : 0)
+        .where((m) => m.modelUsed != 'Offline')
+        .map((m) => {'role': m.role == 'assistant' ? 'model' : 'user', 'content': m.text})
+        .toList();
+
     _textController.clear();
     setState(() {
       _messages.add(
@@ -526,17 +551,6 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
 
     final stopwatch = Stopwatch()..start();
     try {
-      final history = _messages
-          .where((m) => m.role == "user" || m.role == "assistant")
-          .map(
-            (m) => {
-              "role": m.role == "assistant" ? "model" : "user",
-              "content": m.text,
-            },
-          )
-          .toList();
-
-      final geminiKey = widget.apiClient.sessionService.geminiApiKey;
       final effectiveMessage = ChildSafetyService.instance.isJuniorMode
           ? ChildSafetyService.instance.enrichPromptForChildSafety(query)
           : query;
@@ -546,7 +560,6 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
         data: {
           "message": effectiveMessage,
           "contextTopic": _selectedCourseContext,
-          "apiKey": geminiKey,
           "isSocraticMode": _isSocraticMode,
           "isTeachMeMode": _isTeachMeMode,
           "weakConceptsContext": _weakConceptsContext,
@@ -577,6 +590,20 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                 text: reply,
                 modelUsed: model,
                 latencySeconds: latency,
+                timestamp: DateTime.now(),
+              ),
+            );
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _messages.add(
+              ChatMessage(
+                role: "assistant",
+                text: "⚠️ Server returned status code ${response.statusCode}. Please try again later.",
+                modelUsed: "Error",
+                latencySeconds: stopwatch.elapsedMilliseconds / 1000.0,
                 timestamp: DateTime.now(),
               ),
             );
@@ -797,13 +824,13 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
               child: PopupMenuButton<String>(
                 icon: Icon(Icons.tune_rounded, color: context.textSecondary),
                 tooltip: "Set Study Subject Context",
-                initialValue: _selectedCourseContext,
+                initialValue: _selectedCourseContext ?? '',
                 onSelected: (val) {
-                  setState(() => _selectedCourseContext = val);
+                  setState(() => _selectedCourseContext = val.isEmpty ? null : val);
                 },
                 itemBuilder: (context) => [
                   const PopupMenuItem(
-                    value: null,
+                    value: '',
                     child: Text("All Subjects (General)"),
                   ),
                   ...widget.courses.map(
@@ -1092,6 +1119,15 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                                         if (!isUser) ...[
                                           InkWell(
                                             onTap: () {
+                                              if (!ChildSafetyService.instance.readAloudEnabled) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text("Read Aloud is disabled in settings."),
+                                                    duration: Duration(milliseconds: 1500),
+                                                  ),
+                                                );
+                                                return;
+                                              }
                                               if (AudioSpeechHelper.instance.isSpeaking) {
                                                 AudioSpeechHelper.instance.stop();
                                               } else {

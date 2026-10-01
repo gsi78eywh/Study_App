@@ -112,7 +112,7 @@ class _EyeBreakDialogState extends State<EyeBreakDialog> {
               const SizedBox(height: 8),
 
               Text(
-                'Your brain and eyes worked hard! Rest your vision using the 20-20-20 pediatric health rule.',
+                'Your brain and eyes worked hard! Rest your vision using the 20-20-20 rule.',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
                   height: 1.4,
@@ -213,7 +213,7 @@ class _EyeBreakDialogState extends State<EyeBreakDialog> {
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () {
-                        ChildSafetyService.instance.resetEyeBreakTimer();
+                        ChildSafetyService.instance.snoozeEyeBreak(10);
                         Navigator.of(context).pop();
                       },
                       style: OutlinedButton.styleFrom(

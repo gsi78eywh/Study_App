@@ -207,7 +207,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                             validator: (val) {
                               if (val == null || val.trim().isEmpty) return "Email is required";
-                              if (!val.contains("@")) return "Enter a valid email address";
+                              final trimmed = val.trim();
+                              final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                              if (!emailRegex.hasMatch(trimmed)) return "Enter a valid email address";
                               return null;
                             },
                           ),
@@ -228,7 +230,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                             ),
                             validator: (val) {
-                              if (val == null || val.length < 6) return "Must be at least 6 characters";
+                              if (val == null || val.length < 8) return "Must be at least 8 characters";
                               return null;
                             },
                           ),
