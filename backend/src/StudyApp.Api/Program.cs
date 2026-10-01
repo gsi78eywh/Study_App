@@ -461,6 +461,18 @@ using (var scope = app.Services.CreateScope())
 
         try
         {
+            db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN \"EmailVerified\" INTEGER NOT NULL DEFAULT 0;");
+        }
+        catch { }
+
+        try
+        {
+            db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN \"SecurityStamp\" TEXT NULL;");
+        }
+        catch { }
+
+        try
+        {
             db.Database.ExecuteSqlRaw("ALTER TABLE \"UserSettings\" ADD COLUMN \"LowDataMode\" INTEGER DEFAULT 0;");
         }
         catch { }
@@ -486,6 +498,24 @@ using (var scope = app.Services.CreateScope())
             """);
         }
         catch { }
+        try
+        {
+            db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"GoogleSubject\" TEXT NULL;");
+        }
+        catch { }
+
+        try
+        {
+            db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"EmailVerified\" BOOLEAN NOT NULL DEFAULT FALSE;");
+        }
+        catch { }
+
+        try
+        {
+            db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"SecurityStamp\" TEXT NULL;");
+        }
+        catch { }
+
         string[] pgCourseGradeCols =
         [
             "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"ExamDate\" TIMESTAMPTZ NULL;",

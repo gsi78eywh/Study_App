@@ -21,11 +21,27 @@ class GoogleAuthService {
   static final GoogleAuthService instance = GoogleAuthService._();
   GoogleAuthService._();
 
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    scopes: ["email", "profile"],
-  );
+  static const String configuredClientId = String.fromEnvironment("GOOGLE_CLIENT_ID");
+
+  GoogleSignIn? _googleSignInInstance;
+
+  GoogleSignIn get _googleSignIn {
+    return _googleSignInInstance ??= GoogleSignIn(
+      clientId: kIsWeb && configuredClientId.isNotEmpty ? configuredClientId : null,
+      scopes: ["email", "profile"],
+    );
+  }
 
   Future<GoogleAuthResult> signIn() async {
+    // On web, google_sign_in_web asserts that clientId != null.
+    // If not configured, provide a user-friendly message rather than an assertion crash.
+    if (kIsWeb && configuredClientId.isEmpty) {
+      return GoogleAuthResult(
+        success: false,
+        errorMessage: "Google Sign-In on Web requires GOOGLE_CLIENT_ID to be configured. Please sign in with email and password or use the Demo Student Account.",
+      );
+    }
+
     try {
       final account = await _googleSignIn.signIn();
       if (account == null) {
