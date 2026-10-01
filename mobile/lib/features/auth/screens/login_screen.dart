@@ -110,9 +110,15 @@ class _LoginScreenState extends State<LoginScreen> {
     } on DioException catch (e) {
       setState(() {
         if (e.type == DioExceptionType.connectionError || e.type == DioExceptionType.connectionTimeout) {
-          _errorMessage = "Unable to connect to server. Please check your network connection.";
+          _errorMessage = "Unable to connect to server. Please check your network connection or server status.";
+        } else if (e.response?.statusCode == 429) {
+          _errorMessage = "High request volume. Please wait a moment and try again.";
+        } else if (e.response?.statusCode == 503) {
+          _errorMessage = "Server is temporarily balancing load. Please try again in a few moments.";
         } else if (e.response?.statusCode == 401) {
           _errorMessage = "Invalid email or password. Please try again.";
+        } else if (e.response?.data is Map && (e.response?.data as Map)["message"] != null) {
+          _errorMessage = (e.response!.data as Map)["message"].toString();
         } else {
           _errorMessage = e.error?.toString() ?? e.message ?? "Authentication failed.";
         }
@@ -654,6 +660,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           TextFormField(
                             controller: _emailController,
                             keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.email],
                             style: TextStyle(color: context.textPrimary),
                             decoration: InputDecoration(
                               labelText: "Email Address",
@@ -674,6 +682,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           TextFormField(
                             controller: _passwordController,
                             obscureText: _obscurePassword,
+                            textInputAction: TextInputAction.done,
+                            autofillHints: const [AutofillHints.password],
+                            onFieldSubmitted: (_) => _handleLogin(),
                             style: TextStyle(color: context.textPrimary),
                             decoration: InputDecoration(
                               labelText: "Password",

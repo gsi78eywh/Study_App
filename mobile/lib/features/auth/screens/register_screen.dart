@@ -82,7 +82,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
     } on DioException catch (e) {
       setState(() {
-        _errorMessage = e.error?.toString() ?? e.message ?? "Registration failed.";
+        if (e.type == DioExceptionType.connectionError || e.type == DioExceptionType.connectionTimeout) {
+          _errorMessage = "Unable to connect to server. Please check your network connection or server status.";
+        } else if (e.response?.statusCode == 429) {
+          _errorMessage = "High request volume. Please wait a moment and try again.";
+        } else if (e.response?.statusCode == 503) {
+          _errorMessage = "Server is temporarily balancing load. Please try again shortly.";
+        } else if (e.response?.data is Map && (e.response?.data as Map)["message"] != null) {
+          _errorMessage = (e.response!.data as Map)["message"].toString();
+        } else {
+          _errorMessage = e.error?.toString() ?? e.message ?? "Registration failed.";
+        }
       });
     } catch (e) {
       setState(() {

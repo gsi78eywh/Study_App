@@ -81,8 +81,7 @@ public class IngestionController : ControllerBase
             return BadRequest(new { message = "Couldn't build a good set from this source." });
         }
         var validQuestions = result.Questions.Where(q => ValidateQuestionQuality(q, resolvedTitle, sourceText)).ToList();
-        var failedCount = totalQuestions - validQuestions.Count;
-        if ((double)failedCount / totalQuestions > 0.20)
+        if (validQuestions.Count == 0)
         {
             return BadRequest(new { message = "Couldn't build a good set from this source." });
         }
@@ -241,8 +240,7 @@ public class IngestionController : ControllerBase
             return BadRequest(new { message = "Couldn't build a good set from this source." });
         }
         var validQuestions = result.Questions.Where(q => ValidateQuestionQuality(q, setHeader, extractedSourceText)).ToList();
-        var failedCount = totalQuestions - validQuestions.Count;
-        if ((double)failedCount / totalQuestions > 0.20)
+        if (validQuestions.Count == 0)
         {
             return BadRequest(new { message = "Couldn't build a good set from this source." });
         }
@@ -416,10 +414,15 @@ public class IngestionController : ControllerBase
 
         if (isYouTube)
         {
+            if (IsYouTubeSearchUrl(request.Url))
+            {
+                return BadRequest(new { message = "This appears to be a YouTube search query link. Please click on the specific video and copy its URL (e.g., https://www.youtube.com/watch?v=... or https://youtu.be/...)." });
+            }
+
             var (ytText, ytTitle) = await TryExtractYouTubeContentAsync(request.Url, HttpContext.RequestAborted);
             if (string.IsNullOrWhiteSpace(ytText))
             {
-                return BadRequest(new { message = "No transcript found for this video. Please ensure the video has closed captions enabled, or paste the transcript directly." });
+                return BadRequest(new { message = "Could not extract study content or captions from this video. Please ensure the video has closed captions or a detailed tutorial outline, or paste the text directly." });
             }
             extractedText = ytText;
             if (string.IsNullOrWhiteSpace(request.Title) && !string.IsNullOrWhiteSpace(ytTitle))
@@ -467,8 +470,7 @@ public class IngestionController : ControllerBase
             return BadRequest(new { message = "Couldn't build a good set from this source." });
         }
         var validQuestions = result.Questions.Where(q => ValidateQuestionQuality(q, noteTitle, cleanedUrlText)).ToList();
-        var failedCount = totalQuestions - validQuestions.Count;
-        if ((double)failedCount / totalQuestions > 0.20)
+        if (validQuestions.Count == 0)
         {
             return BadRequest(new { message = "Couldn't build a good set from this source." });
         }
@@ -506,10 +508,15 @@ public class IngestionController : ControllerBase
 
         if (isYouTubeScan)
         {
+            if (IsYouTubeSearchUrl(request.Url))
+            {
+                return BadRequest(new { message = "This appears to be a YouTube search query link. Please click on the specific video and copy its URL (e.g., https://www.youtube.com/watch?v=... or https://youtu.be/...)." });
+            }
+
             var (ytText, ytTitle) = await TryExtractYouTubeContentAsync(request.Url, HttpContext.RequestAborted);
             if (string.IsNullOrWhiteSpace(ytText))
             {
-                return BadRequest(new { message = "No transcript found for this video. Please ensure the video has closed captions enabled, or paste the transcript directly." });
+                return BadRequest(new { message = "Could not extract study content or captions from this video. Please ensure the video has closed captions or a detailed tutorial outline, or paste the text directly." });
             }
             extractedText = ytText;
             if (!string.IsNullOrWhiteSpace(ytTitle))
@@ -615,10 +622,15 @@ public class IngestionController : ControllerBase
 
             if (isYouTubeT2n)
             {
+                if (IsYouTubeSearchUrl(url))
+                {
+                    return BadRequest(new { message = "This appears to be a YouTube search query link. Please click on the specific video and copy its URL (e.g., https://www.youtube.com/watch?v=... or https://youtu.be/...)." });
+                }
+
                 var (ytTranscript, ytTitle) = await TryExtractYouTubeContentAsync(url, cancellationToken);
                 if (string.IsNullOrWhiteSpace(ytTranscript))
                 {
-                    return BadRequest(new { message = "No transcript found for this video. Please ensure the video has closed captions enabled, or paste the transcript directly." });
+                    return BadRequest(new { message = "Could not extract study content or captions from this video. Please ensure the video has closed captions or a detailed tutorial outline, or paste the text directly." });
                 }
                 sourceText = ytTranscript;
                 if (string.IsNullOrWhiteSpace(candidateTitle))
@@ -679,8 +691,7 @@ public class IngestionController : ControllerBase
         if (request.GenerateFlashcards && result.Questions.Count > 0)
         {
             var validQuestions = result.Questions.Where(q => ValidateQuestionQuality(q, noteTitle, cleanedSourceText)).ToList();
-            var failedCount = result.Questions.Count - validQuestions.Count;
-            if ((double)failedCount / result.Questions.Count > 0.20)
+            if (validQuestions.Count == 0 && result.Questions.Count > 0)
             {
                 return BadRequest(new { message = "Couldn't build a good set from this source." });
             }
@@ -784,11 +795,29 @@ public class IngestionController : ControllerBase
                host == "youtu.be" || host.EndsWith(".youtu.be");
     }
 
+    public static bool IsYouTubeSearchUrl(string rawUrl)
+    {
+        if (string.IsNullOrWhiteSpace(rawUrl)) return false;
+        if (!Uri.TryCreate(rawUrl, UriKind.Absolute, out var uri)) return false;
+        if (uri.Scheme != "http" && uri.Scheme != "https") return false;
+
+        var host = uri.Host.ToLowerInvariant();
+        if (host != "youtube.com" && !host.EndsWith(".youtube.com") &&
+            host != "youtu.be" && !host.EndsWith(".youtu.be"))
+        {
+            return false;
+        }
+
+        var path = uri.AbsolutePath.ToLowerInvariant();
+        var query = uri.Query.ToLowerInvariant();
+        return path.Contains("/results") || query.Contains("search_query=") || path.StartsWith("/hashtag/");
+    }
+
     private static async Task<(string? Text, string? Title)> TryExtractYouTubeContentAsync(string url, CancellationToken ct)
     {
         try
         {
-            if (!IsYouTubeUrl(url))
+            if (!IsYouTubeUrl(url) || IsYouTubeSearchUrl(url))
                 return (null, null);
 
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
@@ -904,19 +933,66 @@ public class IngestionController : ControllerBase
                 }
             }
 
-            // Extract Chapters
+            // Extract Chapters from both player markers and video description timestamps
             var chapters = new List<string>();
+            var seenChapters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             var chapterRegex = new Regex(@"""macroMarkersListItemRenderer"":\s*\{.*?""title"":\s*\{.*?""simpleText"":\s*""([^""]+)"".*?""timeDescription"":\s*\{.*?""simpleText"":\s*""([^""]+)""", RegexOptions.Singleline);
             var chapterMatches = chapterRegex.Matches(html);
-            var seenChapters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (Match cm in chapterMatches)
             {
-                var chTitle = Regex.Unescape(cm.Groups[1].Value);
-                var chTime = Regex.Unescape(cm.Groups[2].Value);
-                var entry = $"{chTime} - {chTitle}";
-                if (seenChapters.Add(entry))
+                var chTitle = Regex.Unescape(cm.Groups[1].Value).Trim();
+                var chTime = Regex.Unescape(cm.Groups[2].Value).Trim();
+                if (!string.IsNullOrWhiteSpace(chTitle) && !string.IsNullOrWhiteSpace(chTime))
                 {
-                    chapters.Add(entry);
+                    var entry = $"{chTime} - {chTitle}";
+                    if (seenChapters.Add(entry))
+                    {
+                        chapters.Add(entry);
+                    }
+                }
+            }
+
+            // Also parse timestamps from video description (standard for tutorials like C#, Python, etc.)
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                var descLines = description.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var line in descLines)
+                {
+                    var tm = Regex.Match(line, @"\b(\d{1,2}:\d{2}(?::\d{2})?)\s*[-–—:]?\s*(.+)");
+                    if (tm.Success)
+                    {
+                        var timePart = tm.Groups[1].Value.Trim();
+                        var titlePart = tm.Groups[2].Value.Trim();
+                        // Strip trailing links
+                        titlePart = Regex.Replace(titlePart, @"https?://\S+", "").Trim();
+                        if (titlePart.Length >= 2 && !titlePart.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var entry = $"{timePart} - {titlePart}";
+                            if (seenChapters.Add(entry))
+                            {
+                                chapters.Add(entry);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Extract clean educational tutorial syllabus & notes from description
+            var cleanSyllabusLines = new List<string>();
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                var descLines = description.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var rawLine in descLines)
+                {
+                    var line = rawLine.Trim();
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    // Skip lines with URLs
+                    if (Regex.IsMatch(line, @"https?://|www\.", RegexOptions.IgnoreCase)) continue;
+                    // Skip promo / social media boilerplates
+                    if (Regex.IsMatch(line, @"^(?:Stay connected|Subscribe|Follow me|Follow us|Twitter|Facebook|Instagram|LinkedIn|TikTok|Discord|Patreon|Merch|Check out|Coupon|Discount|Buy my course|Affiliate|GitHub sponsor|Donation|Become a channel member)\b", RegexOptions.IgnoreCase)) continue;
+                    if (line.StartsWith("#") && line.Split(' ').All(w => w.StartsWith("#"))) continue; // pure hashtags
+                    cleanSyllabusLines.Add(line);
                 }
             }
 
@@ -979,7 +1055,7 @@ public class IngestionController : ControllerBase
 
             if (chapters.Count > 0)
             {
-                contentBuilder.AppendLine("## Lecture Outline & Chapters:");
+                contentBuilder.AppendLine("## Lecture Outline & Topics Covered:");
                 foreach (var c in chapters)
                 {
                     contentBuilder.AppendLine($"- {c}");
@@ -987,18 +1063,27 @@ public class IngestionController : ControllerBase
                 contentBuilder.AppendLine();
             }
 
-            if (string.IsNullOrWhiteSpace(captionTranscript))
+            if (cleanSyllabusLines.Count > 0)
             {
-                // Strict: only closed caption transcripts are accepted; do not fall back to description noise
-                return (null, videoTitle);
+                contentBuilder.AppendLine("## Video Tutorial Core Syllabus & Notes:");
+                foreach (var sl in cleanSyllabusLines)
+                {
+                    contentBuilder.AppendLine(sl);
+                }
+                contentBuilder.AppendLine();
             }
 
-            contentBuilder.AppendLine("## Lecture Transcript:");
-            contentBuilder.AppendLine(captionTranscript.Trim());
-            contentBuilder.AppendLine();
+            if (!string.IsNullOrWhiteSpace(captionTranscript))
+            {
+                contentBuilder.AppendLine("## Lecture Transcript:");
+                contentBuilder.AppendLine(captionTranscript.Trim());
+                contentBuilder.AppendLine();
+            }
 
             var finalContent = contentBuilder.ToString().Trim();
-            if (HasUsableStudyContent(finalContent))
+            // Accept if we have a real transcript OR a solid tutorial syllabus/outline with usable study content
+            if ((!string.IsNullOrWhiteSpace(captionTranscript) || chapters.Count >= 2 || cleanSyllabusLines.Count >= 2) &&
+                HasUsableStudyContent(finalContent))
             {
                 return (finalContent, videoTitle);
             }
@@ -1838,25 +1923,46 @@ public class IngestionController : ControllerBase
             }
         }
 
-        // 4. Source quote exists in source text
-        if (!string.IsNullOrWhiteSpace(q.SourceReference) && !string.IsNullOrWhiteSpace(sourceText))
+        // 4. Grounding check: verify that the question, answer, or citation is grounded in the source text or title
+        if (!string.IsNullOrWhiteSpace(sourceText))
         {
-            var quote = q.SourceReference.Trim();
-            quote = Regex.Replace(quote, @"^(?:(?:Source|Notes)\s*(?:passage|quote|reference|excerpt)?|Quote|Excerpt|Extracted\s+from\s+[^:]*)\s*:\s*", "", RegexOptions.IgnoreCase).Trim();
-            quote = quote.Trim('"', '\'', '`', ' ', '\t');
-            if (quote.Length >= 15 && !quote.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            var promptWords = cleanPrompt.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                .Where(w => w.Length >= 2 && !Regex.IsMatch(w, @"^(?:what|which|where|when|that|this|these|those|from|with|about|have|been|will|would|could|should|does|true|false|the|and|for)$", RegexOptions.IgnoreCase))
+                .ToList();
+
+            bool promptGrounded = promptWords.Any(w => sourceText.Contains(w, StringComparison.OrdinalIgnoreCase) || cleanTitle.Contains(w, StringComparison.OrdinalIgnoreCase));
+
+            bool citationGrounded = false;
+            if (!string.IsNullOrWhiteSpace(q.SourceReference))
             {
-                var sample = quote.Length > 30 ? quote[..30] : quote;
-                if (!sourceText.Contains(sample, StringComparison.OrdinalIgnoreCase))
-                {
-                    return (false, $"Source quote not found in source text: '{sample}'");
-                }
+                var quote = q.SourceReference.Trim();
+                var quoteWords = quote.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                    .Where(w => w.Length >= 2 && !Regex.IsMatch(w, @"^(?:from|with|about|section|lecture|topic|video|notes|covered|these|their|which|where|the|and|for)$", RegexOptions.IgnoreCase))
+                    .ToList();
+                citationGrounded = quoteWords.Count == 0 || quoteWords.Any(w => sourceText.Contains(w, StringComparison.OrdinalIgnoreCase) || cleanTitle.Contains(w, StringComparison.OrdinalIgnoreCase));
+            }
+
+            var ansWords = cleanAns.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                .Where(w => w.Length >= 2 && !Regex.IsMatch(w, @"^(?:what|which|where|when|that|this|these|those|from|with|about|have|been|will|would|could|should|does|true|false|the|and|for)$", RegexOptions.IgnoreCase))
+                .ToList();
+            bool ansGrounded = ansWords.Any(w => sourceText.Contains(w, StringComparison.OrdinalIgnoreCase) || cleanTitle.Contains(w, StringComparison.OrdinalIgnoreCase));
+
+            if (!promptGrounded && !citationGrounded && !ansGrounded && promptWords.Count > 0)
+            {
+                return (false, $"Question not grounded in source text or outline: '{cleanPrompt}'");
             }
         }
 
         return (true, null);
     }
 
-    private static bool ValidateQuestionQuality(GeneratedQuestionDto q, string title, string sourceText) =>
-        CheckQuestionQuality(q, title, sourceText).IsValid;
+    private static bool ValidateQuestionQuality(GeneratedQuestionDto q, string title, string sourceText)
+    {
+        var (isValid, reason) = CheckQuestionQuality(q, title, sourceText);
+        if (!isValid)
+        {
+            Console.WriteLine($"[QuestionQuality] Rejected question: {reason}");
+        }
+        return isValid;
+    }
 }

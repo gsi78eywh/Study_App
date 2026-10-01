@@ -67,6 +67,19 @@ public class P0ConsolidatedReviewFixTests
         Assert.Equal(expected, result);
     }
 
+    [Theory]
+    [InlineData("https://www.youtube.com/results?search_query=i+think+one+step+away", true)]
+    [InlineData("https://youtube.com/results?search_query=csharp+tutorial", true)]
+    [InlineData("https://www.youtube.com/watch?v=gfkTfcpWqAY", false)]
+    [InlineData("https://youtu.be/gfkTfcpWqAY", false)]
+    public void IsYouTubeSearchUrl_DetectsQueryLinks(string url, bool expected)
+    {
+        var method = typeof(IngestionController).GetMethod("IsYouTubeSearchUrl", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        var result = (bool)method.Invoke(null, new object[] { url })!;
+        Assert.Equal(expected, result);
+    }
+
     [Fact]
     public async Task DevController_Returns404InProduction()
     {

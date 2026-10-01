@@ -32,8 +32,10 @@ class CourseModel {
 
   bool get isSample =>
       code == "BIO-101" ||
+      code == "CS-101" ||
       name.toLowerCase().contains("starter demo") ||
-      name.toLowerCase().contains("biology 101");
+      name.toLowerCase().contains("biology 101") ||
+      name.toLowerCase().contains("computer science");
 
   factory CourseModel.fromJson(Map<String, dynamic> json) {
     return CourseModel(

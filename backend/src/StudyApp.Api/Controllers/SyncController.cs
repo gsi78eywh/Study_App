@@ -203,7 +203,14 @@ public class SyncController : ControllerBase
 
         await _context.SaveChangesAsync();
 
-        // 5. Gather updates on the server since client's LastSyncedAt
+        // 5. If this user has 0 courses and the client pushed no courses, auto-provision starter demo pack
+        var userCourseCount = await _context.Courses.CountAsync(c => c.UserId == userId);
+        if (userCourseCount == 0 && courses.Count == 0)
+        {
+            await CoursesController.ProvisionStarterPackAsync(userId, _context);
+        }
+
+        // Gather updates on the server since client's LastSyncedAt
         var updatedCourses = await _context.Courses
             .Where(c => c.UserId == userId && (c.UpdatedAt ?? c.CreatedAt) > request.LastSyncedAt)
             .Select(c => new SyncCourseDto(c.Id, c.Code, c.Name, c.ColorHex, c.UpdatedAt ?? c.CreatedAt, false))

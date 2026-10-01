@@ -27,21 +27,35 @@ public sealed class CoursesController : ControllerBase
         var userId = GetUserId();
         if (userId is null) return Unauthorized();
 
-        var existing = await _context.Courses.AnyAsync(c => c.UserId == userId.Value, cancellationToken);
-        if (existing)
+        var provisioned = await ProvisionStarterPackAsync(userId.Value, _context, cancellationToken);
+        if (!provisioned)
         {
             return Ok(new { success = true, message = "Workspace already initialized." });
         }
 
+        return Ok(new { success = true, message = "Starter Demo Pack loaded successfully." });
+    }
+
+    public static async Task<bool> ProvisionStarterPackAsync(Guid userId, IApplicationDbContext context, CancellationToken cancellationToken = default)
+    {
+        var existing = await context.Courses.AnyAsync(c => c.UserId == userId, cancellationToken);
+        if (existing)
+        {
+            return false;
+        }
+
+        // Course 1: BIO-101 General Cellular Biology & Genetics
         var bioCourse = new Course
         {
             Id = Guid.NewGuid(),
-            UserId = userId.Value,
+            UserId = userId,
             Code = "BIO-101",
             Name = "General Cellular Biology & Genetics",
             ColorHex = "#10B981",
             ExamDate = DateTime.UtcNow.AddDays(5),
             ExamTitle = "Midterm Examination",
+            Units = 3.0f,
+            TargetGrade = 1.0f,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -140,10 +154,147 @@ Photosynthesis transforms solar photon energy into stable chemical bonds (glucos
         };
         bioCourse.NotebookPages.Add(bioNote);
 
-        _context.Courses.Add(bioCourse);
-        await _context.SaveChangesAsync(cancellationToken);
+        // Course 2: CS-101 Introduction to Computer Science & C#
+        var csCourse = new Course
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Code = "CS-101",
+            Name = "Introduction to Computer Science & C#",
+            ColorHex = "#6366F1",
+            ExamDate = DateTime.UtcNow.AddDays(12),
+            ExamTitle = "C# & OOP Final Examination",
+            Units = 3.0f,
+            TargetGrade = 1.0f,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
 
-        return Ok(new { success = true, message = "Starter Demo Pack loaded successfully." });
+        var csSet = new StudySet
+        {
+            Id = Guid.NewGuid(),
+            CourseId = csCourse.Id,
+            Title = "C# Fundamentals & Object-Oriented Programming",
+            Description = "Comprehensive mastery deck on .NET CLR architecture, value vs reference types, OOP pillars, and LINQ syntax.",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        var csq1 = new Question
+        {
+            Id = Guid.NewGuid(),
+            StudySetId = csSet.Id,
+            Type = QuestionType.MultipleChoice,
+            Prompt = "What is the primary role of the Common Language Runtime (CLR) in the .NET ecosystem?",
+            HintsJson = "[\"Think about what executes Intermediate Language (IL) and manages memory.\",\"It includes garbage collection and JIT compilation.\"]",
+            Explanation = "The CLR provides an execution environment that handles JIT compilation, garbage collection, thread management, and type safety for .NET applications.",
+            Difficulty = 2,
+            SortOrder = 1
+        };
+        csq1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq1.Id, OptionText = "Manage code execution, garbage collection, and JIT compilation", IsCorrect = true });
+        csq1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq1.Id, OptionText = "Directly translate C# source code into machine code at authoring time", IsCorrect = false, DistractorRationale = "Roslyn compiles C# into CIL (Common Intermediate Language), which the CLR JIT-compiles at runtime." });
+        csq1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq1.Id, OptionText = "Serve as a relational database query engine", IsCorrect = false, DistractorRationale = "The CLR is a runtime execution environment, not a database." });
+        csq1.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq1.Id, OptionText = "Provide an exclusively client-side web browser rendering engine", IsCorrect = false, DistractorRationale = "Web browsers render HTML/CSS/JS, whereas CLR executes managed .NET assemblies." });
+
+        var csq2 = new Question
+        {
+            Id = Guid.NewGuid(),
+            StudySetId = csSet.Id,
+            Type = QuestionType.TrueFalse,
+            Prompt = "True or False: In C#, primitive types like int, bool, and double are reference types stored on the managed heap by default.",
+            HintsJson = "[\"Consider whether structs and primitives are value types or reference types.\"]",
+            Explanation = "Primitive numeric and boolean types are value types (structs) that directly contain their data and are typically allocated on the stack unless boxed.",
+            Difficulty = 1,
+            SortOrder = 2
+        };
+        csq2.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq2.Id, OptionText = "False", IsCorrect = true });
+        csq2.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq2.Id, OptionText = "True", IsCorrect = false });
+
+        var csq3 = new Question
+        {
+            Id = Guid.NewGuid(),
+            StudySetId = csSet.Id,
+            Type = QuestionType.MultipleChoice,
+            Prompt = "Which .NET language feature enables querying in-memory collections, databases, and XML using a consistent, declarative syntax?",
+            HintsJson = "[\"It stands for Language Integrated Query.\"]",
+            Explanation = "LINQ (Language Integrated Query) provides uniform query syntax across diverse data sources with compile-time type checking.",
+            Difficulty = 1,
+            SortOrder = 3
+        };
+        csq3.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq3.Id, OptionText = "LINQ (Language Integrated Query)", IsCorrect = true });
+        csq3.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq3.Id, OptionText = "WPF (Windows Presentation Foundation)", IsCorrect = false, DistractorRationale = "WPF is a UI presentation framework." });
+        csq3.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq3.Id, OptionText = "gRPC Remote Procedure Calls", IsCorrect = false, DistractorRationale = "gRPC is a high-performance network transport protocol." });
+        csq3.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq3.Id, OptionText = "Entity Garbage Collector", IsCorrect = false, DistractorRationale = "Garbage collection manages memory, not query syntax." });
+
+        var csq4 = new Question
+        {
+            Id = Guid.NewGuid(),
+            StudySetId = csSet.Id,
+            Type = QuestionType.Identification,
+            Prompt = "In C#, which keyword must be used in a derived class to provide a new implementation of a virtual or abstract base method?",
+            HintsJson = "[\"It pairs with the virtual or abstract keyword on the parent class.\"]",
+            Explanation = "The 'override' modifier is required to extend or modify the abstract or virtual implementation of an inherited method, property, or indexer.",
+            Difficulty = 2,
+            SortOrder = 4
+        };
+        csq4.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq4.Id, OptionText = "override", IsCorrect = true });
+
+        var csq5 = new Question
+        {
+            Id = Guid.NewGuid(),
+            StudySetId = csSet.Id,
+            Type = QuestionType.MultipleChoice,
+            Prompt = "What C# statement or declaration ensures that an IDisposable resource (such as a FileStream or DbContext) is deterministically disposed when execution leaves its scope?",
+            HintsJson = "[\"It automatically generates a try-finally block that calls Dispose().\"]",
+            Explanation = "The 'using' statement or declaration guarantees that Dispose() is called on the IDisposable object even if an exception is thrown.",
+            Difficulty = 2,
+            SortOrder = 5
+        };
+        csq5.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq5.Id, OptionText = "using", IsCorrect = true });
+        csq5.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq5.Id, OptionText = "finalize", IsCorrect = false, DistractorRationale = "Finalize is non-deterministic and executed by the garbage collector." });
+        csq5.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq5.Id, OptionText = "lock", IsCorrect = false, DistractorRationale = "lock is used for thread synchronization, not deterministic resource disposal." });
+        csq5.Options.Add(new QuestionOption { Id = Guid.NewGuid(), QuestionId = csq5.Id, OptionText = "checked", IsCorrect = false, DistractorRationale = "checked enables overflow checking for arithmetic operations." });
+
+        csSet.Questions.Add(csq1);
+        csSet.Questions.Add(csq2);
+        csSet.Questions.Add(csq3);
+        csSet.Questions.Add(csq4);
+        csSet.Questions.Add(csq5);
+        csCourse.StudySets.Add(csSet);
+
+        var csNote = new NotebookPage
+        {
+            Id = Guid.NewGuid(),
+            CourseId = csCourse.Id,
+            Title = "Lecture 1: C# Architecture, Data Types & OOP Foundations",
+            ContentMarkdown = @"# C# Architecture & Object-Oriented Programming
+
+## 1. .NET Runtime Architecture
+- **Roslyn Compiler**: Converts C# high-level source code into Common Intermediate Language (CIL/IL).
+- **Common Language Runtime (CLR)**: The execution environment providing Just-In-Time (JIT) compilation from IL to native CPU instructions, memory management, garbage collection, and type verification.
+
+## 2. Type System Fundamentals
+- **Value Types**: Stored directly where declared (typically on the stack). Examples: `int`, `double`, `bool`, `struct`.
+- **Reference Types**: Contain references (memory pointers) to data residing on the managed garbage-collected heap. Examples: `string`, `class`, arrays, delegates.
+
+## 3. Core Object-Oriented Principles in C#
+1. **Encapsulation**: Bundling state and behavior with access modifiers (`private`, `protected`, `public`, `internal`).
+2. **Inheritance**: Subclassing with `:` syntax and single implementation inheritance.
+3. **Polymorphism**: Dynamic method dispatch using `virtual` in the base class and `override` in the derived class.
+4. **Abstraction**: Contract definition via `interface` and `abstract` classes.
+
+## 4. Modern C# Features
+- **LINQ**: Declarative data queries (`from x in list where x.Active select x`).
+- **Resource Management**: Deterministic disposal with `using var resource = new Resource();`.",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        csCourse.NotebookPages.Add(csNote);
+
+        context.Courses.Add(bioCourse);
+        context.Courses.Add(csCourse);
+        await context.SaveChangesAsync(cancellationToken);
+        return true;
     }
 
     [HttpGet]
@@ -158,6 +309,15 @@ Photosynthesis transforms solar photon energy into stable chemical bonds (glucos
         var query = _context.Courses.Where(course => course.UserId == userId.Value);
 
         var totalCount = await query.CountAsync(cancellationToken);
+        if (totalCount == 0)
+        {
+            var provisioned = await ProvisionStarterPackAsync(userId.Value, _context, cancellationToken);
+            if (provisioned)
+            {
+                totalCount = await query.CountAsync(cancellationToken);
+            }
+        }
+
         var effectivePage = Math.Max(1, page);
         var effectivePageSize = Math.Clamp(pageSize, 1, 100);
         var totalPages = (int)Math.Ceiling(totalCount / (double)effectivePageSize);
@@ -168,7 +328,8 @@ Photosynthesis transforms solar photon energy into stable chemical bonds (glucos
         Response.Headers["X-Pagination-Total-Pages"] = totalPages.ToString();
 
         var courses = await query
-            .OrderBy(course => course.Name)
+            .OrderBy(course => course.Code)
+            .ThenBy(course => course.Name)
             .Skip((effectivePage - 1) * effectivePageSize)
             .Take(effectivePageSize)
             .Select(course => new

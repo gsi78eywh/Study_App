@@ -354,8 +354,8 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
       if (response.statusCode == 200 && response.data is Map) {
         final data = Map<String, dynamic>.from(response.data as Map);
         final cleanText = (data["extractedText"] ?? "") as String;
-        final suggestedTitle = (data["suggestedTitle"] ?? "") as String;
-        final charCount = data["charCount"] ?? cleanText.length;
+        final suggestedTitle = (data["suggestedTitle"] ?? data["title"] ?? "") as String;
+        final charCount = data["charCount"] ?? data["fullTextLength"] ?? cleanText.length;
 
         if (cleanText.trim().isEmpty) {
           setState(() {
