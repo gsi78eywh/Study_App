@@ -63,6 +63,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   bool _isSavingToNotebook = false;
   final _transcriptTextController = TextEditingController();
   Map<String, dynamic>? _scannedResult;
+  Timer? _urlScanDebounce;
+  Map<String, dynamic>? _detectedVideoInfo;
+  bool _isAutoScanningVideo = false;
   int _loadingStep = 0;
   Timer? _stepTimer;
   String? _errorMessage;
@@ -172,6 +175,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   @override
   void dispose() {
     _stepTimer?.cancel();
+    _urlScanDebounce?.cancel();
     _tabController.dispose();
     _titleController.dispose();
     _textController.dispose();
@@ -325,6 +329,119 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     return guidRegex.hasMatch(clean) ? clean : null;
   }
 
+  String? _extractYouTubeVideoId(String rawUrl) {
+    if (rawUrl.trim().isEmpty) return null;
+    final match = RegExp(r'(?:v=|\/embed\/|\/v\/|youtu\.be\/|\/shorts\/)([0-9A-Za-z_-]{11})').firstMatch(rawUrl);
+    return match?.group(1);
+  }
+
+  void _onUrlChanged(String rawUrl) {
+    _urlScanDebounce?.cancel();
+    final clean = rawUrl.trim();
+    if (clean.isEmpty) {
+      setState(() {
+        _detectedVideoInfo = null;
+        _isAutoScanningVideo = false;
+      });
+      return;
+    }
+
+    final videoId = _extractYouTubeVideoId(clean);
+    final isYt = clean.toLowerCase().contains("youtube.com") || clean.toLowerCase().contains("youtu.be");
+
+    if (videoId != null || isYt || clean.startsWith("http://") || clean.startsWith("https://")) {
+      if (videoId != null && _detectedVideoInfo?['videoId'] != videoId) {
+        setState(() {
+          _detectedVideoInfo = {
+            'videoId': videoId,
+            'thumbnailUrl': 'https://i.ytimg.com/vi/$videoId/hqdefault.jpg',
+            'title': 'Loading video details...',
+            'loading': true,
+            'isYouTube': true,
+          };
+        });
+      }
+
+      _urlScanDebounce = Timer(const Duration(milliseconds: 500), () {
+        _autoInspectUrl(clean);
+      });
+    }
+  }
+
+  Future<void> _autoInspectUrl(String rawUrl) async {
+    String cleanUrl = rawUrl.trim();
+    if (cleanUrl.isEmpty) return;
+    if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
+      cleanUrl = "https://$cleanUrl";
+    }
+    final uri = Uri.tryParse(cleanUrl);
+    if (uri == null || (uri.scheme != "http" && uri.scheme != "https")) return;
+
+    final videoId = _extractYouTubeVideoId(cleanUrl);
+    final isYt = cleanUrl.toLowerCase().contains("youtube.com") || cleanUrl.toLowerCase().contains("youtu.be");
+
+    if (mounted) {
+      setState(() {
+        _isAutoScanningVideo = true;
+      });
+    }
+
+    try {
+      final response = await widget.apiClient.dio.post(
+        ApiConstants.scanUrl,
+        data: {"url": cleanUrl},
+      );
+
+      if (response.statusCode == 200 && response.data is Map) {
+        final data = Map<String, dynamic>.from(response.data as Map);
+        final title = (data["title"] ?? data["suggestedTitle"] ?? "") as String;
+        final author = (data["author"] ?? "") as String;
+        final duration = (data["duration"] ?? "") as String;
+        final extractedText = (data["extractedText"] ?? "") as String;
+        final thumb = (data["thumbnailUrl"] ?? (videoId != null ? "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" : "")) as String;
+
+        if (mounted) {
+          setState(() {
+            _isAutoScanningVideo = false;
+            _detectedVideoInfo = {
+              'videoId': videoId ?? data["videoId"],
+              'title': title.isNotEmpty ? title : (isYt ? "YouTube Video" : uri.host),
+              'author': author,
+              'duration': duration,
+              'thumbnailUrl': thumb,
+              'extractedText': extractedText,
+              'loading': false,
+              'isYouTube': isYt,
+            };
+
+            // Auto-fill Study Set Title if empty or not customized
+            if (!_isCustomTitle || _titleController.text.trim().isEmpty) {
+              if (title.isNotEmpty) {
+                _titleController.text = title;
+              }
+            }
+
+            // Automatically export extracted video notes to the editor if editor is empty
+            if (extractedText.isNotEmpty && _textController.text.trim().isEmpty) {
+              _textController.text = extractedText;
+            }
+
+            _errorMessage = null;
+          });
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isAutoScanningVideo = false;
+          if (_detectedVideoInfo != null) {
+            _detectedVideoInfo!['loading'] = false;
+          }
+        });
+      }
+    }
+  }
+
   Future<void> _scrapeAndLoadUrlToEditor() async {
     final rawUrl = _urlController.text.trim();
     if (rawUrl.isEmpty) {
@@ -332,7 +449,33 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
       return;
     }
 
-    final uri = Uri.tryParse(rawUrl);
+    if (_detectedVideoInfo != null &&
+        (_detectedVideoInfo!['extractedText'] as String? ?? '').trim().isNotEmpty) {
+      final cleanText = (_detectedVideoInfo!['extractedText'] as String).trim();
+      final title = (_detectedVideoInfo!['title'] as String? ?? '').trim();
+      setState(() {
+        _textController.text = cleanText;
+        if (!_isCustomTitle || _titleController.text.trim().isEmpty) {
+          if (title.isNotEmpty) _titleController.text = title;
+        }
+        _tabController.animateTo(0);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("🎬 Video outline & notes loaded into Note Editor! Review and tap Generate Study Set."),
+          backgroundColor: Color(0xFF10B981),
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
+    String cleanUrl = rawUrl;
+    if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
+      cleanUrl = "https://$cleanUrl";
+    }
+
+    final uri = Uri.tryParse(cleanUrl);
     if (uri == null || (uri.scheme != "http" && uri.scheme != "https")) {
       setState(() => _errorMessage = "Please enter a valid HTTP(S) URL (e.g. https://...).");
       return;
@@ -1601,9 +1744,15 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         );
       } else {
         // URL Ingestion
-        if (_urlController.text.trim().isEmpty) {
+        final rawUrl = _urlController.text.trim();
+        if (rawUrl.isEmpty) {
           setState(() => _errorMessage = "Please provide an article or documentation URL.");
           return;
+        }
+
+        String targetUrl = rawUrl;
+        if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
+          targetUrl = "https://$targetUrl";
         }
 
         response = await widget.apiClient.dio.post(
@@ -1611,7 +1760,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           data: {
             "courseId": _validGuidOrNull(_selectedCourseId),
             "title": _titleController.text.trim(),
-            "url": _urlController.text.trim(),
+            "url": targetUrl,
             "targetCount": _targetCount,
             "fastMode": _fastMode,
             "setIndex": _selectedSetIndex == 999
@@ -1635,6 +1784,8 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           _titleController.clear();
           _textController.clear();
           _urlController.clear();
+          _detectedVideoInfo = null;
+          _isAutoScanningVideo = false;
         });
 
         widget.onStudySetCreated?.call(newSet);
@@ -1672,6 +1823,382 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
       _stepTimer?.cancel();
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Widget _buildDetectedVideoCard(BuildContext context) {
+    if (_detectedVideoInfo == null && !_isAutoScanningVideo) {
+      return const SizedBox.shrink();
+    }
+
+    final info = _detectedVideoInfo ?? {};
+    final title = (info['title'] as String? ?? '').trim();
+    final author = (info['author'] as String? ?? '').trim();
+    final duration = (info['duration'] as String? ?? '').trim();
+    final thumb = (info['thumbnailUrl'] as String? ?? '').trim();
+    final isYt = info['isYouTube'] == true || _extractYouTubeVideoId(_urlController.text.trim()) != null;
+    final isLoading = _isAutoScanningVideo || info['loading'] == true;
+    final extractedText = (info['extractedText'] as String? ?? '').trim();
+    final hasExtractedText = extractedText.isNotEmpty;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      margin: const EdgeInsets.only(top: 12, bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isYt
+            ? const Color(0xFFEF4444).withValues(alpha: 0.08)
+            : const Color(0xFF6366F1).withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isYt
+              ? const Color(0xFFEF4444).withValues(alpha: 0.35)
+              : const Color(0xFF6366F1).withValues(alpha: 0.35),
+          width: 1.2,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header badge row
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isYt ? const Color(0xFFEF4444) : const Color(0xFF6366F1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isYt ? Icons.smart_display_rounded : Icons.public_rounded,
+                      color: Colors.white,
+                      size: 13,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      isYt ? "YOUTUBE VIDEO" : "WEB SOURCE",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.6,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (duration.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.schedule_rounded, color: Colors.white70, size: 11),
+                      const SizedBox(width: 4),
+                      Text(
+                        duration,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const Spacer(),
+              if (isLoading)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFEF4444)),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      "Analyzing...",
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: context.textSecondary,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ],
+                )
+              else if (hasExtractedText)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 14),
+                    SizedBox(width: 4),
+                    Text(
+                      "Content Extracted",
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF10B981),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Thumbnail and Details row
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Thumbnail
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  width: 112,
+                  height: 64,
+                  color: Colors.black26,
+                  child: thumb.isNotEmpty
+                      ? Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.network(
+                              thumb,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => const Center(
+                                child: Icon(Icons.broken_image_rounded, size: 24, color: Colors.white38),
+                              ),
+                            ),
+                            Center(
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(
+                                  color: Colors.black54,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.play_arrow_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : const Center(
+                          child: Icon(Icons.video_library_rounded, size: 28, color: Colors.white38),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // Video Title & Author
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title.isNotEmpty
+                          ? title
+                          : (isLoading ? "Fetching video metadata & captions..." : "Video detected"),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: context.textPrimary,
+                        height: 1.25,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    if (author.isNotEmpty)
+                      Row(
+                        children: [
+                          Icon(Icons.person_pin_rounded, size: 13, color: context.textSecondary),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              author,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: context.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    const SizedBox(height: 6),
+                    // Quick Actions Bar inside the card
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        InkWell(
+                          onTap: () {
+                            _scrapeAndLoadUrlToEditor();
+                          },
+                          borderRadius: BorderRadius.circular(6),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF6366F1).withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.4)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(Icons.edit_note_rounded, size: 13, color: Color(0xFF818CF8)),
+                                SizedBox(width: 4),
+                                Text(
+                                  "Load to Note Editor",
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF818CF8),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (hasExtractedText)
+                          InkWell(
+                            onTap: () {
+                              _showExtractedContentDialog(title, extractedText);
+                            },
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.white24),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.remove_red_eye_outlined, size: 12, color: context.textSecondary),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    "View Details",
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: context.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showExtractedContentDialog(String title, String content) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: context.surfaceColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.92,
+        minChildSize: 0.4,
+        expand: false,
+        builder: (_, scrollController) => Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  const Icon(Icons.smart_display_rounded, color: Color(0xFFEF4444), size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title.isNotEmpty ? title : "Extracted Video Details",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: context.textPrimary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const Divider(),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  child: SelectableText(
+                    content,
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.5,
+                      color: context.textPrimary,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.accent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  icon: const Icon(Icons.edit_note_rounded),
+                  label: const Text("Export to Note Editor"),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _scrapeAndLoadUrlToEditor();
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildModePresetPill({
@@ -2579,16 +3106,37 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                       suffixIcon: _urlController.text.isNotEmpty
                                           ? IconButton(
                                               icon: const Icon(Icons.clear_rounded, size: 18),
+                                              tooltip: "Clear URL",
                                               onPressed: () {
-                                                setState(() => _urlController.clear());
+                                                _urlScanDebounce?.cancel();
+                                                setState(() {
+                                                  _urlController.clear();
+                                                  _detectedVideoInfo = null;
+                                                  _isAutoScanningVideo = false;
+                                                });
                                               },
                                             )
-                                          : null,
+                                          : IconButton(
+                                              icon: const Icon(Icons.content_paste_rounded, size: 18),
+                                              tooltip: "Paste URL from Clipboard",
+                                              onPressed: () async {
+                                                final data = await Clipboard.getData(Clipboard.kTextPlain);
+                                                if (data?.text != null && data!.text!.trim().isNotEmpty) {
+                                                  _urlController.text = data.text!.trim();
+                                                  _onUrlChanged(data.text!.trim());
+                                                  setState(() {});
+                                                }
+                                              },
+                                            ),
                                     ),
-                                    onChanged: (v) => setState(() {}),
+                                    onChanged: (v) {
+                                      _onUrlChanged(v);
+                                      setState(() {});
+                                    },
                                   );
                                 },
                               ),
+                              _buildDetectedVideoCard(context),
                               const SizedBox(height: 10),
                               TextField(
                                 controller: _transcriptTextController,
