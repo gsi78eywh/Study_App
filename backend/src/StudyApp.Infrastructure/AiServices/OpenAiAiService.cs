@@ -579,7 +579,7 @@ public class OpenAiAiService : IAiQuestionGenerator, IAiTutorService
 
         {
 
-            var systemPrompt = "You are a master academic university tutor. Provide clear, encouraging, conceptually rigorous responses with analogies, examples, and study recommendations. Keep responses structured in markdown.";
+            var systemPrompt = "You are a master academic university tutor. Provide clear, encouraging, conceptually rigorous responses with analogies, examples, and study recommendations. Keep responses structured in markdown. When generating code, always output complete, production-ready, fully functional implementations with full error handling. Never output partial or toy proofs-of-concept. Never use unsafe functions like eval() or inline HTML onclick attributes; always use standard DOM event listeners and safe state machines.";
 
             var messages = new List<object>
 
