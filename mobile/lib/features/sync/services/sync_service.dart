@@ -34,6 +34,20 @@ class SyncService {
 
   SyncService({required this.apiClient, required this.sessionService});
 
+  bool isDataStale({int staleMinutes = 5}) {
+    final lastSync = sessionService.lastSyncAt;
+    if (lastSync == null) return true;
+    return DateTime.now().difference(lastSync) >= Duration(minutes: staleMinutes);
+  }
+
+  Future<SyncResult?> syncIfStale({
+    int staleMinutes = 5,
+    List<CourseModel> currentCourses = const [],
+  }) async {
+    if (!isDataStale(staleMinutes: staleMinutes)) return null;
+    return await performSync(fullFetch: false, currentCourses: currentCourses);
+  }
+
   Future<SyncResult> performSync({
     bool fullFetch = false,
     List<CourseModel> currentCourses = const [],

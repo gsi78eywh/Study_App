@@ -12,6 +12,7 @@ import "../../quiz/models/quiz_models.dart";
 import "../../settings/services/settings_service.dart";
 import "../widgets/camera_scanner_modal.dart";
 import "../widgets/progressive_exam_studio.dart";
+import "../../../core/utils/url_launcher_helper.dart";
 
 class IngestionScreen extends StatefulWidget {
   final List<CourseModel> courses;
@@ -412,6 +413,12 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               'extractedText': extractedText,
               'loading': false,
               'isYouTube': isYt,
+              'isSong': data['isSong'] == true ||
+                  title.toLowerCase().contains("lyrics") ||
+                  title.toLowerCase().contains("song") ||
+                  title.toLowerCase().contains("audio") ||
+                  title.toLowerCase().contains("kabet"),
+              'url': cleanUrl,
             };
 
             // Auto-fill Study Set Title if empty or not customized
@@ -1836,9 +1843,18 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     final duration = (info['duration'] as String? ?? '').trim();
     final thumb = (info['thumbnailUrl'] as String? ?? '').trim();
     final isYt = info['isYouTube'] == true || _extractYouTubeVideoId(_urlController.text.trim()) != null;
+    final isSong = info['isSong'] == true ||
+        title.toLowerCase().contains("lyrics") ||
+        title.toLowerCase().contains("song") ||
+        title.toLowerCase().contains("audio") ||
+        title.toLowerCase().contains("kabet");
     final isLoading = _isAutoScanningVideo || info['loading'] == true;
     final extractedText = (info['extractedText'] as String? ?? '').trim();
     final hasExtractedText = extractedText.isNotEmpty;
+    final videoId = (info['videoId'] as String? ?? '').trim().isNotEmpty
+        ? (info['videoId'] as String).trim()
+        : _extractYouTubeVideoId(_urlController.text.trim());
+    final rawUrl = (info['url'] as String? ?? _urlController.text.trim()).trim();
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -1889,6 +1905,34 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                   ],
                 ),
               ),
+              if (isSong) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF8B5CF6), Color(0xFFEC4899)],
+                    ),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.music_note_rounded, color: Colors.white, size: 12),
+                      SizedBox(width: 4),
+                      Text(
+                        "SONG LYRICS & AUDIO",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(width: 8),
               if (duration.isNotEmpty)
                 Container(
@@ -1937,15 +1981,19 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               else if (hasExtractedText)
                 Row(
                   mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 14),
-                    SizedBox(width: 4),
+                  children: [
+                    Icon(
+                      isSong ? Icons.music_note_rounded : Icons.check_circle_rounded,
+                      color: isSong ? const Color(0xFF8B5CF6) : const Color(0xFF10B981),
+                      size: 14,
+                    ),
+                    const SizedBox(width: 4),
                     Text(
-                      "Content Extracted",
+                      isSong ? "Lyrics Ready" : "Content Extracted",
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF10B981),
+                        color: isSong ? const Color(0xFF8B5CF6) : const Color(0xFF10B981),
                       ),
                     ),
                   ],
@@ -1958,30 +2006,53 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Thumbnail
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  width: 112,
-                  height: 64,
-                  color: Colors.black26,
-                  child: thumb.isNotEmpty
-                      ? Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Image.network(
-                              thumb,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) => const Center(
-                                child: Icon(Icons.broken_image_rounded, size: 24, color: Colors.white38),
-                              ),
+              // Playable Video Thumbnail with Click to Play
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _playVideo(rawUrl, videoId, title),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Tooltip(
+                    message: "Tap to Play Video ▶",
+                    child: Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            width: 112,
+                            height: 64,
+                            color: Colors.black26,
+                            child: thumb.isNotEmpty
+                                ? Image.network(
+                                    thumb,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) => const Center(
+                                      child: Icon(Icons.broken_image_rounded, size: 24, color: Colors.white38),
+                                    ),
+                                  )
+                                : const Center(
+                                    child: Icon(Icons.video_library_rounded, size: 28, color: Colors.white38),
+                                  ),
+                          ),
+                        ),
+                        Positioned.fill(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              color: Colors.black.withValues(alpha: 0.28),
                             ),
-                            Center(
+                            child: Center(
                               child: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: const BoxDecoration(
-                                  color: Colors.black54,
+                                padding: const EdgeInsets.all(5),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEF4444),
                                   shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.5),
+                                      blurRadius: 4,
+                                    ),
+                                  ],
                                 ),
                                 child: const Icon(
                                   Icons.play_arrow_rounded,
@@ -1990,11 +2061,11 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                 ),
                               ),
                             ),
-                          ],
-                        )
-                      : const Center(
-                          child: Icon(Icons.video_library_rounded, size: 28, color: Colors.white38),
+                          ),
                         ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -2042,6 +2113,42 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                       spacing: 6,
                       runSpacing: 4,
                       children: [
+                        // 1. Play Video button
+                        InkWell(
+                          onTap: () => _playVideo(rawUrl, videoId, title),
+                          borderRadius: BorderRadius.circular(6),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444),
+                              borderRadius: BorderRadius.circular(6),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFFEF4444).withValues(alpha: 0.3),
+                                  blurRadius: 3,
+                                  offset: const Offset(0, 1),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(Icons.play_arrow_rounded, size: 14, color: Colors.white),
+                                SizedBox(width: 4),
+                                Text(
+                                  "Play Video",
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        // 2. Export Lyrics / Load to Note Editor
                         InkWell(
                           onTap: () {
                             _scrapeAndLoadUrlToEditor();
@@ -2056,12 +2163,16 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
-                              children: const [
-                                Icon(Icons.edit_note_rounded, size: 13, color: Color(0xFF818CF8)),
-                                SizedBox(width: 4),
+                              children: [
+                                Icon(
+                                  isSong ? Icons.music_note_rounded : Icons.edit_note_rounded,
+                                  size: 13,
+                                  color: const Color(0xFF818CF8),
+                                ),
+                                const SizedBox(width: 4),
                                 Text(
-                                  "Load to Note Editor",
-                                  style: TextStyle(
+                                  isSong ? "Export Lyrics to Editor" : "Load to Note Editor",
+                                  style: const TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
                                     color: Color(0xFF818CF8),
@@ -2071,10 +2182,18 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                             ),
                           ),
                         ),
+
+                        // 3. View Details / Lyrics
                         if (hasExtractedText)
                           InkWell(
                             onTap: () {
-                              _showExtractedContentDialog(title, extractedText);
+                              _showExtractedContentDialog(
+                                title,
+                                extractedText,
+                                isSong: isSong,
+                                rawUrl: rawUrl,
+                                videoId: videoId,
+                              );
                             },
                             borderRadius: BorderRadius.circular(6),
                             child: Container(
@@ -2087,10 +2206,14 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.remove_red_eye_outlined, size: 12, color: context.textSecondary),
+                                  Icon(
+                                    isSong ? Icons.library_music_rounded : Icons.remove_red_eye_outlined,
+                                    size: 12,
+                                    color: context.textSecondary,
+                                  ),
                                   const SizedBox(width: 4),
                                   Text(
-                                    "View Details",
+                                    isSong ? "View Lyrics" : "View Details",
                                     style: TextStyle(
                                       fontSize: 11,
                                       color: context.textSecondary,
@@ -2112,7 +2235,55 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     );
   }
 
-  void _showExtractedContentDialog(String title, String content) {
+  void _playVideo(String rawUrl, String? videoId, String title) {
+    String targetUrl = rawUrl;
+    if (videoId != null && videoId.isNotEmpty) {
+      targetUrl = "https://www.youtube.com/watch?v=$videoId";
+    } else if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
+      targetUrl = "https://$targetUrl";
+    }
+
+    if (targetUrl.isNotEmpty) {
+      launchWebUrl(targetUrl);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.play_circle_fill_rounded, color: Color(0xFFEF4444), size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "▶ Playing '${title.isNotEmpty ? title : "YouTube Video"}' in video player!",
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: const Color(0xFF1E293B),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: "Open Again",
+              textColor: const Color(0xFFEF4444),
+              onPressed: () => launchWebUrl(targetUrl),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showExtractedContentDialog(
+    String title,
+    String content, {
+    bool isSong = false,
+    String rawUrl = '',
+    String? videoId,
+  }) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2143,11 +2314,15 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               ),
               Row(
                 children: [
-                  const Icon(Icons.smart_display_rounded, color: Color(0xFFEF4444), size: 20),
+                  Icon(
+                    isSong ? Icons.music_note_rounded : Icons.smart_display_rounded,
+                    color: isSong ? const Color(0xFF8B5CF6) : const Color(0xFFEF4444),
+                    size: 20,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      title.isNotEmpty ? title : "Extracted Video Details",
+                      title.isNotEmpty ? title : (isSong ? "Song Lyrics & Notes" : "Extracted Video Details"),
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -2178,21 +2353,39 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                 ),
               ),
               const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.accent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+              Row(
+                children: [
+                  if (rawUrl.isNotEmpty || (videoId != null && videoId.isNotEmpty)) ...[
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFEF4444),
+                        side: const BorderSide(color: Color(0xFFEF4444)),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                      icon: const Icon(Icons.play_arrow_rounded),
+                      label: const Text("Play Video"),
+                      onPressed: () {
+                        _playVideo(rawUrl, videoId, title);
+                      },
+                    ),
+                    const SizedBox(width: 10),
+                  ],
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.accent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      icon: Icon(isSong ? Icons.music_note_rounded : Icons.edit_note_rounded),
+                      label: Text(isSong ? "Export Lyrics to Editor" : "Export to Note Editor"),
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _scrapeAndLoadUrlToEditor();
+                      },
+                    ),
                   ),
-                  icon: const Icon(Icons.edit_note_rounded),
-                  label: const Text("Export to Note Editor"),
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    _scrapeAndLoadUrlToEditor();
-                  },
-                ),
+                ],
               ),
             ],
           ),

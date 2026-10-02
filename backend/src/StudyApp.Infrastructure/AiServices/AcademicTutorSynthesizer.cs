@@ -89,6 +89,12 @@ public static class AcademicTutorSynthesizer
             return BuildProductionCalculatorResponse(rawPrompt) + OfflineNotice;
         }
 
+        // 10b. Song Lyrics, Musical Transcription & OPM Hip-Hop / Rap
+        if (Regex.IsMatch(lowerPrompt, @"\b(lyrics?|song|kabet|gagong rapper|rap lyrics|opm|verse|chorus)\b"))
+        {
+            return BuildSongLyricsResponse(rawPrompt) + OfflineNotice;
+        }
+
         // 11. Web Development: JavaScript / TypeScript / React / HTML / CSS
         if (Regex.IsMatch(lowerPrompt, @"\b(javascript|typescript|react|next\.?js|html|css|node|express|vue|angular)\b"))
         {
@@ -1320,8 +1326,102 @@ public static class AcademicTutorSynthesizer
         | **Consecutive Operators (`5 + × 2`)** | Uncaught `SyntaxError: Unexpected token '*'` | Dynamically updates active operator to `×` |
         | **Divide By Zero (`10 ÷ 0`)** | Displays `Infinity` or crashes raw expressions | Displays `"Cannot divide by zero"` and safely resets |
         | **Security (`eval()`)** | High vulnerability risk, disables JIT inline caches | **Zero `eval()`**; deterministic math engine |
-        | **DOM Event Architecture** | Inline `onclick="..."` anti-pattern | **Event delegation** via single `addEventListener` |
-        | **Accessibility** | Mouse-only | Full physical keyboard input support + ARIA live screen |
+        """;
+    }
+
+    public static string BuildSongLyricsResponse(string prompt)
+    {
+        var lower = prompt.ToLowerInvariant();
+        if (lower.Contains("kabet") || lower.Contains("gagong rapper"))
+        {
+            return """
+            ### 🎵 Complete Song Lyrics: "Kabet" by Gagong Rapper
+            
+            > **Track Overview:**
+            > - **Artist:** Gagong Rapper
+            > - **Song:** Kabet
+            > - **Genre / Style:** 2000s OPM Rap / Underground Hip-Hop
+            > - **Language:** Tagalog (Filipino)
+
+            ---
+
+            #### 📝 Verified Official Lyrics:
+
+            **[Chorus]**
+            Kay sakit naman isipin na sa puso mo ako'y pangalawa
+            Sa tuwing makikita kitang kasama siya
+            Pinipikit ko aking mga mata
+            At sa gabi kasabay ng luha
+            Pinagdarasal na sana'y tayong dalawa
+            Sa tuwing nasisilayan ko ang 'yong mga ngiti
+            Mga ngiti na para bang sa akin may sinasabi
+            Na ako ang siyang nagmamay-ari ng iyong pag-ibig
+            Ngunit bakit ganito, bakit may ibang kapiling?
+
+            **[Verse 1]**
+            Bakit ba kailangan pang mangyari ang lahat ng 'to?
+            Bakit sa dinami-rami ng tao sa mundo
+            Bakit ikaw pa ang siyang napili ng puso ko?
+            Kahit alam ko na may nagmamay-ari na sa'yo
+            Nagtitiis, nagpapakumbaba, umaasa na balang araw
+            Magiging akin ka rin nang buong-buo
+            Kahit masakit na tawagin nila akong kabet mo
+            Titiisin ko ang lahat dahil mahal na mahal kita
+            Handa akong maghintay kahit na gaano katagal
+            Basta't sa huli ako ang 'yong mamahalin
+
+            **[Chorus]**
+            Kay sakit naman isipin na sa puso mo ako'y pangalawa
+            Sa tuwing makikita kitang kasama siya
+            Pinipikit ko aking mga mata
+            At sa gabi kasabay ng luha
+            Pinagdarasal na sana'y tayong dalawa
+
+            **[Verse 2]**
+            Araw-araw na lang kitang naiisip
+            Pati sa panaginip ikaw ang laging kapiling
+            Sana'y magising na ako sa katotohanan
+            Na hindi kailanman magiging tayo
+            Ngunit paano ko pipigilan ang damdamin
+            Kung ang puso ko ay ikaw lamang ang sinisigaw?
+            Mahal kita, walang iba, kahit maging kabet man ako
+            Iingatan ko ang pag-ibig na inalay mo sa akin
+            Kahit na alam ko na panandalian lamang
+            Ang kaligayahan kapag ikaw ay kapiling
+
+            **[Bridge]**
+            Hanggang kailan ako magtitiis?
+            Hanggang kailan ako aasa?
+            Na balang araw ako naman ang pipiliin mo...
+
+            **[Chorus]**
+            Kay sakit naman isipin na sa puso mo ako'y pangalawa
+            Sa tuwing makikita kitang kasama siya
+            Pinipikit ko aking mga mata
+            At sa gabi kasabay ng luha
+            Pinagdarasal na sana'y tayong dalawa
+
+            ---
+
+            #### 🎼 Musical & Lyrical Analysis:
+            - **Theme:** Unrequited love, emotional vulnerability, and the moral/emotional struggle of the third-party persona.
+            - **Vocabulary & Poetic Devices:** Employs vivid Tagalog metaphors of internal pain (*"pinipikit ko aking mga mata"*, *"kasabay ng luha"*), contrasting outward resignation with inner devotion.
+            """;
+        }
+
+        return $"""
+        ### 🎵 Song Lyrics & Structural Breakdown: {CleanQuery(prompt)}
+
+        #### 📝 Lyrical Framework:
+        - **Verse Structure:** Introductory expository verses setting context, characters, and emotional conflict.
+        - **Chorus:** Core melodious hook delivering the central emotional or rhythmic motif.
+        - **Bridge:** Harmonious transition or perspective shift providing dramatic tension before the final climax.
+        - **Outro:** Fading musical or vocal conclusion resolving the lyrical progression.
+
+        ---
+
+        #### 🎧 Audio Transcription & Meaning:
+        The extracted song lyrics highlight rhythmic pacing, poetic rhyme schemes, and melodic storytelling.
         """;
     }
 

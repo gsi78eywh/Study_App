@@ -1,0 +1,1 @@
+void launchWebUrl(String url) {}

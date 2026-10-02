@@ -243,6 +243,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Timer? _eyeBreakMonitoringTimer;
+  Timer? _staleDataRefreshTimer;
   bool _eyeBreakOpen = false;
 
   final Set<int> _builtTabs = {0};
@@ -269,6 +270,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
     _fetchCoursesAndSync(fullFetch: true);
     _initEyeBreakMonitoring();
+    _initStaleDataAutoRefresh();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         OnboardingModal.showIfNeeded(
@@ -292,9 +294,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
+  void _initStaleDataAutoRefresh() {
+    _staleDataRefreshTimer = Timer.periodic(const Duration(minutes: 5), (_) async {
+      if (!mounted || !widget.sessionService.hasValidToken) return;
+      if (_syncService.isDataStale(staleMinutes: 5)) {
+        await _fetchCoursesAndSync(fullFetch: false);
+      }
+    });
+  }
+
   @override
   void dispose() {
     _eyeBreakMonitoringTimer?.cancel();
+    _staleDataRefreshTimer?.cancel();
     super.dispose();
   }
 

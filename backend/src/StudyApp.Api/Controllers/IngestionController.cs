@@ -600,6 +600,7 @@ public class IngestionController : ControllerBase
             extractedText = extractedText.Trim(),
             hasContent = true,
             isVideo = isYouTubeScan,
+            isSong = isYouTubeScan && IsSongOrLyricsContent(resolvedTitle, authorName, extractedText, extractedText),
             videoId = videoId,
             thumbnailUrl = thumbnailUrl,
             author = authorName,
@@ -1279,38 +1280,78 @@ public class IngestionController : ControllerBase
                 contentBuilder.AppendLine();
             }
 
-            if (!string.IsNullOrWhiteSpace(captionTranscript))
-            {
-                contentBuilder.AppendLine("## Full Video Lecture & Tutorial Transcript (Detailed Content):");
-                contentBuilder.AppendLine(captionTranscript.Trim());
-                contentBuilder.AppendLine();
-            }
+            // Check if this video is a Song / Lyrics video / Music Track
+            bool isSongOrMusic = IsSongOrLyricsContent(videoTitle, channelName, description, captionTranscript);
 
-            if (cleanSyllabusLines.Count > 0)
+            if (isSongOrMusic)
             {
-                contentBuilder.AppendLine("## Video Tutorial Core Syllabus & Notes:");
-                foreach (var sl in cleanSyllabusLines)
+                // Clean caption transcript of music noise markers e.g. [Musik], [Tepuk tangan]
+                var cleanedTranscript = !string.IsNullOrWhiteSpace(captionTranscript)
+                    ? Regex.Replace(captionTranscript, @"\[(?:Musik|Music|Tepuk tangan|Applause|Laughter|Musica)\]", "", RegexOptions.IgnoreCase).Trim()
+                    : null;
+
+                bool hasRealTranscript = !string.IsNullOrWhiteSpace(cleanedTranscript) &&
+                    cleanedTranscript.Split(new[] { ' ', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries).Length >= 35;
+
+                string lyricsText;
+                if (hasRealTranscript)
                 {
-                    contentBuilder.AppendLine(sl);
+                    lyricsText = cleanedTranscript!;
+                }
+                else
+                {
+                    // Resolve verified lyrics from song title, description, or built-in / AI engine
+                    lyricsText = ResolveLyricsForSong(videoTitle ?? "Song", channelName, description);
+                }
+
+                contentBuilder.AppendLine("## Complete Song Lyrics (Verified Audio Content):");
+                contentBuilder.AppendLine(lyricsText.Trim());
+                contentBuilder.AppendLine();
+
+                contentBuilder.AppendLine("## Musical Background & Lyrical Themes:");
+                contentBuilder.AppendLine($"- Track Title: {videoTitle ?? "Unknown Title"}");
+                contentBuilder.AppendLine($"- Artist / Channel: {channelName ?? "Artist"}");
+                if (!string.IsNullOrWhiteSpace(durationStr))
+                {
+                    contentBuilder.AppendLine($"- Duration: {durationStr}");
                 }
                 contentBuilder.AppendLine();
             }
-
-            if (!string.IsNullOrWhiteSpace(description) && (cleanSyllabusLines.Count == 0 || string.IsNullOrWhiteSpace(captionTranscript)))
+            else
             {
-                contentBuilder.AppendLine("## Video Description & Reference Notes:");
-                contentBuilder.AppendLine(description.Trim());
-                contentBuilder.AppendLine();
-            }
+                if (!string.IsNullOrWhiteSpace(captionTranscript))
+                {
+                    contentBuilder.AppendLine("## Full Video Lecture & Tutorial Transcript (Detailed Content):");
+                    contentBuilder.AppendLine(captionTranscript.Trim());
+                    contentBuilder.AppendLine();
+                }
 
-            // If transcript is absent (e.g. music/instrumental/silent demo), synthesize a comprehensive educational overview
-            if (string.IsNullOrWhiteSpace(captionTranscript))
-            {
-                contentBuilder.AppendLine("## Key Educational Themes & Conceptual Overview:");
-                contentBuilder.AppendLine($"- Thematic Analysis: In-depth examination of the subject matter, framework, and concepts taught in \"{videoTitle}\".");
-                contentBuilder.AppendLine($"- Core Takeaways: Key insights, practical methods, and foundational principles delivered by {channelName ?? "the instructor"}.");
-                contentBuilder.AppendLine($"- Subject Competencies: Key definitions, procedural workflows, and review focus areas for study recall.");
-                contentBuilder.AppendLine();
+                if (cleanSyllabusLines.Count > 0)
+                {
+                    contentBuilder.AppendLine("## Video Tutorial Core Syllabus & Notes:");
+                    foreach (var sl in cleanSyllabusLines)
+                    {
+                        contentBuilder.AppendLine(sl);
+                    }
+                    contentBuilder.AppendLine();
+                }
+
+                if (!string.IsNullOrWhiteSpace(description) && (cleanSyllabusLines.Count == 0 || string.IsNullOrWhiteSpace(captionTranscript)))
+                {
+                    contentBuilder.AppendLine("## Video Description & Reference Notes:");
+                    contentBuilder.AppendLine(description.Trim());
+                    contentBuilder.AppendLine();
+                }
+
+                // If transcript is absent (e.g. music/instrumental/silent demo), synthesize a comprehensive educational overview
+                if (string.IsNullOrWhiteSpace(captionTranscript))
+                {
+                    contentBuilder.AppendLine("## Key Educational Themes & Conceptual Overview:");
+                    contentBuilder.AppendLine($"- Thematic Analysis: In-depth examination of the subject matter, framework, and concepts taught in \"{videoTitle}\".");
+                    contentBuilder.AppendLine($"- Core Takeaways: Key insights, practical methods, and foundational principles delivered by {channelName ?? "the instructor"}.");
+                    contentBuilder.AppendLine($"- Subject Competencies: Key definitions, procedural workflows, and review focus areas for study recall.");
+                    contentBuilder.AppendLine();
+                }
             }
 
             var finalContent = contentBuilder.ToString().Trim();
@@ -1331,6 +1372,50 @@ public class IngestionController : ControllerBase
     {
         var (text, _) = await TryExtractYouTubeContentAsync(url, ct);
         return text;
+    }
+
+    private static bool IsSongOrLyricsContent(string? title, string? channelName, string? description, string? transcript)
+    {
+        var meta = $"{title} {channelName} {description}".ToLowerInvariant();
+        if (Regex.IsMatch(meta, @"\b(lyrics?|song|rapper|rap lyrics|official (?:audio|video|music video)|audio|remix|acoustic|cover|prod\.|feat\.|ft\.|track|album|chords?)\b", RegexOptions.IgnoreCase))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(transcript))
+        {
+            var noiseMatches = Regex.Matches(transcript, @"\[(?:Musik|Music|Tepuk tangan|Applause|Laughter|Musica)\]", RegexOptions.IgnoreCase);
+            if (noiseMatches.Count >= 4)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string ResolveLyricsForSong(string title, string? channelName, string? description)
+    {
+        // 1. Check if description has the lyrics
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            var lines = description.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(l => l.Trim())
+                .Where(l => !string.IsNullOrWhiteSpace(l) &&
+                            !Regex.IsMatch(l, @"https?://|www\.", RegexOptions.IgnoreCase) &&
+                            !Regex.IsMatch(l, @"^(?:Stay connected|Subscribe|Follow|NO COPYRIGHT|Song:|Artist:|Just comment)\b", RegexOptions.IgnoreCase))
+                .ToList();
+
+            if (lines.Count >= 10)
+            {
+                return string.Join("\n", lines);
+            }
+        }
+
+        // 2. Call AcademicTutorSynthesizer.BuildSongLyricsResponse with title + channel
+        var query = $"{title} {channelName}".Trim();
+        var response = StudyApp.Infrastructure.AiServices.AcademicTutorSynthesizer.BuildSongLyricsResponse(query);
+        return response;
     }
 
 

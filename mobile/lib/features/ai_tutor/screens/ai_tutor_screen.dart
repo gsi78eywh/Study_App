@@ -300,6 +300,82 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     _saveSessions();
   }
 
+  Future<void> _clearAllChats() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: dialogCtx.surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.delete_sweep_rounded, color: AppColors.danger, size: 22),
+            SizedBox(width: 8),
+            Text("Clear All Chats?"),
+          ],
+        ),
+        content: const Text(
+          "Are you sure you want to delete all chat history? This will permanently erase all previous conversations from memory and local storage.",
+          style: TextStyle(fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: const Text("Clear All"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      // 1. Purge from local persistent storage
+      await widget.apiClient.sessionService.prefs.remove(_sessionsPrefKey);
+
+      // 2. Purge from active memory
+      setState(() {
+        _sessions.clear();
+        _messages.clear();
+
+        // 3. Re-initialize a single clean default greeting
+        final freshSession = ChatSession(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          title: "New Study Chat",
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+          messages: [_createDefaultGreeting()],
+        );
+        _sessions.add(freshSession);
+        _activeSessionId = freshSession.id;
+        _messages.addAll(freshSession.messages);
+      });
+
+      await _saveSessions();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.cleaning_services_rounded, color: Colors.white, size: 18),
+                SizedBox(width: 8),
+                Text("🧹 Chat history purged from memory & local storage!"),
+              ],
+            ),
+            backgroundColor: Color(0xFF10B981),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
   void _showChatHistorySheet() {
     showModalBottomSheet(
       context: context,
@@ -349,19 +425,40 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                               ),
                             ],
                           ),
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                            icon: const Icon(Icons.add_rounded, size: 16),
-                            label: const Text("New Chat", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                            onPressed: () {
-                              Navigator.pop(ctx);
-                              _createNewChat();
-                            },
+                          Row(
+                            children: [
+                              if (_sessions.isNotEmpty) ...[
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.danger,
+                                    side: BorderSide(color: AppColors.danger.withValues(alpha: 0.5)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                  icon: const Icon(Icons.delete_sweep_rounded, size: 15),
+                                  label: const Text("Clear All", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                  onPressed: () async {
+                                    Navigator.pop(ctx);
+                                    await _clearAllChats();
+                                  },
+                                ),
+                                const SizedBox(width: 6),
+                              ],
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                icon: const Icon(Icons.add_rounded, size: 16),
+                                label: const Text("New Chat", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                onPressed: () {
+                                  Navigator.pop(ctx);
+                                  _createNewChat();
+                                },
+                              ),
+                            ],
                           ),
                         ],
                       ),
