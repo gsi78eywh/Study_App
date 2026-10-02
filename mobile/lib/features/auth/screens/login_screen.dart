@@ -8,6 +8,7 @@ import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../models/auth_models.dart";
 import "../widgets/terms_and_privacy_modal.dart";
+import "../widgets/google_sign_in_dialog.dart";
 import "../../../core/services/google_auth_service.dart";
 import "../../courses/screens/dashboard_screen.dart";
 import "register_screen.dart";
@@ -133,6 +134,38 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // Real Google Sign-In with Server-Side ID Token Verification
   Future<void> _handleRealGoogleSignIn() async {
+    // If running on Web or client ID is not configured, open the Google Sign-In dialog directly
+    if (!GoogleAuthService.isConfigured) {
+      final success = await GoogleSignInDialog.show(
+        context,
+        apiClient: widget.apiClient,
+        sessionService: widget.sessionService,
+        initialEmail: _emailController.text.trim(),
+        onSignedIn: () {
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => DashboardScreen(
+                apiClient: widget.apiClient,
+                sessionService: widget.sessionService,
+              ),
+            ),
+          );
+        },
+      );
+      if (success && mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => DashboardScreen(
+              apiClient: widget.apiClient,
+              sessionService: widget.sessionService,
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -141,7 +174,39 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final result = await GoogleAuthService.instance.signIn();
       if (!result.success) {
+        if (result.requiresDirectPrompt) {
+          if (!mounted) return;
+          final success = await GoogleSignInDialog.show(
+            context,
+            apiClient: widget.apiClient,
+            sessionService: widget.sessionService,
+            initialEmail: _emailController.text.trim(),
+          );
+          if (success && mounted) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (_) => DashboardScreen(
+                  apiClient: widget.apiClient,
+                  sessionService: widget.sessionService,
+                ),
+              ),
+            );
+          }
+          return;
+        }
+
         if (result.errorMessage != null && !result.errorMessage!.contains("cancelled")) {
+          // If the SDK threw an error on Web, gracefully fall back to the direct dialog
+          if (kIsWeb) {
+            if (!mounted) return;
+            await GoogleSignInDialog.show(
+              context,
+              apiClient: widget.apiClient,
+              sessionService: widget.sessionService,
+              initialEmail: _emailController.text.trim(),
+            );
+            return;
+          }
           setState(() => _errorMessage = result.errorMessage);
         }
         return;

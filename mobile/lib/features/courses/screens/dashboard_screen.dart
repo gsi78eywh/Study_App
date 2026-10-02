@@ -12,6 +12,7 @@ import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../models/course_models.dart";
 import "../../auth/screens/login_screen.dart";
+import "../../auth/widgets/google_sign_in_dialog.dart";
 import "../../flashcards/screens/flashcards_screen.dart";
 import "../../ingestion/screens/ingestion_screen.dart";
 import "../../notebook/screens/notebook_screen.dart";
@@ -1988,6 +1989,174 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Future<void> _openGoogleSignInModal() async {
+    final success = await GoogleSignInDialog.show(
+      context,
+      apiClient: widget.apiClient,
+      sessionService: widget.sessionService,
+      onSignedIn: () async {
+        await _fetchCoursesAndSync(fullFetch: true, showSnackBar: true);
+        await _loadTodayStudyPlan();
+        if (mounted) setState(() {});
+      },
+    );
+    if (success && mounted) {
+      await _fetchCoursesAndSync(fullFetch: true);
+      await _loadTodayStudyPlan();
+      setState(() {});
+    }
+  }
+
+  void _showAccountMenu(BuildContext context) {
+    final isDark = context.isDarkMode;
+    final email = widget.sessionService.email ?? "Unknown student";
+    final fullName = widget.sessionService.fullName ?? "Student";
+    final isDemo = email.contains("studyapp.local") || email == "dev@studyapp.local" || fullName == "Developer Test Account";
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: context.surfaceColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: ctx.cardBorderColor,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: isDemo ? const Color(0xFFF59E0B) : const Color(0xFF4285F4),
+                    child: Text(
+                      fullName.isNotEmpty ? fullName[0].toUpperCase() : "S",
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              fullName,
+                              style: GoogleFonts.outfit(
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                                color: ctx.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            if (isDemo)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: const Color(0xFFF59E0B), width: 0.8),
+                                ),
+                                child: const Text(
+                                  "Demo Mode",
+                                  style: TextStyle(
+                                    color: Color(0xFFD97706),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          email,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: ctx.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              if (isDemo) ...[
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4285F4).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.g_mobiledata_rounded, color: Color(0xFF4285F4), size: 24),
+                  ),
+                  title: const Text("Sign In with Gmail", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  subtitle: const Text("Replace demo mode with your personal account", style: TextStyle(fontSize: 12)),
+                  trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _openGoogleSignInModal();
+                  },
+                ),
+              ],
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.sync_rounded, color: Color(0xFF10B981), size: 22),
+                ),
+                title: const Text("Sync Workspace Now", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                subtitle: const Text("Pull latest courses and study sets from server", style: TextStyle(fontSize: 12)),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _fetchCoursesAndSync(fullFetch: true, showSnackBar: true);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.logout_rounded, color: AppColors.danger, size: 22),
+                ),
+                title: const Text("Sign Out", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.danger)),
+                subtitle: const Text("Return to the login screen", style: TextStyle(fontSize: 12)),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _handleLogout();
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
 
   Widget _buildChildSafetyBanner(BuildContext context) {
     return ListenableBuilder(
@@ -2399,13 +2568,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
           sum + c.studySets.fold<int>(0, (s, set) => s + set.questionCount),
     );
     final studentName = widget.sessionService.fullName?.trim();
-    final displayName = (studentName != null &&
-            studentName.isNotEmpty &&
-            studentName.toLowerCase() != 'google student')
-        ? (studentName.toLowerCase().startsWith('google student ')
-            ? studentName.substring(15).trim()
-            : studentName)
-        : 'Student';
+    final userEmail = widget.sessionService.email?.toLowerCase().trim() ?? '';
+    final isDemoUser = userEmail == 'dev@studyapp.local' ||
+        userEmail.contains('studyapp.local') ||
+        studentName == 'Developer Test Account';
+
+    final displayName = isDemoUser
+        ? 'Demo Student'
+        : ((studentName != null &&
+                studentName.isNotEmpty &&
+                studentName.toLowerCase() != 'google student')
+            ? (studentName.toLowerCase().startsWith('google student ')
+                ? studentName.substring(15).trim()
+                : studentName)
+            : (userEmail.isNotEmpty ? userEmail.split('@').first : 'Student'));
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -2436,6 +2612,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 color: context.textPrimary,
                               ),
                             ),
+                            if (isDemoUser)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: const Color(0xFFF59E0B).withValues(alpha: 0.5),
+                                  ),
+                                ),
+                                child: const Text(
+                                  "Demo Mode",
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFFD97706),
+                                  ),
+                                ),
+                              ),
                             if ((_todayStudyPlan?.readiness.spacingDaysActive ?? 0) > 0 &&
                                 _courses.any((c) => !c.isSample))
                               Container(
@@ -2544,11 +2739,99 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           );
                         },
                       ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.all(4),
+                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                        icon: CircleAvatar(
+                          radius: 13,
+                          backgroundColor: isDemoUser ? const Color(0xFFF59E0B) : const Color(0xFF4285F4),
+                          child: Text(
+                            displayName.isNotEmpty ? displayName[0].toUpperCase() : "S",
+                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        tooltip: "Account (${widget.sessionService.email ?? 'Student'})",
+                        onPressed: () => _showAccountMenu(context),
+                      ),
                     ],
                   ),
                 ],
               ),
               const SizedBox(height: 16),
+
+              // Demo Account Notification & Quick Switch to Gmail Banner
+              if (isDemoUser) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF3C7).withValues(alpha: isDark ? 0.25 : 0.9),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.6), width: 1.2),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF59E0B).withValues(alpha: 0.25),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.info_outline_rounded, color: Color(0xFFD97706), size: 20),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Demo Student Account Active (${widget.sessionService.email})",
+                              style: GoogleFonts.outfit(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: isDark ? Colors.amber.shade200 : const Color(0xFF92400E),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              "Sign in with your Gmail to connect your real courses, flashcards & cloud notes.",
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: isDark ? Colors.amber.shade100 : const Color(0xFF78350F),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.g_mobiledata_rounded, size: 20),
+                        label: const Text("Sign In with Gmail", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4285F4),
+                          foregroundColor: Colors.white,
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: _openGoogleSignInModal,
+                      ),
+                      const SizedBox(width: 6),
+                      TextButton.icon(
+                        icon: const Icon(Icons.logout_rounded, size: 15),
+                        label: const Text("Sign Out", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFFEF4444),
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        onPressed: _handleLogout,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
 
               // Sample Data Banner (When sample pack is loaded)
               if (_courses.any((c) => c.isSample)) ...[

@@ -8,12 +8,15 @@ class GoogleAuthResult {
   final String? displayName;
   final String? errorMessage;
 
+  final bool requiresDirectPrompt;
+
   GoogleAuthResult({
     required this.success,
     this.idToken,
     this.email,
     this.displayName,
     this.errorMessage,
+    this.requiresDirectPrompt = false,
   });
 }
 
@@ -22,6 +25,7 @@ class GoogleAuthService {
   GoogleAuthService._();
 
   static const String configuredClientId = String.fromEnvironment("GOOGLE_CLIENT_ID");
+  static bool get isConfigured => !kIsWeb || configuredClientId.isNotEmpty;
 
   GoogleSignIn? _googleSignInInstance;
 
@@ -33,12 +37,11 @@ class GoogleAuthService {
   }
 
   Future<GoogleAuthResult> signIn() async {
-    // On web, google_sign_in_web asserts that clientId != null.
-    // If not configured, provide a user-friendly message rather than an assertion crash.
+    // On web without client ID configured, prompt direct Gmail authentication
     if (kIsWeb && configuredClientId.isEmpty) {
       return GoogleAuthResult(
         success: false,
-        errorMessage: "Google Sign-In on Web requires GOOGLE_CLIENT_ID to be configured. Please sign in with email and password or use the Demo Student Account.",
+        requiresDirectPrompt: true,
       );
     }
 
