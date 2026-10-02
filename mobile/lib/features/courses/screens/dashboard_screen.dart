@@ -10,7 +10,6 @@ import "../../../core/services/app_session.dart";
 import "../../../core/services/child_safety_service.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
-import "../../../core/theme/theme_controller.dart";
 import "../models/course_models.dart";
 import "../../auth/screens/login_screen.dart";
 import "../../flashcards/screens/flashcards_screen.dart";
@@ -261,6 +260,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       apiClient: widget.apiClient,
       sessionService: widget.sessionService,
     );
+    if (SyncService.cachedCourses.isNotEmpty) {
+      _courses = List.from(SyncService.cachedCourses);
+      _isLoadingCourses = false;
+      if (_courses.isNotEmpty && _activeCourseId == null) {
+        _activeCourseId = _courses.first.id;
+      }
+    }
     _fetchCoursesAndSync(fullFetch: true);
     _initEyeBreakMonitoring();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2491,31 +2497,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           );
                         },
                       ),
-                      ListenableBuilder(
-                        listenable: ThemeController.instance,
-                        builder: (context, _) {
-                          final currentIsDark =
-                              ThemeController.instance.isDarkMode;
-                          return IconButton(
-                            visualDensity: VisualDensity.compact,
-                            padding: const EdgeInsets.all(4),
-                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                            icon: Icon(
-                              currentIsDark
-                                  ? Icons.light_mode_rounded
-                                  : Icons.dark_mode_rounded,
-                              color: currentIsDark
-                                  ? const Color(0xFFF59E0B)
-                                  : AppColors.primaryDark,
-                              size: 22,
-                            ),
-                            tooltip: currentIsDark
-                                ? "Switch to Light Mode"
-                                : "Switch to Dark Mode",
-                            onPressed: () =>
-                                ThemeController.instance.toggleTheme(),
-                          );
-                        },
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.all(4),
+                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                        icon: const Icon(
+                          Icons.sync_rounded,
+                          color: AppColors.primaryDark,
+                          size: 22,
+                        ),
+                        tooltip: "Sync with Cloud",
+                        onPressed: () => _fetchCoursesAndSync(fullFetch: true, showSnackBar: true),
                       ),
                       IconButton(
                         visualDensity: VisualDensity.compact,
@@ -3747,23 +3739,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               spacing: 2,
               runSpacing: 4,
               children: [
-                ListenableBuilder(
-                  listenable: ThemeController.instance,
-                  builder: (context, _) {
-                    final currentIsDark = ThemeController.instance.isDarkMode;
-                    return IconButton(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.all(6),
-                      constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
-                      icon: Icon(
-                        currentIsDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-                        size: 19,
-                        color: currentIsDark ? const Color(0xFFF59E0B) : AppColors.primaryDark,
-                      ),
-                      tooltip: currentIsDark ? "Switch to Light Mode" : "Switch to Dark Mode",
-                      onPressed: () => ThemeController.instance.toggleTheme(),
-                    );
-                  },
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.all(6),
+                  constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                  icon: const Icon(
+                    Icons.sync_rounded,
+                    size: 19,
+                    color: AppColors.primaryDark,
+                  ),
+                  tooltip: "Sync Courses",
+                  onPressed: () => _fetchCoursesAndSync(fullFetch: true, showSnackBar: true),
                 ),
                 IconButton(
                   visualDensity: VisualDensity.compact,

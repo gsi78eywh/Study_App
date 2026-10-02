@@ -6,7 +6,6 @@ import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
-import "../../../core/theme/theme_controller.dart";
 import "../models/auth_models.dart";
 import "../widgets/terms_and_privacy_modal.dart";
 import "../../../core/services/google_auth_service.dart";
@@ -556,27 +555,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              // Top Controls: Theme Toggle
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  ListenableBuilder(
-                                    listenable: ThemeController.instance,
-                                    builder: (context, _) {
-                                      final currentIsDark = ThemeController.instance.isDarkMode;
-                                      return IconButton(
-                                        icon: Icon(
-                                          currentIsDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-                                          color: currentIsDark ? const Color(0xFFF59E0B) : AppColors.primaryDark,
-                                        ),
-                                        tooltip: currentIsDark ? "Switch to Light Mode" : "Switch to Dark Mode",
-                                        onPressed: () => ThemeController.instance.toggleTheme(),
-                                      );
-                                    },
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 12),
 
                           // App Logo & Branding (5-tap developer gesture only active in kDebugMode)
                           Center(

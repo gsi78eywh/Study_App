@@ -9,6 +9,7 @@ namespace StudyApp.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/dev")]
+[ApiExplorerSettings(IgnoreApi = true)]
 [Microsoft.AspNetCore.Authorization.AllowAnonymous]
 public class DevController : ControllerBase
 {
@@ -219,8 +220,7 @@ public class DevController : ControllerBase
             {
                 id = user.Id,
                 email = user.Email,
-                fullName = user.FullName,
-                password = testPass
+                fullName = user.FullName
             },
             token,
             expiresAt

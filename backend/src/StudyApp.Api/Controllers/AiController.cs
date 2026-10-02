@@ -60,11 +60,13 @@ public class AiController : ControllerBase
             try
             {
                 var currentUserId = CurrentUserId();
-                var studySet = await _context.StudySets
-                    .Include(s => s.Questions)
-                    .Include(s => s.Course)
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(s => s.Id == setId && s.Course != null && (currentUserId == null || s.Course.UserId == currentUserId.Value), cancellationToken);
+                if (currentUserId.HasValue)
+                {
+                    var studySet = await _context.StudySets
+                        .Include(s => s.Questions)
+                        .Include(s => s.Course)
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(s => s.Id == setId && s.Course != null && s.Course.UserId == currentUserId.Value, cancellationToken);
 
                 if (studySet != null)
                 {
@@ -85,11 +87,12 @@ public class AiController : ControllerBase
                     var notesStr = notesSb.ToString();
                     if (notesStr.Length > 2500) notesStr = notesStr.Substring(0, 2500);
 
-                    effectiveRequest = effectiveRequest with
-                    {
-                        ContextTopic = string.IsNullOrWhiteSpace(effectiveRequest.ContextTopic) ? studySet.Title : effectiveRequest.ContextTopic,
-                        WeakConceptsContext = notesStr
-                    };
+                        effectiveRequest = effectiveRequest with
+                        {
+                            ContextTopic = string.IsNullOrWhiteSpace(effectiveRequest.ContextTopic) ? studySet.Title : effectiveRequest.ContextTopic,
+                            WeakConceptsContext = notesStr
+                        };
+                    }
                 }
             }
             catch (Exception ex)

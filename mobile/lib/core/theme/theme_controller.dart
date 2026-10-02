@@ -1,14 +1,10 @@
-﻿import "package:flutter/material.dart";
+import "package:flutter/material.dart";
 import "../services/session_service.dart";
 
 class ThemeController extends ChangeNotifier {
   static ThemeController? _instance;
   final SessionService sessionService;
-  late ThemeMode _themeMode;
-
-  ThemeController._(this.sessionService) {
-    _themeMode = sessionService.themeMode;
-  }
+  ThemeController._(this.sessionService);
 
   static ThemeController init(SessionService sessionService) {
     _instance = ThemeController._(sessionService);
@@ -22,12 +18,11 @@ class ThemeController extends ChangeNotifier {
     return _instance!;
   }
 
-  ThemeMode get themeMode => _themeMode;
-  bool get isDarkMode => _themeMode == ThemeMode.dark;
+  ThemeMode get themeMode => ThemeMode.light;
+  bool get isDarkMode => false;
 
   Future<void> toggleTheme() async {
-    _themeMode = _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
     notifyListeners();
-    await sessionService.setThemeMode(_themeMode);
+    await sessionService.setThemeMode(ThemeMode.light);
   }
 }

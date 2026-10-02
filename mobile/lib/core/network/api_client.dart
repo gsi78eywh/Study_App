@@ -13,7 +13,7 @@ class ApiClient {
     dio = Dio(
       BaseOptions(
         baseUrl: sessionService.baseUrl ?? ApiConstants.defaultBaseUrl,
-        connectTimeout: const Duration(seconds: 20),
+        connectTimeout: const Duration(seconds: 5),
         // AI synthesis and OCR can legitimately take longer than a normal API
         // call. This must outlive the backend's 90-second AI provider timeout.
         receiveTimeout: const Duration(seconds: 120),
@@ -49,16 +49,15 @@ class ApiClient {
           return handler.next(response);
         },
         onError: (DioException e, handler) async {
-          // Automatic retry with backoff for transient delays and HTTP 429 rate limits on idempotent GETs
           final isGet = e.requestOptions.method.toUpperCase() == "GET";
-          final isTimeout = e.type == DioExceptionType.connectionTimeout ||
-                            e.type == DioExceptionType.receiveTimeout;
           final isRateLimited = e.response?.statusCode == 429;
+          final isReceiveTimeout = e.type == DioExceptionType.receiveTimeout;
           final retryCount = (e.requestOptions.extra["retry_count"] as num?)?.toInt() ?? 0;
 
-          if ((isTimeout || isRateLimited) && isGet && retryCount < 2) {
+          // Quick single retry for transient rate limits or receive delays (never duplicate connection errors)
+          if ((isReceiveTimeout || isRateLimited) && isGet && retryCount < 1) {
             e.requestOptions.extra["retry_count"] = retryCount + 1;
-            final waitMs = isRateLimited ? 1500 : 750 * (retryCount + 1);
+            final waitMs = isRateLimited ? 1000 : 500;
             await Future.delayed(Duration(milliseconds: waitMs));
             try {
               final retryResponse = await dio.fetch(e.requestOptions);
@@ -66,9 +65,9 @@ class ApiClient {
             } catch (_) {}
           }
 
-          // Restrict the host fallback so credentials and POST bodies are never replayed
+          // Fast candidate host discovery (1.5s health probe instead of blocking 20s fetches)
           if (kDebugMode &&
-              e.requestOptions.method.toUpperCase() == "GET" &&
+              isGet &&
               e.type == DioExceptionType.connectionError &&
               defaultTargetPlatform == TargetPlatform.android &&
               e.requestOptions.extra["tried_alternate_host"] != true) {
@@ -82,12 +81,20 @@ class ApiClient {
 
             for (final candidate in candidates) {
               if (candidate == currentUrl) continue;
-              dio.options.baseUrl = candidate;
-              e.requestOptions.baseUrl = candidate;
               try {
-                final fallbackResponse = await dio.fetch(e.requestOptions);
-                await sessionService.setBaseUrl(candidate);
-                return handler.resolve(fallbackResponse);
+                final probeDio = Dio(BaseOptions(
+                  baseUrl: candidate,
+                  connectTimeout: const Duration(milliseconds: 1500),
+                  receiveTimeout: const Duration(milliseconds: 1500),
+                ));
+                final healthResp = await probeDio.get("/health");
+                if (healthResp.statusCode == 200) {
+                  dio.options.baseUrl = candidate;
+                  e.requestOptions.baseUrl = candidate;
+                  await sessionService.setBaseUrl(candidate);
+                  final fallbackResponse = await dio.fetch(e.requestOptions);
+                  return handler.resolve(fallbackResponse);
+                }
               } catch (_) {}
             }
             dio.options.baseUrl = currentUrl;

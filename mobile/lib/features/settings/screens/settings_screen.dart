@@ -11,7 +11,6 @@ import "../../../core/services/child_safety_service.dart";
 import "../../../core/services/notification_service.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
-import "../../../core/theme/theme_controller.dart";
 import "../../auth/widgets/terms_and_privacy_modal.dart";
 import "../../courses/widgets/user_manual_sheet.dart";
 import "../../quiz/models/quiz_models.dart";
@@ -718,32 +717,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                         Text(
-                          "Light or Dark Mode",
+                          "Minimal high-contrast student reading theme",
                           style: TextStyle(color: context.textSecondary, fontSize: 12),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(width: 8),
-                  ListenableBuilder(
-                    listenable: ThemeController.instance,
-                    builder: (context, _) {
-                      final currentIsDark = ThemeController.instance.isDarkMode;
-                      return OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.accent.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.check_circle_rounded, size: 14, color: AppColors.accent),
+                        SizedBox(width: 4),
+                        Text(
+                          "Student Light",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.accent,
+                          ),
                         ),
-                        icon: Icon(
-                          currentIsDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-                          size: 16,
-                        ),
-                        label: Text(
-                          currentIsDark ? "Dark Theme" : "Light Theme",
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        onPressed: () => ThemeController.instance.toggleTheme(),
-                      );
-                    },
+                      ],
+                    ),
                   ),
                 ],
               ),

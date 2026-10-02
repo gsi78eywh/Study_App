@@ -108,19 +108,26 @@ class _QuizSummaryScreenState extends State<QuizSummaryScreen> {
                   Container(
                     padding: const EdgeInsets.all(32),
                     decoration: BoxDecoration(
-                      color: AppColors.darkCard,
+                      color: context.surfaceColor,
                       borderRadius: BorderRadius.circular(24),
                       border: Border.all(
-                        color: badgeColor.withValues(alpha: 0.5),
-                        width: 2,
+                        color: badgeColor.withValues(alpha: 0.35),
+                        width: 1.5,
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
                     child: Column(
                       children: [
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: badgeColor.withValues(alpha: 0.15),
+                            color: badgeColor.withValues(alpha: 0.12),
                             shape: BoxShape.circle,
                           ),
                           child: Icon(
@@ -135,15 +142,15 @@ class _QuizSummaryScreenState extends State<QuizSummaryScreen> {
                           style: GoogleFonts.outfit(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: context.textPrimary,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           widget.studySet.title,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: AppColors.darkTextSecondary,
+                          style: TextStyle(
+                            color: context.textSecondary,
                             fontSize: 14,
                           ),
                         ),
@@ -158,32 +165,32 @@ class _QuizSummaryScreenState extends State<QuizSummaryScreen> {
                         ),
                         Text(
                           "${_isSyncing ? "Grading" : score} out of $totalQuestions correct",
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: context.textPrimary,
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                         const SizedBox(height: 24),
-                        const Divider(color: AppColors.darkCardBorder),
+                        Divider(color: context.cardBorderColor),
                         const SizedBox(height: 16),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
                             Column(
                               children: [
-                                const Text(
+                                Text(
                                   "Time Spent",
                                   style: TextStyle(
-                                    color: AppColors.darkTextSecondary,
+                                    color: context.textSecondary,
                                     fontSize: 12,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
                                   "${minutes}m ${seconds}s",
-                                  style: const TextStyle(
-                                    color: Colors.white,
+                                  style: TextStyle(
+                                    color: context.textPrimary,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
@@ -192,10 +199,10 @@ class _QuizSummaryScreenState extends State<QuizSummaryScreen> {
                             if (widget.rapidFireMaxStreak != null)
                               Column(
                                 children: [
-                                  const Text(
+                                  Text(
                                     "Max Streak",
                                     style: TextStyle(
-                                      color: AppColors.darkTextSecondary,
+                                      color: context.textSecondary,
                                       fontSize: 12,
                                     ),
                                   ),
@@ -212,10 +219,10 @@ class _QuizSummaryScreenState extends State<QuizSummaryScreen> {
                             if (widget.starredCount != null && widget.starredCount! > 0)
                               Column(
                                 children: [
-                                  const Text(
+                                  Text(
                                     "Bookmarked",
                                     style: TextStyle(
-                                      color: AppColors.darkTextSecondary,
+                                      color: context.textSecondary,
                                       fontSize: 12,
                                     ),
                                   ),
@@ -231,10 +238,10 @@ class _QuizSummaryScreenState extends State<QuizSummaryScreen> {
                               ),
                             Column(
                               children: [
-                                const Text(
+                                Text(
                                   "Server Sync",
                                   style: TextStyle(
-                                    color: AppColors.darkTextSecondary,
+                                    color: context.textSecondary,
                                     fontSize: 12,
                                   ),
                                 ),

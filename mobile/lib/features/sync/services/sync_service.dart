@@ -29,6 +29,9 @@ class SyncService {
   final ApiClient apiClient;
   final SessionService sessionService;
 
+  static List<CourseModel> _cachedCourses = [];
+  static List<CourseModel> get cachedCourses => List.unmodifiable(_cachedCourses);
+
   SyncService({required this.apiClient, required this.sessionService});
 
   Future<SyncResult> performSync({
@@ -65,9 +68,10 @@ class SyncService {
         final rawCourses = data["updatedCourses"] as List? ?? [];
         final rawSets = data["updatedStudySets"] as List? ?? [];
 
-        // Build merged course list, seeded with current in-memory courses
+        // Build merged course list, seeded with current in-memory or cached courses
         final Map<String, CourseModel> courseMap = {};
-        for (final c in currentCourses) {
+        final seedList = currentCourses.isNotEmpty ? currentCourses : _cachedCourses;
+        for (final c in seedList) {
           courseMap[c.id] = c;
         }
 
@@ -144,10 +148,13 @@ class SyncService {
           courseMap[courseId] = targetCourse.copyWith(studySets: setList);
         }
 
+        final syncedList = courseMap.values.toList();
+        _cachedCourses = List.from(syncedList);
+
         return SyncResult(
           success: true,
           message: "Synchronized with server.",
-          syncedCourses: courseMap.values.toList(),
+          syncedCourses: syncedList,
           coursesReceived: rawCourses.length,
           studySetsReceived: rawSets.length,
         );
@@ -159,12 +166,28 @@ class SyncService {
       }
     } on DioException catch (e) {
       final isAuth = e.response?.statusCode == 401;
+      if (!isAuth && _cachedCourses.isNotEmpty) {
+        return SyncResult(
+          success: true,
+          message: "Loaded from fast offline cache.",
+          syncedCourses: _cachedCourses,
+          coursesReceived: _cachedCourses.length,
+        );
+      }
       return SyncResult(
         success: false,
         isUnauthorized: isAuth,
         message: e.error?.toString() ?? e.message ?? "Sync failed.",
       );
     } catch (e) {
+      if (_cachedCourses.isNotEmpty) {
+        return SyncResult(
+          success: true,
+          message: "Loaded from fast offline cache.",
+          syncedCourses: _cachedCourses,
+          coursesReceived: _cachedCourses.length,
+        );
+      }
       return SyncResult(success: false, message: "Sync error: $e");
     }
   }
