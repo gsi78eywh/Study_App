@@ -81,6 +81,24 @@ class ChatSession {
   }
 }
 
+abstract class _TutorMessageBlock {}
+
+class _TextMessageBlock extends _TutorMessageBlock {
+  final String text;
+  _TextMessageBlock(this.text);
+}
+
+class _MermaidMessageBlock extends _TutorMessageBlock {
+  final String code;
+  _MermaidMessageBlock(this.code);
+}
+
+class _CodeMessageBlock extends _TutorMessageBlock {
+  final String language;
+  final String code;
+  _CodeMessageBlock(this.language, this.code);
+}
+
 class AiTutorScreen extends StatefulWidget {
   final ApiClient apiClient;
   final List<CourseModel> courses;
@@ -1328,30 +1346,196 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
   }
 
   Widget _buildMessageContent(String rawText, bool isUser, BuildContext context) {
-    if (rawText.contains("```mermaid")) {
-      final parts = rawText.split("```mermaid");
-      final beforeText = parts[0].trim();
-      final rest = parts[1];
-      final endIdx = rest.indexOf("```");
-      final mermaidCode = endIdx != -1 ? rest.substring(0, endIdx).trim() : rest.trim();
-      final afterText = endIdx != -1 ? rest.substring(endIdx + 3).trim() : "";
+    final blocks = _parseMessageBlocks(rawText);
 
-      return Column(
+    if (blocks.length == 1 && blocks.first is _TextMessageBlock) {
+      return _buildFormattedMarkdownText((blocks.first as _TextMessageBlock).text, isUser, context);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (int i = 0; i < blocks.length; i++) ...[
+          if (blocks[i] is _TextMessageBlock)
+            _buildFormattedMarkdownText((blocks[i] as _TextMessageBlock).text, isUser, context)
+          else if (blocks[i] is _MermaidMessageBlock)
+            _buildMermaidDiagramCard((blocks[i] as _MermaidMessageBlock).code, context)
+          else if (blocks[i] is _CodeMessageBlock)
+            _buildCodeBlockCard(
+              (blocks[i] as _CodeMessageBlock).language,
+              (blocks[i] as _CodeMessageBlock).code,
+              context,
+            ),
+          if (i < blocks.length - 1) const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+
+  List<_TutorMessageBlock> _parseMessageBlocks(String rawText) {
+    final List<_TutorMessageBlock> blocks = [];
+    final codeBlockRegex = RegExp(r'```([a-zA-Z0-9_\-\+#]*)\r?\n([\s\S]*?)```');
+    int lastIndex = 0;
+
+    for (final match in codeBlockRegex.allMatches(rawText)) {
+      if (match.start > lastIndex) {
+        final textBefore = rawText.substring(lastIndex, match.start).trim();
+        if (textBefore.isNotEmpty) {
+          blocks.add(_TextMessageBlock(textBefore));
+        }
+      }
+
+      final lang = (match.group(1) ?? "").trim().toLowerCase();
+      final code = (match.group(2) ?? "").trim();
+
+      if (lang == "mermaid") {
+        blocks.add(_MermaidMessageBlock(code));
+      } else {
+        blocks.add(_CodeMessageBlock(lang.isEmpty ? "code" : lang, code));
+      }
+
+      lastIndex = match.end;
+    }
+
+    if (lastIndex < rawText.length) {
+      final trailingText = rawText.substring(lastIndex).trim();
+      if (trailingText.isNotEmpty) {
+        blocks.add(_TextMessageBlock(trailingText));
+      }
+    }
+
+    if (blocks.isEmpty && rawText.isNotEmpty) {
+      blocks.add(_TextMessageBlock(rawText));
+    }
+
+    return blocks;
+  }
+
+  Widget _buildCodeBlockCard(String language, String code, BuildContext context) {
+    final displayLang = language.isEmpty ? "CODE" : language.toUpperCase();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A), // Sleek developer slate dark
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF334155)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (beforeText.isNotEmpty) ...[
-            _buildFormattedMarkdownText(beforeText, isUser, context),
-            const SizedBox(height: 10),
-          ],
-          _buildMermaidDiagramCard(mermaidCode, context),
-          if (afterText.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            _buildFormattedMarkdownText(afterText, isUser, context),
-          ],
+          // Header Bar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: const BoxDecoration(
+              color: Color(0xFF1E293B),
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(11),
+                topRight: Radius.circular(11),
+              ),
+              border: Border(
+                bottom: BorderSide(color: Color(0xFF334155), width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF6366F1).withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.5)),
+                  ),
+                  child: Text(
+                    displayLang,
+                    style: GoogleFonts.firaCode(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF818CF8),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "Clean Executable Source",
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: const Color(0xFF94A3B8),
+                    ),
+                  ),
+                ),
+                InkWell(
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: code));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Row(
+                          children: [
+                            Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text("✨ Clean source code copied! Ready to paste & run with 0 errors."),
+                            ),
+                          ],
+                        ),
+                        backgroundColor: Color(0xFF10B981),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.copy_rounded, size: 13, color: Color(0xFF34D399)),
+                        const SizedBox(width: 5),
+                        Text(
+                          "Copy Code",
+                          style: GoogleFonts.inter(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF34D399),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Code Display Area with Monospace Font & Horizontal Scroll
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.all(14),
+            child: SelectableText(
+              code,
+              style: GoogleFonts.firaCode(
+                fontSize: 12.5,
+                height: 1.5,
+                color: const Color(0xFFF1F5F9),
+              ),
+            ),
+          ),
         ],
-      );
-    }
-    return _buildFormattedMarkdownText(rawText, isUser, context);
+      ),
+    );
   }
 
   Widget _buildMermaidDiagramCard(String code, BuildContext context) {

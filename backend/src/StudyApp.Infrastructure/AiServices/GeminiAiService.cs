@@ -796,10 +796,27 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         // Real System Instruction as specified by User Requirements
         var systemInstruction = request.IsSocraticMode
             ? """
-            You are a study tutor operating in Socratic mode. Answer the student's actual request. Use the provided course notes first, and say when something isn't in the notes. If you're unsure, say so instead of guessing. If the request is unclear, ask one short clarifying question. If the student asks for a diagram, reply with a Mermaid flowchart in a mermaid code block plus two sentences of explanation. Never invent facts, formulas, or citations. Keep conceptual answers concise unless asked for more. For code and programming, guide the student with best practices: avoid unsafe functions like eval(), avoid inline onclick attributes, and teach robust state management. In Socratic mode, give hints and questions, not final answers.
+            You are an expert academic study tutor operating in Socratic mode. Answer the student's actual request. Use the provided course notes first, and say when something isn't in the notes. If you're unsure, say so instead of guessing. If the request is unclear, ask one short clarifying question. If the student asks for a diagram, reply with a Mermaid flowchart in a mermaid code block plus explanation. Never invent facts, formulas, or citations. Keep conceptual answers concise unless asked for more.
+            
+            ### CRITICAL RULES FOR CODE AND PROGRAMMING:
+            When the student asks to write code, debug code, or build applications:
+            1. Guide the student with 100% accurate, complete, functional code examples.
+            2. Never provide toy or broken proofs-of-concept. All variables, imports, and functions must be complete and syntactically valid.
+            3. Forbid unsafe anti-patterns: Never use eval(), Function(), or inline HTML onclick handlers. Teach standard DOM event listeners and safe state machines.
+            4. In Socratic mode, provide the architectural blueprint, working snippets, and test questions to guide their understanding.
             """
             : """
-            You are an expert academic study tutor. Answer the student's actual request thoroughly and accurately. Use the provided course notes first, and say when something isn't in the notes (e.g. 'That is outside your course notes, but here is a complete implementation:'). If you're unsure, say so instead of guessing. If the request is unclear, ask one short clarifying question. If the student asks for a diagram, reply with a Mermaid flowchart in a mermaid code block plus explanation. Never invent facts, formulas, or citations. Keep conceptual summaries concise, BUT when asked to write code, build applications, or implement algorithms: ALWAYS provide complete, production-ready, fully functional implementations. Never provide truncated proofs-of-concept with missing buttons or incomplete logic. Never use dangerous anti-patterns like eval() or inline onclick handlers; use modern DOM event listeners (addEventListener), clean state management, and bulletproof error handling.
+            You are a master academic study tutor and elite software engineer. Answer the student's actual request thoroughly, accurately, and cleanly. Use the provided course notes when relevant. If the student asks for code, programming, or an application that is not in the course notes, fulfill their programming request completely. If the student asks for a diagram, reply with a Mermaid flowchart in a mermaid code block plus explanation.
+            
+            ### ABSOLUTE RULES FOR CODE, APPLICATIONS, AND PROGRAMMING:
+            1. 100% COMPLETE & RUNNABLE: Every code snippet MUST be completely functional, syntactically flawless, and runnable out-of-the-box. Never omit code, never use ellipses (e.g. `// ... rest of code ...`), and never use `// TODO` placeholders.
+            2. NO TOY TRUNCATION: Always provide complete interfaces (e.g., in a calculator, provide all digits 0-9, all operators +, -, *, /, decimal, clear, backspace, and equals).
+            3. ZERO RUNTIME ERRORS & COMPREHENSIVE ERROR HANDLING: Defensively handle invalid inputs, edge cases, divide-by-zero, empty strings, and type conversions. Code must never crash or throw unhandled exceptions.
+            4. MODERN STANDARDS & NO SECURITY ANTI-PATTERNS:
+               - Web (HTML/JS/CSS): NEVER use eval(), Function(), or innerHTML with user input. NEVER use inline HTML event handlers (e.g., onclick="..."). Always use standard DOM event listeners (`addEventListener`) and proper state management.
+               - Python: Follow PEP 8, include all imports, handle exceptions with try/except, and ensure strict syntax.
+               - C# / Dart / Java / C++: Include complete classes, methods, and type declarations.
+            5. STEP-BY-STEP RUN INSTRUCTIONS: Immediately following the code block, provide concise, foolproof instructions on how to run, test, and verify the code.
             """;
 
         var contentsList = new List<object>();
@@ -823,22 +840,32 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
         // Build current student prompt with grounded notes if available
         var currentPromptBuilder = new StringBuilder();
-        if (!string.IsNullOrWhiteSpace(request.ContextTopic))
+        var isCodingRequest = Regex.IsMatch(request.Message, @"\b(code|coding|html|css|javascript|js|python|dart|flutter|c#|java|c\+\+|sql|program|script|calculator|app|function|algorithm)\b", RegexOptions.IgnoreCase);
+
+        if (!isCodingRequest)
         {
-            currentPromptBuilder.AppendLine($"[Course Notes / Topic Context]: {request.ContextTopic}");
+            if (!string.IsNullOrWhiteSpace(request.ContextTopic))
+            {
+                currentPromptBuilder.AppendLine($"[Course Notes / Topic Context]: {request.ContextTopic}");
+            }
+            if (!string.IsNullOrWhiteSpace(request.WeakConceptsContext))
+            {
+                currentPromptBuilder.AppendLine($"[Key Course Notes / High Yield Concepts]: {request.WeakConceptsContext}");
+            }
+            if (!string.IsNullOrWhiteSpace(request.RecentMistakesContext))
+            {
+                currentPromptBuilder.AppendLine($"[Recent Missed Questions / Misconceptions]: {request.RecentMistakesContext}");
+            }
+            if (currentPromptBuilder.Length > 0)
+            {
+                currentPromptBuilder.AppendLine();
+            }
         }
-        if (!string.IsNullOrWhiteSpace(request.WeakConceptsContext))
+        else if (!string.IsNullOrWhiteSpace(request.ContextTopic) && Regex.IsMatch(request.ContextTopic, @"(cs|code|programming|computer|software|web|algorithm)", RegexOptions.IgnoreCase))
         {
-            currentPromptBuilder.AppendLine($"[Key Course Notes / High Yield Concepts]: {request.WeakConceptsContext}");
+            currentPromptBuilder.AppendLine($"[Programming Course Context]: {request.ContextTopic}\n");
         }
-        if (!string.IsNullOrWhiteSpace(request.RecentMistakesContext))
-        {
-            currentPromptBuilder.AppendLine($"[Recent Missed Questions / Misconceptions]: {request.RecentMistakesContext}");
-        }
-        if (currentPromptBuilder.Length > 0)
-        {
-            currentPromptBuilder.AppendLine();
-        }
+
         currentPromptBuilder.Append(request.Message);
 
         contentsList.Add(new
@@ -856,13 +883,14 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             contents = contentsList,
             generationConfig = new
             {
-                temperature = 0.3
+                temperature = 0.2,
+                maxOutputTokens = 8192
             },
             safetySettings = ChildSafeSafetySettings
         };
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(TimeSpan.FromSeconds(30));
+        cts.CancelAfter(TimeSpan.FromSeconds(45));
 
         var (responseText, modelUsed) = await CallNativeGeminiWithFallbackAsync(payload, effectiveApiKey, cts.Token);
         stopwatch.Stop();
@@ -949,7 +977,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                     try
                     {
                         using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                        attemptCts.CancelAfter(TimeSpan.FromSeconds(15));
+                        attemptCts.CancelAfter(TimeSpan.FromSeconds(35));
 
                         var url = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent";
                         using var request = new HttpRequestMessage(HttpMethod.Post, url);
@@ -966,10 +994,22 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                             {
                                 var firstCandidate = candidates[0];
                                 if (firstCandidate.TryGetProperty("content", out var content) &&
-                                    content.TryGetProperty("parts", out var parts) &&
-                                    parts.GetArrayLength() > 0)
+                                    content.TryGetProperty("parts", out var parts))
                                 {
-                                    var text = parts[0].GetProperty("text").GetString();
+                                    var textSb = new StringBuilder();
+                                    foreach (var part in parts.EnumerateArray())
+                                    {
+                                        if (part.TryGetProperty("text", out var textProp))
+                                        {
+                                            var partStr = textProp.GetString();
+                                            if (!string.IsNullOrEmpty(partStr))
+                                            {
+                                                textSb.Append(partStr);
+                                            }
+                                        }
+                                    }
+
+                                    var text = textSb.ToString().Trim();
                                     if (!string.IsNullOrWhiteSpace(text))
                                     {
                                         return (text, modelName);

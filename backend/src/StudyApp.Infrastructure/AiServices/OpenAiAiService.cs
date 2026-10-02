@@ -578,57 +578,41 @@ public class OpenAiAiService : IAiQuestionGenerator, IAiTutorService
         try
 
         {
-
-            var systemPrompt = "You are a master academic university tutor. Provide clear, encouraging, conceptually rigorous responses with analogies, examples, and study recommendations. Keep responses structured in markdown. When generating code, always output complete, production-ready, fully functional implementations with full error handling. Never output partial or toy proofs-of-concept. Never use unsafe functions like eval() or inline HTML onclick attributes; always use standard DOM event listeners and safe state machines.";
+            var systemPrompt = """
+            You are a master academic university tutor and expert software engineer. Provide clear, encouraging, conceptually rigorous responses with analogies, examples, and study recommendations. Keep responses structured in clean markdown.
+            
+            ### ABSOLUTE RULES FOR CODE, APPLICATIONS, AND PROGRAMMING:
+            1. 100% COMPLETE & RUNNABLE: Every code snippet MUST be completely functional, syntactically flawless, and runnable out-of-the-box. Never omit code, never use ellipses (e.g. `// ... rest of code ...`), and never use `// TODO` placeholders.
+            2. ZERO RUNTIME ERRORS & COMPREHENSIVE ERROR HANDLING: Defensively handle invalid inputs, edge cases, divide-by-zero, and empty inputs. Code must never crash or throw unhandled exceptions.
+            3. MODERN STANDARDS & NO SECURITY ANTI-PATTERNS: Never use eval(), Function(), or inline HTML onclick attributes; always use standard DOM event listeners and safe state machines.
+            4. STEP-BY-STEP RUN INSTRUCTIONS: Immediately following the code block, explain exactly how to run and test the code.
+            """;
 
             var messages = new List<object>
-
             {
-
                 new { role = "system", content = systemPrompt }
-
             };
 
-
-
             if (request.History != null)
-
             {
-
                 foreach (var h in request.History.TakeLast(6))
-
                 {
-
                     messages.Add(new { role = h.Role == "model" ? "assistant" : h.Role, content = h.Content });
-
                 }
-
             }
 
-
-
             var promptWithContext = !string.IsNullOrWhiteSpace(request.ContextTopic)
-
                 ? $"[Context Topic: {request.ContextTopic}]\n\nStudent Question: {request.Message}"
-
                 : request.Message;
-
-
 
             messages.Add(new { role = "user", content = promptWithContext });
 
-
-
             var payload = new
-
             {
-
                 model = _model,
-
-                temperature = 0.5,
-
+                temperature = 0.2,
+                max_tokens = 4096,
                 messages = messages.ToArray()
-
             };
 
 
