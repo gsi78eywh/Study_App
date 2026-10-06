@@ -4,7 +4,11 @@ import "../services/session_service.dart";
 class ThemeController extends ChangeNotifier {
   static ThemeController? _instance;
   final SessionService sessionService;
-  ThemeController._(this.sessionService);
+  late ThemeMode _themeMode;
+
+  ThemeController._(this.sessionService) {
+    _themeMode = sessionService.themeMode;
+  }
 
   static ThemeController init(SessionService sessionService) {
     _instance = ThemeController._(sessionService);
@@ -18,11 +22,12 @@ class ThemeController extends ChangeNotifier {
     return _instance!;
   }
 
-  ThemeMode get themeMode => ThemeMode.light;
-  bool get isDarkMode => false;
+  ThemeMode get themeMode => _themeMode;
+  bool get isDarkMode => _themeMode == ThemeMode.dark;
 
   Future<void> toggleTheme() async {
+    _themeMode = _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
     notifyListeners();
-    await sessionService.setThemeMode(ThemeMode.light);
+    await sessionService.setThemeMode(_themeMode);
   }
 }

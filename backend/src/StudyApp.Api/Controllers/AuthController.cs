@@ -19,6 +19,8 @@ public record GoogleLoginRequest(string IdToken);
 [EnableRateLimiting("auth")]
 public class AuthController : ControllerBase
 {
+    /// <summary>Unverified local-only Google sign-in format. Accepted in Development only.</summary>
+    public const string DevGoogleTokenPrefix = "dev-google:";
     private readonly IApplicationDbContext _context;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenGenerator _jwtTokenGenerator;
@@ -164,32 +166,37 @@ public class AuthController : ControllerBase
         var tokenStr = request.IdToken.Trim();
         GoogleJsonWebSignature.Payload payload;
 
-        // Support local/development Google auth token format: "dev-google:email@gmail.com|Full Name"
-        // Also support direct email sign-in tokens during local development or when client ID is not configured
-        if (tokenStr.StartsWith("dev-google:", StringComparison.OrdinalIgnoreCase) ||
-            tokenStr.StartsWith("google-direct:", StringComparison.OrdinalIgnoreCase) ||
-            (_environment.IsDevelopment() && tokenStr.Contains("@") && tokenStr.Count(c => c == '.') < 2))
+        // SECURITY: The "dev-google:email|Full Name" format performs NO identity verification.
+        // It exists only so developers can exercise the Google flow locally without a
+        // GOOGLE_CLIENT_ID. It is rejected outright in every non-Development environment,
+        // otherwise anyone could sign in as any student just by typing their email.
+        if (tokenStr.StartsWith(DevGoogleTokenPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            var raw = tokenStr.StartsWith("dev-google:", StringComparison.OrdinalIgnoreCase)
-                ? tokenStr.Substring("dev-google:".Length)
-                : (tokenStr.StartsWith("google-direct:", StringComparison.OrdinalIgnoreCase)
-                    ? tokenStr.Substring("google-direct:".Length)
-                    : tokenStr);
+            if (!_environment.IsDevelopment())
+            {
+                return Unauthorized(new { message = "Invalid or expired Google authentication credentials." });
+            }
 
-            var parts = raw.Split('|', StringSplitOptions.RemoveEmptyEntries);
-            var devEmail = parts[0].Trim().ToLowerInvariant();
+            var raw = tokenStr.Substring(DevGoogleTokenPrefix.Length);
+            var parts = raw.Split('|', 2, StringSplitOptions.TrimEntries);
+            var devEmail = parts[0].ToLowerInvariant();
             var devName = parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1])
-                ? parts[1].Trim()
-                : (devEmail.Contains("@") ? devEmail.Split('@')[0] : "Google Student");
+                ? parts[1]
+                : (devEmail.Contains('@') ? devEmail.Split('@')[0] : "Google Student");
 
-            if (!System.Net.Mail.MailAddress.TryCreate(devEmail, out _))
+            if (devEmail.Length > 254 || !System.Net.Mail.MailAddress.TryCreate(devEmail, out _))
             {
                 return BadRequest(new { message = "Invalid email format in Google sign-in request." });
             }
 
-            if (devName.Length > 0 && !devName.Contains(" "))
+            if (devName.Length > 150)
             {
-                devName = char.ToUpperInvariant(devName[0]) + (devName.Length > 1 ? devName.Substring(1) : "");
+                devName = devName[..150];
+            }
+
+            if (devName.Length > 0 && !devName.Contains(' '))
+            {
+                devName = char.ToUpperInvariant(devName[0]) + devName[1..];
             }
 
             payload = new GoogleJsonWebSignature.Payload
@@ -197,7 +204,9 @@ public class AuthController : ControllerBase
                 Email = devEmail,
                 EmailVerified = true,
                 Name = devName,
-                Subject = $"google-direct-{devEmail}"
+                // Never persist a fabricated subject onto an account; real Google sign-in
+                // must still be able to link its genuine subject later.
+                Subject = null
             };
         }
         else

@@ -6,6 +6,7 @@ import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
+import "../../../core/theme/theme_controller.dart";
 import "../models/auth_models.dart";
 import "../widgets/terms_and_privacy_modal.dart";
 import "../widgets/google_sign_in_dialog.dart";
@@ -132,37 +133,43 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  void _goToDashboard() {
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => DashboardScreen(
+          apiClient: widget.apiClient,
+          sessionService: widget.sessionService,
+        ),
+      ),
+    );
+  }
+
+  /// Opens the local developer Google sign-in dialog. This dialog performs no real
+  /// Google verification, so it is only offered in debug builds (the backend also
+  /// rejects its tokens outside Development).
+  Future<void> _openLocalGoogleDialog() async {
+    if (!GoogleSignInDialog.isAvailable) {
+      setState(() {
+        _errorMessage = "Google Sign-In isn't set up on this version yet. "
+            "Please sign in with your email and password.";
+      });
+      return;
+    }
+    final success = await GoogleSignInDialog.show(
+      context,
+      apiClient: widget.apiClient,
+      sessionService: widget.sessionService,
+      initialEmail: _emailController.text.trim(),
+    );
+    if (success) _goToDashboard();
+  }
+
   // Real Google Sign-In with Server-Side ID Token Verification
   Future<void> _handleRealGoogleSignIn() async {
-    // If running on Web or client ID is not configured, open the Google Sign-In dialog directly
+    // Web builds without a GOOGLE_CLIENT_ID cannot run the real Google SDK.
     if (!GoogleAuthService.isConfigured) {
-      final success = await GoogleSignInDialog.show(
-        context,
-        apiClient: widget.apiClient,
-        sessionService: widget.sessionService,
-        initialEmail: _emailController.text.trim(),
-        onSignedIn: () {
-          if (!mounted) return;
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (_) => DashboardScreen(
-                apiClient: widget.apiClient,
-                sessionService: widget.sessionService,
-              ),
-            ),
-          );
-        },
-      );
-      if (success && mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => DashboardScreen(
-              apiClient: widget.apiClient,
-              sessionService: widget.sessionService,
-            ),
-          ),
-        );
-      }
+      await _openLocalGoogleDialog();
       return;
     }
 
@@ -176,35 +183,15 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!result.success) {
         if (result.requiresDirectPrompt) {
           if (!mounted) return;
-          final success = await GoogleSignInDialog.show(
-            context,
-            apiClient: widget.apiClient,
-            sessionService: widget.sessionService,
-            initialEmail: _emailController.text.trim(),
-          );
-          if (success && mounted) {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(
-                builder: (_) => DashboardScreen(
-                  apiClient: widget.apiClient,
-                  sessionService: widget.sessionService,
-                ),
-              ),
-            );
-          }
+          await _openLocalGoogleDialog();
           return;
         }
 
         if (result.errorMessage != null && !result.errorMessage!.contains("cancelled")) {
-          // If the SDK threw an error on Web, gracefully fall back to the direct dialog
-          if (kIsWeb) {
+          // In local web development the SDK may fail; fall back to the dev dialog.
+          if (kIsWeb && GoogleSignInDialog.isAvailable) {
             if (!mounted) return;
-            await GoogleSignInDialog.show(
-              context,
-              apiClient: widget.apiClient,
-              sessionService: widget.sessionService,
-              initialEmail: _emailController.text.trim(),
-            );
+            await _openLocalGoogleDialog();
             return;
           }
           setState(() => _errorMessage = result.errorMessage);
@@ -620,7 +607,27 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              const SizedBox(height: 12),
+                              // Top Controls: Theme Toggle
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  ListenableBuilder(
+                                    listenable: ThemeController.instance,
+                                    builder: (context, _) {
+                                      final currentIsDark = ThemeController.instance.isDarkMode;
+                                      return IconButton(
+                                        icon: Icon(
+                                          currentIsDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                                          color: currentIsDark ? const Color(0xFFF59E0B) : AppColors.primaryDark,
+                                        ),
+                                        tooltip: currentIsDark ? "Switch to Light Mode" : "Switch to Dark Mode",
+                                        onPressed: () => ThemeController.instance.toggleTheme(),
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
 
                           // App Logo & Branding (5-tap developer gesture only active in kDebugMode)
                           Center(

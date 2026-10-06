@@ -71,8 +71,8 @@ class _StudyAppMobileState extends State<StudyAppMobile> with WidgetsBindingObse
           title: "StudyApp",
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
-          darkTheme: AppTheme.lightTheme,
-          themeMode: ThemeMode.light,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: widget.themeController.themeMode,
           builder: (context, child) {
             final system = MediaQuery.textScalerOf(context).scale(1.0);
             final factor = (system * childSafety.textScaleFactor).clamp(0.85, 1.6);

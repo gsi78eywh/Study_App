@@ -80,10 +80,20 @@ class SessionService {
     return str != null ? DateTime.tryParse(str) : null;
   }
 
-  ThemeMode get themeMode => ThemeMode.light;
+  ThemeMode get themeMode {
+    final mode = _prefs.getString(_keyThemeMode);
+    if (mode == "light") return ThemeMode.light;
+    if (mode == "system") return ThemeMode.system;
+    return ThemeMode.dark;
+  }
 
   Future<void> setThemeMode(ThemeMode mode) async {
-    await _prefs.setString(_keyThemeMode, "light");
+    final val = mode == ThemeMode.light
+        ? "light"
+        : mode == ThemeMode.system
+            ? "system"
+            : "dark";
+    await _prefs.setString(_keyThemeMode, val);
   }
 
   static const String _keyLastActive = "last_active_timestamp";

@@ -152,8 +152,9 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
   ];
 
   List<String> get _currentQuickPrompts {
-    if (ChildSafetyService.instance.isJuniorMode) {
-      final grade = ChildSafetyService.instance.gradeLevelText;
+    final cs = ChildSafetyService.instance;
+    if (cs.isJuniorMode) {
+      final grade = cs.gradeLevelText;
       return [
         "🎈 Explain this simply like I am in $grade",
         "🌟 Can you give me a fun real-world example?",
@@ -161,6 +162,28 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
         "💡 Give me a gentle hint without telling the answer",
         "🎨 Use a simple story or analogy to explain this",
         "✨ What are the 3 most important words to remember?",
+      ];
+    }
+    if (cs.gradeLevel >= 7 && cs.gradeLevel <= 10) {
+      final grade = cs.gradeLevelText;
+      return [
+        "🎒 Break this down step-by-step for $grade",
+        "💡 Give me a practical example connecting to daily life",
+        "🧠 Test my understanding with a conceptual check",
+        "📝 What formula or rule applies here?",
+        "🔍 Highlight common exam pitfalls in this topic",
+        "💡 Give me a progressive hint",
+      ];
+    }
+    if (cs.gradeLevel >= 11 && cs.gradeLevel <= 12) {
+      final grade = cs.gradeLevelText;
+      return [
+        "🔬 Deep dive analysis for Senior High ($grade)",
+        "🎯 College entrance exam style drill problem",
+        "📊 Break down mathematical / theoretical derivations",
+        "💡 Explain how this connects to advanced college topics",
+        "🧠 Challenge me with an analytical critique question",
+        "📝 Synthesis summary of core competencies",
       ];
     }
     return _quickPrompts;
@@ -666,9 +689,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
 
     final stopwatch = Stopwatch()..start();
     try {
-      final effectiveMessage = ChildSafetyService.instance.isJuniorMode
-          ? ChildSafetyService.instance.enrichPromptForChildSafety(query)
-          : query;
+      final effectiveMessage = ChildSafetyService.instance.enrichPromptForGradeLevel(query);
 
       final response = await widget.apiClient.dio.post(
         ApiConstants.aiTutor,

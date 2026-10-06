@@ -1,35 +1,67 @@
 import "package:dio/dio.dart";
+import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
 import "package:google_fonts/google_fonts.dart";
 
 import "../../../core/constants/api_constants.dart";
-import "../../../core/constants/app_colors.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/services/session_service.dart";
-import "../../../core/theme/theme_extensions.dart";
+import "../../../core/theme/app_theme.dart";
 import "../models/auth_models.dart";
 
+/// Local-development Google sign-in.
+///
+/// SECURITY: this dialog sends an unverified `dev-google:email|name` token. The
+/// backend accepts that format ONLY when it runs in the Development environment,
+/// and this dialog is only offered in debug builds ([isAvailable]). Release builds
+/// must use the real Google SDK flow in `GoogleAuthService`.
 class GoogleSignInDialog extends StatefulWidget {
   final ApiClient apiClient;
   final SessionService sessionService;
   final String? initialEmail;
-  final VoidCallback? onSignedIn;
 
   const GoogleSignInDialog({
     super.key,
     required this.apiClient,
     required this.sessionService,
     this.initialEmail,
-    this.onSignedIn,
   });
+
+  /// Token prefix understood by the backend's Development-only sign-in path.
+  static const String devTokenPrefix = "dev-google:";
+
+  /// Overridable in tests. Defaults to debug builds only.
+  @visibleForTesting
+  static bool? debugAvailabilityOverride;
+
+  static bool get isAvailable => debugAvailabilityOverride ?? kDebugMode;
+
+  static final RegExp _emailPattern = RegExp(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$");
+
+  /// Returns null when [value] is a valid email, otherwise a friendly error.
+  static String? validateEmail(String? value) {
+    final v = value?.trim() ?? "";
+    if (v.isEmpty) return "Please type your Gmail address";
+    if (v.length > 254) return "That email is too long";
+    final candidate = v.contains("@") ? v : "$v@gmail.com";
+    if (!_emailPattern.hasMatch(candidate)) return "That doesn't look like an email address";
+    return null;
+  }
+
+  /// Builds the dev token, stripping the `|` separator from the name so it can't
+  /// be used to smuggle extra fields.
+  static String buildDevToken(String email, String fullName) {
+    final safeName = fullName.replaceAll("|", " ").trim();
+    return "$devTokenPrefix${email.trim().toLowerCase()}|$safeName";
+  }
 
   static Future<bool> show(
     BuildContext context, {
     required ApiClient apiClient,
     required SessionService sessionService,
     String? initialEmail,
-    VoidCallback? onSignedIn,
   }) async {
+    if (!isAvailable) return false;
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: true,
@@ -37,7 +69,6 @@ class GoogleSignInDialog extends StatefulWidget {
         apiClient: apiClient,
         sessionService: sessionService,
         initialEmail: initialEmail,
-        onSignedIn: onSignedIn,
       ),
     );
     return result ?? false;
@@ -48,37 +79,48 @@ class GoogleSignInDialog extends StatefulWidget {
 }
 
 class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
+  static const Color _googleBlue = Color(0xFF4285F4);
+
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _emailController;
   late final TextEditingController _nameController;
+  bool _nameEditedByUser = false;
   bool _isLoading = false;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    final initEmail = (widget.initialEmail != null && widget.initialEmail!.isNotEmpty)
+    final sessionEmail = widget.sessionService.email;
+    final initEmail = (widget.initialEmail?.isNotEmpty ?? false)
         ? widget.initialEmail!
-        : (widget.sessionService.email != null &&
-                !widget.sessionService.email!.contains("studyapp.local")
-            ? widget.sessionService.email!
-            : "");
+        : (sessionEmail != null && !sessionEmail.contains("studyapp.local") ? sessionEmail : "");
     _emailController = TextEditingController(text: initEmail);
-    _nameController = TextEditingController();
+    _nameController = TextEditingController(text: _nameFromEmail(initEmail));
+    _emailController.addListener(_onEmailChanged);
+  }
 
-    _emailController.addListener(() {
-      if (_nameController.text.isEmpty && _emailController.text.contains("@")) {
-        final prefix = _emailController.text.split("@")[0].replaceAll(".", " ").trim();
-        if (prefix.isNotEmpty) {
-          final words = prefix.split(" ").map((w) => w.isNotEmpty ? w[0].toUpperCase() + w.substring(1) : "");
-          _nameController.text = words.join(" ");
-        }
-      }
-    });
+  void _onEmailChanged() {
+    // Keep the suggested name in sync until the student types their own.
+    if (!_nameEditedByUser) {
+      _nameController.text = _nameFromEmail(_emailController.text);
+    }
+    setState(() {}); // refresh the "@gmail.com" helper button
+  }
+
+  static String _nameFromEmail(String email) {
+    if (!email.contains("@")) return "";
+    final prefix = email.split("@").first.replaceAll(RegExp(r"[._\-]+"), " ").trim();
+    return prefix
+        .split(" ")
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + w.substring(1))
+        .join(" ");
   }
 
   @override
   void dispose() {
+    _emailController.removeListener(_onEmailChanged);
     _emailController.dispose();
     _nameController.dispose();
     super.dispose();
@@ -95,10 +137,8 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
 
     var fullName = _nameController.text.trim();
     if (fullName.isEmpty) {
-      final prefix = email.split("@")[0].replaceAll(".", " ").trim();
-      fullName = prefix.isNotEmpty
-          ? prefix.split(" ").map((w) => w.isNotEmpty ? w[0].toUpperCase() + w.substring(1) : "").join(" ")
-          : "Google Student";
+      fullName = _nameFromEmail(email);
+      if (fullName.isEmpty) fullName = "Google Student";
     }
 
     setState(() {
@@ -107,10 +147,9 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
     });
 
     try {
-      final idToken = "dev-google:$email|$fullName";
       final response = await widget.apiClient.dio.post(
         ApiConstants.googleAuth,
-        data: {"idToken": idToken},
+        data: {"idToken": GoogleSignInDialog.buildDevToken(email, fullName)},
       );
 
       if (response.statusCode == 200 && response.data != null) {
@@ -124,37 +163,34 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
         await widget.sessionService.setSampleDataLoaded(false);
 
         if (!mounted) return;
-        widget.onSignedIn?.call();
+        // Capture the messenger before popping; the dialog context goes away after pop.
+        final messenger = ScaffoldMessenger.maybeOf(context);
         Navigator.of(context).pop(true);
-
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger?.showSnackBar(
           SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    "Signed in as ${auth.email}",
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: const Color(0xFF10B981),
+            content: Text("Signed in as ${auth.email}", style: const TextStyle(fontWeight: FontWeight.w600)),
+            backgroundColor: AppColors.accent,
             duration: const Duration(seconds: 3),
           ),
         );
       }
     } on DioException catch (e) {
+      if (!mounted) return;
+      final data = e.response?.data;
+      final status = e.response?.statusCode;
       setState(() {
-        _errorMessage = e.response?.data?["message"]?.toString() ??
-            "Authentication failed. Please verify the backend connection.";
+        if (status == 401) {
+          _errorMessage = "This server only accepts real Google sign-in. "
+              "Please use your email and password instead.";
+        } else if (data is Map && data["message"] != null) {
+          _errorMessage = data["message"].toString();
+        } else {
+          _errorMessage = "We couldn't reach the server. Check your connection and try again.";
+        }
       });
-    } catch (e) {
-      setState(() {
-        _errorMessage = "Sign-in error: $e";
-      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _errorMessage = "Something went wrong. Please try again.");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -162,17 +198,15 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
 
   void _appendGmailDomain() {
     final text = _emailController.text.trim();
-    if (!text.contains("@")) {
+    if (text.isNotEmpty && !text.contains("@")) {
       _emailController.text = "$text@gmail.com";
-      _emailController.selection = TextSelection.fromPosition(
-        TextPosition(offset: _emailController.text.length),
-      );
+      _emailController.selection = TextSelection.collapsed(offset: _emailController.text.length);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.isDarkMode;
+    final showGmailHelper = _emailController.text.isNotEmpty && !_emailController.text.contains("@");
 
     return Dialog(
       backgroundColor: context.surfaceColor,
@@ -181,262 +215,201 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 440),
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Form(
             key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Header with Google Branding
-                Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF1F2937) : const Color(0xFFF3F4F6),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: context.cardBorderColor),
-                      ),
-                      alignment: Alignment.center,
-                      child: const _GoogleBrandIcon(size: 26),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Sign in with Google",
-                            style: GoogleFonts.outfit(
-                              fontSize: 19,
-                              fontWeight: FontWeight.bold,
-                              color: context.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            "Connect your personal Gmail account",
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              color: context.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded, size: 20),
-                      onPressed: _isLoading ? null : () => Navigator.of(context).pop(false),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-
-                // Info Banner
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF4285F4).withValues(alpha: isDark ? 0.15 : 0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: const Color(0xFF4285F4).withValues(alpha: 0.3),
-                      width: 1,
-                    ),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            child: AutofillGroup(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
                     children: [
-                      const Icon(Icons.verified_user_outlined, color: Color(0xFF4285F4), size: 18),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          "Direct Google Authentication enables instant account creation, personal courses, and continuous cloud sync.",
-                          style: GoogleFonts.inter(
-                            fontSize: 11.5,
-                            color: context.textPrimary,
-                            height: 1.35,
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: context.secondaryBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: context.cardBorderColor),
+                        ),
+                        alignment: Alignment.center,
+                        child: ExcludeSemantics(
+                          child: Text(
+                            "G",
+                            style: GoogleFonts.outfit(fontSize: 24, fontWeight: FontWeight.w900, color: _googleBlue),
                           ),
                         ),
                       ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Semantics(
+                              header: true,
+                              child: Text(
+                                "Sign in with Google",
+                                style: GoogleFonts.outfit(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.bold,
+                                  color: context.textPrimary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              "Local test sign-in",
+                              style: GoogleFonts.inter(fontSize: 12.5, color: context.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        key: const Key("google_dialog_close"),
+                        tooltip: "Close",
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: _isLoading ? null : () => Navigator.of(context).pop(false),
+                      ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-
-                // Error Message if any
-                if (_errorMessage != null) ...[
+                  const SizedBox(height: 16),
                   Container(
-                    padding: const EdgeInsets.all(10),
-                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
-                      color: AppColors.danger.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
+                      color: AppColors.warning.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.warning.withValues(alpha: 0.45)),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.error_outline_rounded, color: AppColors.danger, size: 18),
-                        const SizedBox(width: 8),
+                        const Icon(Icons.developer_mode_rounded, color: Color(0xFFB45309), size: 20),
+                        const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            _errorMessage!,
-                            style: const TextStyle(
-                              color: AppColors.danger,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
+                            "Developer mode: this skips Google's password check and only works "
+                            "with a local development server. Real app builds use Google's secure sign-in.",
+                            style: GoogleFonts.inter(fontSize: 12, color: context.textPrimary, height: 1.4),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ],
-
-                // Gmail Input Field
-                Text(
-                  "Google / Gmail Address",
-                  style: GoogleFonts.inter(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: context.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  autofocus: true,
-                  enabled: !_isLoading,
-                  decoration: InputDecoration(
-                    hintText: "yourname@gmail.com",
-                    prefixIcon: const Icon(Icons.alternate_email_rounded, size: 20),
-                    suffixIcon: !_emailController.text.contains("@") && _emailController.text.isNotEmpty
-                        ? TextButton(
-                            onPressed: _appendGmailDomain,
-                            style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 8),
-                              visualDensity: VisualDensity.compact,
+                  const SizedBox(height: 16),
+                  if (_errorMessage != null) ...[
+                    Semantics(
+                      liveRegion: true,
+                      child: Container(
+                        key: const Key("google_dialog_error"),
+                        padding: const EdgeInsets.all(10),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: AppColors.danger.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.error_outline_rounded, color: AppColors.danger, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _errorMessage!,
+                                style: const TextStyle(color: Color(0xFFB91C1C), fontSize: 13, fontWeight: FontWeight.w500),
+                              ),
                             ),
-                            child: const Text("@gmail.com", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                          )
-                        : null,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  ),
-                  validator: (val) {
-                    if (val == null || val.trim().isEmpty) {
-                      return "Gmail address is required";
-                    }
-                    final v = val.trim();
-                    if (!v.contains("@") && !v.contains(".")) {
-                      return "Please enter a valid email or student address";
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 14),
-
-                // Name Input Field
-                Text(
-                  "Display Name (Optional)",
-                  style: GoogleFonts.inter(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: context.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                TextFormField(
-                  controller: _nameController,
-                  enabled: !_isLoading,
-                  decoration: InputDecoration(
-                    hintText: "Your Full Name (e.g. Seth Andrey)",
-                    prefixIcon: const Icon(Icons.person_outline_rounded, size: 20),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Action Buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: _isLoading ? null : () => Navigator.of(context).pop(false),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          side: BorderSide(color: context.cardBorderColor),
-                        ),
-                        child: Text(
-                          "Cancel",
-                          style: TextStyle(color: context.textSecondary, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: ElevatedButton.icon(
-                        onPressed: _isLoading ? null : _submit,
-                        icon: _isLoading
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                              )
-                            : const Icon(Icons.arrow_forward_rounded, size: 18),
-                        label: Text(
-                          _isLoading ? "Connecting..." : "Continue with Google",
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF4285F4),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ],
                         ),
                       ),
                     ),
                   ],
-                ),
-              ],
+                  TextFormField(
+                    key: const Key("google_dialog_email"),
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    autofillHints: const [AutofillHints.email],
+                    textInputAction: TextInputAction.next,
+                    autofocus: true,
+                    enabled: !_isLoading,
+                    decoration: InputDecoration(
+                      labelText: "Gmail address",
+                      hintText: "yourname@gmail.com",
+                      prefixIcon: const Icon(Icons.alternate_email_rounded),
+                      suffixIcon: showGmailHelper
+                          ? TextButton(
+                              onPressed: _appendGmailDomain,
+                              child: const Text("@gmail.com", style: TextStyle(fontWeight: FontWeight.bold)),
+                            )
+                          : null,
+                    ),
+                    validator: GoogleSignInDialog.validateEmail,
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    key: const Key("google_dialog_name"),
+                    controller: _nameController,
+                    enabled: !_isLoading,
+                    autofillHints: const [AutofillHints.name],
+                    textInputAction: TextInputAction.done,
+                    maxLength: 150,
+                    onChanged: (_) => _nameEditedByUser = true,
+                    onFieldSubmitted: (_) => _isLoading ? null : _submit(),
+                    decoration: const InputDecoration(
+                      labelText: "Your name (optional)",
+                      prefixIcon: Icon(Icons.person_outline_rounded),
+                      counterText: "",
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _isLoading ? null : () => Navigator.of(context).pop(false),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            side: BorderSide(color: context.cardBorderColor),
+                          ),
+                          child: Text("Cancel", style: TextStyle(color: context.textSecondary, fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          key: const Key("google_dialog_submit"),
+                          onPressed: _isLoading ? null : _submit,
+                          icon: _isLoading
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.arrow_forward_rounded, size: 18),
+                          label: Text(
+                            _isLoading ? "Signing in..." : "Continue",
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _googleBlue,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size.fromHeight(48),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _GoogleBrandIcon extends StatelessWidget {
-  final double size;
-
-  const _GoogleBrandIcon({this.size = 24});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Text(
-            "G",
-            style: GoogleFonts.outfit(
-              fontSize: size * 0.9,
-              fontWeight: FontWeight.w900,
-              color: const Color(0xFF4285F4),
-            ),
-          ),
-        ],
       ),
     );
   }

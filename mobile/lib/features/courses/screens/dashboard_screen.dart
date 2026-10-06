@@ -1990,25 +1990,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _openGoogleSignInModal() async {
+    // Release builds: the local dialog is unavailable, so return to the login
+    // screen where the verified Google SDK sign-in runs.
+    if (!GoogleSignInDialog.isAvailable) {
+      _handleLogout();
+      return;
+    }
     final success = await GoogleSignInDialog.show(
       context,
       apiClient: widget.apiClient,
       sessionService: widget.sessionService,
-      onSignedIn: () async {
-        await _fetchCoursesAndSync(fullFetch: true, showSnackBar: true);
-        await _loadTodayStudyPlan();
-        if (mounted) setState(() {});
-      },
     );
     if (success && mounted) {
-      await _fetchCoursesAndSync(fullFetch: true);
+      await _fetchCoursesAndSync(fullFetch: true, showSnackBar: true);
       await _loadTodayStudyPlan();
-      setState(() {});
+      if (mounted) setState(() {});
     }
   }
 
   void _showAccountMenu(BuildContext context) {
-    final isDark = context.isDarkMode;
     final email = widget.sessionService.email ?? "Unknown student";
     final fullName = widget.sessionService.fullName ?? "Student";
     final isDemo = email.contains("studyapp.local") || email == "dev@studyapp.local" || fullName == "Developer Test Account";
@@ -2206,14 +2206,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: cs.isJuniorMode ? const Color(0xFFF59E0B) : const Color(0xFF6366F1),
+                          color: cs.isJuniorMode
+                              ? const Color(0xFFF59E0B)
+                              : (cs.gradeLevel >= 7 && cs.gradeLevel <= 10
+                                  ? const Color(0xFF10B981)
+                                  : (cs.gradeLevel >= 11 && cs.gradeLevel <= 12
+                                      ? const Color(0xFF8B5CF6)
+                                      : const Color(0xFF6366F1))),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              cs.isJuniorMode ? '🐣 Junior Mode (${cs.gradeLevelText})' : '🎓 Standard Mode',
+                              cs.stageBadgeText,
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 12,
@@ -2326,73 +2332,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     const SizedBox(height: 14),
 
-                    // Option 1: Standard Mode
-                    InkWell(
-                      onTap: () {
-                        cs.setJuniorMode(false);
-                        setDialogState(() {});
-                        setState(() {});
-                      },
-                      borderRadius: BorderRadius.circular(14),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: !cs.isJuniorMode
-                              ? const Color(0xFF6366F1).withValues(alpha: 0.1)
-                              : context.secondaryBg,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: !cs.isJuniorMode
-                                ? const Color(0xFF6366F1)
-                                : context.cardBorderColor,
-                            width: !cs.isJuniorMode ? 1.5 : 1,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const Text('🎓', style: TextStyle(fontSize: 24)),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Text(
-                                        'Standard Mode',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                          color: context.textPrimary,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      if (!cs.isJuniorMode)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF6366F1),
-                                            borderRadius: BorderRadius.circular(6),
-                                          ),
-                                          child: const Text('Active', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                                        ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'Comprehensive college/senior high pacing, complete explanations & full question taxonomy.',
-                                    style: TextStyle(fontSize: 11.5, color: context.textSecondary),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-
-                    // Option 2: Junior Learner Mode
+                    // Option 1: Elementary Learner Mode (Grades 1-6)
                     InkWell(
                       onTap: () {
                         cs.setJuniorMode(true);
@@ -2428,7 +2368,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       Row(
                                         children: [
                                           Text(
-                                            'Junior Learner Mode',
+                                            'Elementary Learner (Grades 1–6)',
                                             style: TextStyle(
                                               fontWeight: FontWeight.bold,
                                               fontSize: 14,
@@ -2449,7 +2389,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        'Grades 1–6: Simplified vocabulary, cheerful hints, audio read-aloud & child safety protections.',
+                                        'Simplified vocabulary, cheerful hints, audio read-aloud & DSWD 20-20-20 pediatric eye breaks.',
                                         style: TextStyle(fontSize: 11.5, color: context.textSecondary),
                                       ),
                                     ],
@@ -2461,7 +2401,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               const SizedBox(height: 10),
                               const Divider(height: 1),
                               const SizedBox(height: 8),
-                              Text('Select Grade Level:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: context.textPrimary)),
+                              Text('Select Elementary Grade:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: context.textPrimary)),
                               const SizedBox(height: 6),
                               Wrap(
                                 spacing: 6,
@@ -2483,6 +2423,267 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 }),
                               ),
                             ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Option 2: Junior High School (Grades 7-10)
+                    InkWell(
+                      onTap: () {
+                        cs.setJuniorMode(false);
+                        if (cs.gradeLevel < 7 || cs.gradeLevel > 10) cs.setGradeLevel(8);
+                        setDialogState(() {});
+                        setState(() {});
+                      },
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: !cs.isJuniorMode && cs.gradeLevel >= 7 && cs.gradeLevel <= 10
+                              ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                              : context.secondaryBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: !cs.isJuniorMode && cs.gradeLevel >= 7 && cs.gradeLevel <= 10
+                                ? const Color(0xFF10B981)
+                                : context.cardBorderColor,
+                            width: !cs.isJuniorMode && cs.gradeLevel >= 7 && cs.gradeLevel <= 10 ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Text('🎒', style: TextStyle(fontSize: 24)),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Text(
+                                            'Junior High School (Grades 7–10)',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                              color: context.textPrimary,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          if (!cs.isJuniorMode && cs.gradeLevel >= 7 && cs.gradeLevel <= 10)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF10B981),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: const Text('Active', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                            ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Structured concept building, foundational formulas, balanced practice quizzes & exam preparation.',
+                                        style: TextStyle(fontSize: 11.5, color: context.textSecondary),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (!cs.isJuniorMode && cs.gradeLevel >= 7 && cs.gradeLevel <= 10) ...[
+                              const SizedBox(height: 10),
+                              const Divider(height: 1),
+                              const SizedBox(height: 8),
+                              Text('Select JHS Grade:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: context.textPrimary)),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 6,
+                                children: [7, 8, 9, 10].map((grade) {
+                                  final isSelected = cs.gradeLevel == grade;
+                                  return ChoiceChip(
+                                    label: Text('Grade $grade', style: const TextStyle(fontSize: 11)),
+                                    selected: isSelected,
+                                    selectedColor: const Color(0xFF10B981).withValues(alpha: 0.3),
+                                    onSelected: (selected) {
+                                      if (selected) {
+                                        cs.setGradeLevel(grade);
+                                        setDialogState(() {});
+                                        setState(() {});
+                                      }
+                                    },
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Option 3: Senior High School (Grades 11-12)
+                    InkWell(
+                      onTap: () {
+                        cs.setJuniorMode(false);
+                        if (cs.gradeLevel < 11 || cs.gradeLevel > 12) cs.setGradeLevel(11);
+                        setDialogState(() {});
+                        setState(() {});
+                      },
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: !cs.isJuniorMode && cs.gradeLevel >= 11 && cs.gradeLevel <= 12
+                              ? const Color(0xFF8B5CF6).withValues(alpha: 0.12)
+                              : context.secondaryBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: !cs.isJuniorMode && cs.gradeLevel >= 11 && cs.gradeLevel <= 12
+                                ? const Color(0xFF8B5CF6)
+                                : context.cardBorderColor,
+                            width: !cs.isJuniorMode && cs.gradeLevel >= 11 && cs.gradeLevel <= 12 ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Text('🔬', style: TextStyle(fontSize: 24)),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Text(
+                                            'Senior High School (Grades 11–12)',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                              color: context.textPrimary,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          if (!cs.isJuniorMode && cs.gradeLevel >= 11 && cs.gradeLevel <= 12)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF8B5CF6),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: const Text('Active', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                            ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Specialized academic tracks (STEM, ABM, HUMSS, TVL), college entrance exam readiness & deep drills.',
+                                        style: TextStyle(fontSize: 11.5, color: context.textSecondary),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (!cs.isJuniorMode && cs.gradeLevel >= 11 && cs.gradeLevel <= 12) ...[
+                              const SizedBox(height: 10),
+                              const Divider(height: 1),
+                              const SizedBox(height: 8),
+                              Text('Select SHS Grade:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: context.textPrimary)),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 6,
+                                children: [11, 12].map((grade) {
+                                  final isSelected = cs.gradeLevel == grade;
+                                  return ChoiceChip(
+                                    label: Text('Grade $grade', style: const TextStyle(fontSize: 11)),
+                                    selected: isSelected,
+                                    selectedColor: const Color(0xFF8B5CF6).withValues(alpha: 0.3),
+                                    onSelected: (selected) {
+                                      if (selected) {
+                                        cs.setGradeLevel(grade);
+                                        setDialogState(() {});
+                                        setState(() {});
+                                      }
+                                    },
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Option 4: College / University Mode
+                    InkWell(
+                      onTap: () {
+                        cs.setJuniorMode(false);
+                        cs.setGradeLevel(1); // Set to neutral college level
+                        setDialogState(() {});
+                        setState(() {});
+                      },
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: !cs.isJuniorMode && (cs.gradeLevel < 7 || cs.gradeLevel > 12)
+                              ? const Color(0xFF6366F1).withValues(alpha: 0.12)
+                              : context.secondaryBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: !cs.isJuniorMode && (cs.gradeLevel < 7 || cs.gradeLevel > 12)
+                                ? const Color(0xFF6366F1)
+                                : context.cardBorderColor,
+                            width: !cs.isJuniorMode && (cs.gradeLevel < 7 || cs.gradeLevel > 12) ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Text('🎓', style: TextStyle(fontSize: 24)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'College / University',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: context.textPrimary,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      if (!cs.isJuniorMode && (cs.gradeLevel < 7 || cs.gradeLevel > 12))
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF6366F1),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Text('Active', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Collegiate academic curriculum, GWA grade tracking, advanced AI lectures & comprehensive question taxonomy.',
+                                    style: TextStyle(fontSize: 11.5, color: context.textSecondary),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
                       ),

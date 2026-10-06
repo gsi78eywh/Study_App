@@ -72,6 +72,23 @@ class ChildSafetyService extends ChangeNotifier {
   bool get isJuniorMode => _isJuniorMode;
   int get gradeLevel => _gradeLevel;
   String get gradeLevelText => "Grade $_gradeLevel";
+
+  /// Student educational stage based on active grade or college mode
+  String get studentStage {
+    if (_isJuniorMode) return "Elementary";
+    if (_gradeLevel >= 7 && _gradeLevel <= 10) return "Junior High";
+    if (_gradeLevel >= 11 && _gradeLevel <= 12) return "Senior High";
+    return "College";
+  }
+
+  /// Badge text displayed on dashboard header
+  String get stageBadgeText {
+    if (_isJuniorMode) return "🐣 Junior Mode ($gradeLevelText)";
+    if (_gradeLevel >= 7 && _gradeLevel <= 10) return "🎒 Junior High ($gradeLevelText)";
+    if (_gradeLevel >= 11 && _gradeLevel <= 12) return "🔬 Senior High ($gradeLevelText)";
+    return "🎓 College Mode";
+  }
+
   AccessibilityTextScale get textScale => _textScale;
   double get textScaleFactor {
     switch (_textScale) {
@@ -112,11 +129,15 @@ class ChildSafetyService extends ChangeNotifier {
   // Actions
   Future<void> setJuniorMode(bool value) async {
     _isJuniorMode = value;
-    if (value && _textScale == AccessibilityTextScale.normal) {
-      _textScale = AccessibilityTextScale.large; // Automatically scale for readability
-      await _prefs?.setString(keyTextScale, _textScale.name);
+    if (value) {
+      if (_gradeLevel > 6) _gradeLevel = 3;
+      if (_textScale == AccessibilityTextScale.normal) {
+        _textScale = AccessibilityTextScale.large; // Automatically scale for readability
+        await _prefs?.setString(keyTextScale, _textScale.name);
+      }
     }
     await _prefs?.setBool(keyJuniorMode, value);
+    await _prefs?.setInt(keyGradeLevel, _gradeLevel);
     notifyListeners();
   }
 
@@ -126,10 +147,10 @@ class ChildSafetyService extends ChangeNotifier {
 
   Future<void> setGradeLevel(dynamic level) async {
     if (level is int) {
-      _gradeLevel = level.clamp(1, 6);
+      _gradeLevel = level.clamp(1, 12);
     } else if (level is String) {
       final parsed = int.tryParse(RegExp(r'\d+').firstMatch(level)?.group(0) ?? '');
-      _gradeLevel = parsed != null ? parsed.clamp(1, 6) : 3;
+      _gradeLevel = parsed != null ? parsed.clamp(1, 12) : 3;
     }
     await _prefs?.setInt(keyGradeLevel, _gradeLevel);
     notifyListeners();
@@ -208,6 +229,26 @@ class ChildSafetyService extends ChangeNotifier {
         "Please respond in simple, child-friendly terms suitable for a Grade $_gradeLevel student. "
         "Use positive encouragement, simple analogies, and gentle explanations without complex jargon.\n\n"
         "$rawPrompt";
+  }
+
+  /// Tailors prompt for any student year level (Elementary, Junior High, Senior High, College)
+  String enrichPromptForGradeLevel(String rawPrompt) {
+    if (_isJuniorMode) {
+      return enrichPromptForChildSafety(rawPrompt);
+    }
+    if (_gradeLevel >= 7 && _gradeLevel <= 10) {
+      return "[Junior High School / Grade $_gradeLevel Curriculum]\n"
+          "Please respond with structured step-by-step clarity suitable for a Grade $_gradeLevel high school student. "
+          "Include concrete examples, clear definitions, and active recall checks.\n\n"
+          "$rawPrompt";
+    }
+    if (_gradeLevel >= 11 && _gradeLevel <= 12) {
+      return "[Senior High School / Grade $_gradeLevel Academic Track]\n"
+          "Please respond with rigorous academic depth for a Senior High Grade $_gradeLevel student preparing for college exams. "
+          "Include conceptual synthesis, analytical problem solving, and relevant scientific or literary context.\n\n"
+          "$rawPrompt";
+    }
+    return rawPrompt;
   }
 
   /// Growth mindset non-punitive feedback

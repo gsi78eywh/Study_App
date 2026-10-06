@@ -959,7 +959,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               children: [
                                 Expanded(
                                   child: Text(
-                                    "Learner Grade Level",
+                                    "Elementary Grade Level",
                                     style: GoogleFonts.outfit(
                                       fontWeight: FontWeight.bold,
                                       color: context.textPrimary,
@@ -999,6 +999,119 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 );
                               }),
                             ),
+                          ],
+                        ),
+                      ),
+                    ] else ...[
+                      const Divider(height: 1),
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    "Secondary & Higher Ed Stage",
+                                    style: GoogleFonts.outfit(
+                                      fontWeight: FontWeight.bold,
+                                      color: context.textPrimary,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: cs.gradeLevel >= 7 && cs.gradeLevel <= 10
+                                        ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                                        : (cs.gradeLevel >= 11 && cs.gradeLevel <= 12
+                                            ? const Color(0xFF8B5CF6).withValues(alpha: 0.15)
+                                            : const Color(0xFF6366F1).withValues(alpha: 0.15)),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    cs.studentStage,
+                                    style: TextStyle(
+                                      color: cs.gradeLevel >= 7 && cs.gradeLevel <= 10
+                                          ? const Color(0xFF059669)
+                                          : (cs.gradeLevel >= 11 && cs.gradeLevel <= 12
+                                              ? const Color(0xFF7C3AED)
+                                              : const Color(0xFF4F46E5)),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                ChoiceChip(
+                                  label: const Text("Junior High (Gr 7–10)"),
+                                  selected: cs.gradeLevel >= 7 && cs.gradeLevel <= 10,
+                                  selectedColor: const Color(0xFF10B981).withValues(alpha: 0.25),
+                                  onSelected: (selected) {
+                                    if (selected) cs.setGradeLevel(8);
+                                  },
+                                ),
+                                ChoiceChip(
+                                  label: const Text("Senior High (Gr 11–12)"),
+                                  selected: cs.gradeLevel >= 11 && cs.gradeLevel <= 12,
+                                  selectedColor: const Color(0xFF8B5CF6).withValues(alpha: 0.25),
+                                  onSelected: (selected) {
+                                    if (selected) cs.setGradeLevel(11);
+                                  },
+                                ),
+                                ChoiceChip(
+                                  label: const Text("College & University"),
+                                  selected: cs.gradeLevel < 7 || cs.gradeLevel > 12,
+                                  selectedColor: const Color(0xFF6366F1).withValues(alpha: 0.25),
+                                  onSelected: (selected) {
+                                    if (selected) cs.setGradeLevel(1);
+                                  },
+                                ),
+                              ],
+                            ),
+                            if (cs.gradeLevel >= 7 && cs.gradeLevel <= 10) ...[
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 6,
+                                children: [7, 8, 9, 10].map((g) {
+                                  final isSelected = cs.gradeLevel == g;
+                                  return ChoiceChip(
+                                    label: Text("Grade $g", style: const TextStyle(fontSize: 11)),
+                                    selected: isSelected,
+                                    selectedColor: const Color(0xFF10B981).withValues(alpha: 0.25),
+                                    onSelected: (sel) {
+                                      if (sel) cs.setGradeLevel(g);
+                                    },
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                            if (cs.gradeLevel >= 11 && cs.gradeLevel <= 12) ...[
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 6,
+                                children: [11, 12].map((g) {
+                                  final isSelected = cs.gradeLevel == g;
+                                  return ChoiceChip(
+                                    label: Text("Grade $g", style: const TextStyle(fontSize: 11)),
+                                    selected: isSelected,
+                                    selectedColor: const Color(0xFF8B5CF6).withValues(alpha: 0.25),
+                                    onSelected: (sel) {
+                                      if (sel) cs.setGradeLevel(g);
+                                    },
+                                  );
+                                }).toList(),
+                              ),
+                            ],
                           ],
                         ),
                       ),
