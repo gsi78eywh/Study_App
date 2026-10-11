@@ -43,6 +43,11 @@ class SessionService {
   String get gradingScale => _prefs.getString(_keyGradingScale) ?? "USJ-R (1.00 - 5.00)";
   bool get hasMinorConsent => _prefs.getBool(_keyMinorConsent) ?? false;
   bool get isSampleDataLoaded => _prefs.getBool(_keySampleDataLoaded) ?? false;
+  bool get isGoogleLinked => _prefs.getBool(_keyIsGoogleLinked) ?? (email != null && email!.endsWith("@gmail.com"));
+
+  Future<void> setGoogleLinked(bool linked) async {
+    await _prefs.setBool(_keyIsGoogleLinked, linked);
+  }
 
   Future<void> setOnboardingCompleted({
     required String schoolLevel,
@@ -97,11 +102,17 @@ class SessionService {
   }
 
   static const String _keyLastActive = "last_active_timestamp";
-  static const Duration inactivityTimeout = Duration(hours: 4);
+  static const String _keyIsGoogleLinked = "is_google_linked";
+  // Persistent 30-day session so students never lose their account or login upon reopening the app
+  static const Duration inactivityTimeout = Duration(days: 30);
 
-  static const _keepKeys = {_keyThemeMode, _keyBaseUrl};
+  static const _keepKeys = {_keyThemeMode, _keyBaseUrl, _keyIsGoogleLinked};
+
+  /// Optional listener invoked when user data is purged (e.g. to clear in-memory caches)
+  static VoidCallback? onClearUserData;
 
   Future<void> clearAllUserData() async {
+    onClearUserData?.call();
     for (final k in _prefs.getKeys().toList()) {
       if (!_keepKeys.contains(k)) {
         await _prefs.remove(k);
@@ -142,16 +153,20 @@ class SessionService {
     required String email,
     required String fullName,
   }) async {
+    final cleanToken = token.trim();
+    final cleanUserId = userId.trim();
+    if (cleanToken.isEmpty || cleanUserId.isEmpty) return;
+
     final prev = _prefs.getString("last_user_id");
-    if (prev != null && prev != userId) {
+    if (prev != null && prev != cleanUserId) {
       await clearAllUserData();
     }
-    await _prefs.setString("last_user_id", userId);
+    await _prefs.setString("last_user_id", cleanUserId);
 
-    await _prefs.setString(_keyToken, token);
-    await _prefs.setString(_keyUserId, userId);
-    await _prefs.setString(_keyEmail, email);
-    await _prefs.setString(_keyFullName, fullName);
+    await _prefs.setString(_keyToken, cleanToken);
+    await _prefs.setString(_keyUserId, cleanUserId);
+    await _prefs.setString(_keyEmail, email.trim());
+    await _prefs.setString(_keyFullName, fullName.trim());
     await recordActivity();
   }
 

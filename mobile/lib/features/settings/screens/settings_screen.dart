@@ -11,7 +11,9 @@ import "../../../core/services/child_safety_service.dart";
 import "../../../core/services/notification_service.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
+import "../../../core/theme/theme_controller.dart";
 import "../../auth/widgets/terms_and_privacy_modal.dart";
+import "../../auth/widgets/google_sign_in_dialog.dart";
 import "../../courses/widgets/user_manual_sheet.dart";
 import "../../quiz/models/quiz_models.dart";
 import "../models/study_settings_model.dart";
@@ -566,7 +568,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: context.scaffoldBg,
       appBar: AppBar(
         title: Text(
-          "Study Configurations",
+          "Study Settings & Preferences",
           style: GoogleFonts.outfit(
             fontWeight: FontWeight.bold,
             fontSize: 20,
@@ -666,14 +668,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
             const Divider(height: 1),
-            // AI Synthesizer Difficulty
+            // AI Question Difficulty
             Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "Default Synthesizer Difficulty",
+                    "AI Question Difficulty",
                     style: GoogleFonts.outfit(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
@@ -699,56 +701,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const Divider(height: 1),
-            // Theme Mode
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Theme Mode",
-                          style: GoogleFonts.outfit(
-                            fontWeight: FontWeight.bold,
-                            color: context.textPrimary,
-                          ),
-                        ),
-                        Text(
-                          "Minimal high-contrast student reading theme",
-                          style: TextStyle(color: context.textSecondary, fontSize: 12),
-                        ),
-                      ],
+            // Interactive Theme Mode
+            ListenableBuilder(
+              listenable: ThemeController.instance,
+              builder: (context, _) {
+                final isCurrentDark = ThemeController.instance.isDarkMode;
+                return SwitchListTile(
+                  secondary: Icon(
+                    isCurrentDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+                    color: isCurrentDark ? const Color(0xFFF59E0B) : AppColors.primaryDark,
+                  ),
+                  title: Text(
+                    "Theme Mode",
+                    style: GoogleFonts.outfit(
+                      fontWeight: FontWeight.bold,
+                      color: context.textPrimary,
+                      fontSize: 14,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.accent.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.check_circle_rounded, size: 14, color: AppColors.accent),
-                        SizedBox(width: 4),
-                        Text(
-                          "Student Light",
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.accent,
-                          ),
-                        ),
-                      ],
-                    ),
+                  subtitle: Text(
+                    isCurrentDark
+                        ? "Dark Mode (Deep Slate) active — easy on the eyes"
+                        : "Light Mode (Clean Slate) active — high-contrast reading",
+                    style: TextStyle(color: context.textSecondary, fontSize: 12),
                   ),
-                ],
-              ),
+                  value: isCurrentDark,
+                  activeThumbColor: const Color(0xFFF59E0B),
+                  onChanged: (_) async {
+                    await ThemeController.instance.toggleTheme();
+                    if (mounted) setState(() {});
+                  },
+                );
+              },
             ),
             const Divider(height: 1),
             _buildSwitchTile(
@@ -1194,6 +1178,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       value: cs.readAloudEnabled,
                       onChanged: (val) => cs.setReadAloudEnabled(val),
                     ),
+                    const Divider(height: 1),
+                    _buildSwitchTile(
+                      title: "Dyslexia-Friendly Font",
+                      subtitle: "Enhanced letter distinctness and weighted baseline to ease reading",
+                      icon: Icons.font_download_outlined,
+                      value: cs.dyslexiaFriendlyFont,
+                      onChanged: (val) => cs.toggleDyslexiaFont(),
+                    ),
                   ],
                 );
               },
@@ -1295,6 +1287,92 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 14),
+                  if (widget.sessionService.isGoogleLinked || (widget.sessionService.email?.endsWith("@gmail.com") ?? false)) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.cloud_done_rounded, color: Color(0xFF10B981), size: 22),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  "Google Account Connected & Cloud Synced",
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF059669)),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  "Your courses, flashcards, study notes, and quiz mastery are permanently saved in the cloud. If you reinstall the app or switch devices, signing in with Google restores your account automatically.",
+                                  style: TextStyle(fontSize: 11.5, color: context.textSecondary, height: 1.35),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else ...[
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF4285F4).withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFF4285F4).withValues(alpha: 0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.cloud_sync_rounded, color: Color(0xFF4285F4), size: 22),
+                              const SizedBox(width: 10),
+                              const Text(
+                                "Backup Account to Google Cloud",
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E40AF)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            "Connect your Google account so your notes, courses, and exam progress are never lost if the app is uninstalled or your device cache is cleared.",
+                            style: TextStyle(fontSize: 11.5, color: context.textSecondary, height: 1.35),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF4285F4),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              icon: const Icon(Icons.link_rounded, size: 18),
+                              label: const Text("Connect Google Account Now", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                              onPressed: () async {
+                                final ok = await GoogleSignInDialog.show(
+                                  context,
+                                  apiClient: widget.apiClient,
+                                  sessionService: widget.sessionService,
+                                  initialEmail: widget.sessionService.email,
+                                );
+                                if (ok && mounted) setState(() {});
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   const Divider(height: 1),
                   const SizedBox(height: 12),

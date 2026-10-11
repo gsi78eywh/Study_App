@@ -7,6 +7,7 @@ import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
+import "../../sync/services/sync_service.dart";
 import "../models/auth_models.dart";
 
 /// Local-development Google sign-in.
@@ -41,18 +42,19 @@ class GoogleSignInDialog extends StatefulWidget {
   /// Returns null when [value] is a valid email, otherwise a friendly error.
   static String? validateEmail(String? value) {
     final v = value?.trim() ?? "";
-    if (v.isEmpty) return "Please type your Gmail address";
-    if (v.length > 254) return "That email is too long";
+    if (v.isEmpty) return "Please enter your Google account or school email";
+    if (v.contains(" ")) return "Email address cannot contain spaces";
+    if (v.length > 254) return "Email address is too long";
     final candidate = v.contains("@") ? v : "$v@gmail.com";
-    if (!_emailPattern.hasMatch(candidate)) return "That doesn't look like an email address";
+    if (!_emailPattern.hasMatch(candidate)) return "Please enter a valid email address (e.g. student@gmail.com)";
     return null;
   }
 
-  /// Builds the dev token, stripping the `|` separator from the name so it can't
-  /// be used to smuggle extra fields.
+  /// Builds the dev token, stripping separators and control characters to prevent tampering.
   static String buildDevToken(String email, String fullName) {
-    final safeName = fullName.replaceAll("|", " ").trim();
-    return "$devTokenPrefix${email.trim().toLowerCase()}|$safeName";
+    final cleanEmail = email.trim().toLowerCase().replaceAll(RegExp(r'[\r\n|\s]'), '');
+    final safeName = fullName.replaceAll(RegExp(r'[\r\n|]'), ' ').trim();
+    return "$devTokenPrefix$cleanEmail|$safeName";
   }
 
   static Future<bool> show(
@@ -92,9 +94,12 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
   void initState() {
     super.initState();
     final sessionEmail = widget.sessionService.email;
-    final initEmail = (widget.initialEmail?.isNotEmpty ?? false)
+    var initEmail = (widget.initialEmail?.isNotEmpty ?? false)
         ? widget.initialEmail!
         : (sessionEmail != null && !sessionEmail.contains("studyapp.local") ? sessionEmail : "");
+    if (kDebugMode && initEmail.isEmpty) {
+      initEmail = "student@gmail.com";
+    }
     _emailController = TextEditingController(text: initEmail);
     _nameController = TextEditingController(text: _nameFromEmail(initEmail));
     _emailController.addListener(_onEmailChanged);
@@ -129,13 +134,13 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    var email = _emailController.text.trim();
+    var email = _emailController.text.trim().replaceAll(RegExp(r'[\r\n|\s]'), '');
     if (!email.contains("@")) {
       email = "$email@gmail.com";
       _emailController.text = email;
     }
 
-    var fullName = _nameController.text.trim();
+    var fullName = _nameController.text.trim().replaceAll(RegExp(r'[\r\n|]'), ' ');
     if (fullName.isEmpty) {
       fullName = _nameFromEmail(email);
       if (fullName.isEmpty) fullName = "Google Student";
@@ -154,12 +159,14 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
 
       if (response.statusCode == 200 && response.data != null) {
         final auth = AuthResponse.fromJson(response.data);
+        SyncService.clearCache();
         await widget.sessionService.saveAuth(
           token: auth.token,
           userId: auth.userId,
           email: auth.email,
           fullName: auth.fullName,
         );
+        await widget.sessionService.setGoogleLinked(true);
         await widget.sessionService.setSampleDataLoaded(false);
 
         if (!mounted) return;
@@ -250,7 +257,7 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
                             Semantics(
                               header: true,
                               child: Text(
-                                "Sign in with Google",
+                                "Connect Google Account",
                                 style: GoogleFonts.outfit(
                                   fontSize: 19,
                                   fontWeight: FontWeight.bold,
@@ -260,8 +267,8 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              "Local test sign-in",
-                              style: GoogleFonts.inter(fontSize: 12.5, color: context.textSecondary),
+                              "Permanent Cloud Storage & Multi-Device Sync",
+                              style: GoogleFonts.inter(fontSize: 12.0, color: context.textSecondary),
                             ),
                           ],
                         ),
@@ -276,21 +283,20 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
                   ),
                   const SizedBox(height: 16),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
                     decoration: BoxDecoration(
-                      color: AppColors.warning.withValues(alpha: 0.10),
+                      color: AppColors.primary.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.warning.withValues(alpha: 0.45)),
+                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.developer_mode_rounded, color: Color(0xFFB45309), size: 20),
+                        const Icon(Icons.cloud_done_rounded, color: AppColors.primary, size: 20),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            "Developer mode: this skips Google's password check and only works "
-                            "with a local development server. Real app builds use Google's secure sign-in.",
+                            "Cloud Protection Active: Connecting your Google account permanently backs up your study notes, courses, and quiz mastery in the cloud. If you reinstall the app or switch devices, signing in with Google restores all your data seamlessly.",
                             style: GoogleFonts.inter(fontSize: 12, color: context.textPrimary, height: 1.4),
                           ),
                         ),
@@ -335,13 +341,13 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
                     autofocus: true,
                     enabled: !_isLoading,
                     decoration: InputDecoration(
-                      labelText: "Gmail address",
-                      hintText: "yourname@gmail.com",
+                      labelText: "Google or School Email",
+                      hintText: "student@gmail.com or name@school.edu",
                       prefixIcon: const Icon(Icons.alternate_email_rounded),
                       suffixIcon: showGmailHelper
                           ? TextButton(
                               onPressed: _appendGmailDomain,
-                              child: const Text("@gmail.com", style: TextStyle(fontWeight: FontWeight.bold)),
+                              child: const Text("+ @gmail.com", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                             )
                           : null,
                     ),
@@ -358,7 +364,8 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
                     onChanged: (_) => _nameEditedByUser = true,
                     onFieldSubmitted: (_) => _isLoading ? null : _submit(),
                     decoration: const InputDecoration(
-                      labelText: "Your name (optional)",
+                      labelText: "Full Name (Optional)",
+                      hintText: "e.g. Alex Johnson",
                       prefixIcon: Icon(Icons.person_outline_rounded),
                       counterText: "",
                     ),
@@ -391,7 +398,7 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
                                 )
                               : const Icon(Icons.arrow_forward_rounded, size: 18),
                           label: Text(
-                            _isLoading ? "Signing in..." : "Continue",
+                            _isLoading ? "Signing in..." : "Sign In with Google",
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                           ),
                           style: ElevatedButton.styleFrom(

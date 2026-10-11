@@ -12,6 +12,7 @@ import "../widgets/terms_and_privacy_modal.dart";
 import "../widgets/google_sign_in_dialog.dart";
 import "../../../core/services/google_auth_service.dart";
 import "../../courses/screens/dashboard_screen.dart";
+import "../../sync/services/sync_service.dart";
 import "register_screen.dart";
 
 class LoginScreen extends StatefulWidget {
@@ -91,6 +92,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (response.statusCode == 200 && response.data != null) {
         final auth = AuthResponse.fromJson(response.data);
+        SyncService.clearCache();
         await widget.sessionService.saveAuth(
           token: auth.token,
           userId: auth.userId,
@@ -109,6 +111,41 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     } on DioException catch (e) {
+      if (e.response?.statusCode == 401 && kDebugMode && _emailController.text.trim() == "dev@studyapp.local") {
+        try {
+          final seedResp = await widget.apiClient.dio.post("/api/v1/dev/seed-test-user");
+          if (seedResp.statusCode == 200) {
+            final retry = await widget.apiClient.dio.post(
+              ApiConstants.login,
+              data: {
+                "email": "dev@studyapp.local",
+                "password": "DevPass123!",
+              },
+            );
+            if (retry.statusCode == 200 && retry.data != null) {
+              final auth = AuthResponse.fromJson(retry.data);
+              await widget.sessionService.saveAuth(
+                token: auth.token,
+                userId: auth.userId,
+                email: auth.email,
+                fullName: auth.fullName,
+              );
+              if (mounted) {
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                    builder: (_) => DashboardScreen(
+                      apiClient: widget.apiClient,
+                      sessionService: widget.sessionService,
+                    ),
+                  ),
+                );
+                return;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
       setState(() {
         if (e.type == DioExceptionType.connectionError || e.type == DioExceptionType.connectionTimeout) {
           _errorMessage = "Unable to connect to server. Please check your network connection or server status.";
@@ -212,6 +249,7 @@ class _LoginScreenState extends State<LoginScreen> {
           email: auth.email,
           fullName: auth.fullName,
         );
+        await widget.sessionService.setGoogleLinked(true);
 
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
@@ -820,7 +858,25 @@ class _LoginScreenState extends State<LoginScreen> {
                             width: double.infinity,
                             child: OutlinedButton.icon(
                               onPressed: _isLoading ? null : _handleRealGoogleSignIn,
-                              icon: const Icon(Icons.g_mobiledata_rounded, size: 24, color: Color(0xFF4285F4)),
+                              icon: Container(
+                                width: 22,
+                                height: 22,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(5),
+                                  border: Border.all(color: const Color(0xFFE2E8F0), width: 0.8),
+                                ),
+                                child: Text(
+                                  "G",
+                                  style: GoogleFonts.outfit(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    color: const Color(0xFF4285F4),
+                                    height: 1.1,
+                                  ),
+                                ),
+                              ),
                               label: const Text(
                                 "Continue with Google",
                                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
@@ -832,39 +888,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               ),
                             ),
-                          ),
-
-                          // Demo Student Account (Debug builds only • clearly labeled sample mode)
-                          if (kDebugMode) ...[
-                            const SizedBox(height: 14),
-                            Center(
-                              child: TextButton.icon(
-                                onPressed: () {
-                                  _emailController.text = "dev@studyapp.local";
-                                  _passwordController.text = "DevPass123!";
-                                  setState(() {
-                                    _errorMessage = null;
-                                  });
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text("Demo credentials loaded (Sample Mode • No Cloud Sync)."),
-                                      duration: Duration(seconds: 2),
-                                    ),
-                                  );
-                                },
-                                icon: const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFFF59E0B)),
-                                label: const Text(
-                                  "Try Demo Student Account",
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                                ),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: context.textSecondary,
-                                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-                                ),
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 12),
+                            const SizedBox(height: 12),
 
                           // Register Link
                           Wrap(

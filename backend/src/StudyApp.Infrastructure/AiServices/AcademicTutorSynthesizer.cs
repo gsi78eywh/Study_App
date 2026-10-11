@@ -10,6 +10,45 @@ public static class AcademicTutorSynthesizer
     public static string SynthesizeResponse(string message, string? contextTopic, List<ChatMessageDto>? history = null)
     {
         var rawPrompt = (message ?? string.Empty).Trim();
+
+        // If prompt is or contains a URL, extract search query or path topic
+        if (Uri.TryCreate(rawPrompt, UriKind.Absolute, out var promptUri) && (promptUri.Scheme is "http" or "https"))
+        {
+            var queryMatch = Regex.Match(promptUri.Query, @"[?&](?:q|query|p|text|search_query|oq|as_q)=([^&]+)", RegexOptions.IgnoreCase);
+            if (queryMatch.Success)
+            {
+                var unescaped = Uri.UnescapeDataString(queryMatch.Groups[1].Value.Replace('+', ' ')).Trim();
+                if (!string.IsNullOrWhiteSpace(unescaped) && !unescaped.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    rawPrompt = unescaped;
+                }
+            }
+            else
+            {
+                var lastSeg = promptUri.Segments.LastOrDefault()?.Trim('/');
+                if (!string.IsNullOrWhiteSpace(lastSeg) && lastSeg.Length > 2)
+                {
+                    rawPrompt = Uri.UnescapeDataString(lastSeg).Replace('_', ' ').Replace('-', ' ').Trim();
+                }
+            }
+        }
+        else
+        {
+            var urlMatch = Regex.Match(rawPrompt, @"https?:\/\/[^\s]+");
+            if (urlMatch.Success && Uri.TryCreate(urlMatch.Value, UriKind.Absolute, out var embeddedUri))
+            {
+                var queryMatch = Regex.Match(embeddedUri.Query, @"[?&](?:q|query|p|text|search_query|oq|as_q)=([^&]+)", RegexOptions.IgnoreCase);
+                if (queryMatch.Success)
+                {
+                    var unescaped = Uri.UnescapeDataString(queryMatch.Groups[1].Value.Replace('+', ' ')).Trim();
+                    if (!string.IsNullOrWhiteSpace(unescaped) && !unescaped.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                    {
+                        rawPrompt = rawPrompt.Replace(urlMatch.Value, unescaped).Trim();
+                    }
+                }
+            }
+        }
+
         var lowerPrompt = rawPrompt.ToLowerInvariant();
         var topic = (contextTopic ?? string.Empty).Trim();
         var lowerTopic = topic.ToLowerInvariant();
@@ -39,13 +78,16 @@ public static class AcademicTutorSynthesizer
         }
 
         // 3. Quick Prompt: Analogy
-        if (lowerPrompt.Contains("analogy") || lowerPrompt.Contains("explain this simply") || lowerPrompt.Contains("simple terms"))
+        if ((lowerPrompt.Contains("analogy") || lowerPrompt.Contains("explain this simply") || lowerPrompt.Contains("simple terms")) &&
+            !Regex.IsMatch(lowerPrompt, @"\b(barangay|punong barangay|kagawad|due process|debit|credit|balance sheet)\b"))
         {
             return BuildAnalogyResponse(rawPrompt, topic) + OfflineNotice;
         }
 
         // 4. Quick Prompt: Formulas & Variables
-        if (lowerPrompt.Contains("formula") || lowerPrompt.Contains("equation") || lowerPrompt.Contains("variable"))
+        if ((Regex.IsMatch(lowerPrompt, @"\b(formulas?\s+(?:and|&)\s+variables?|break\s*down\s+(?:the\s+)?formulas?|give\s+(?:me\s+)?(?:the\s+)?formula)\b") ||
+             lowerPrompt == "formula" || lowerPrompt == "formulas" || lowerPrompt == "equations") &&
+            !Regex.IsMatch(lowerPrompt, @"\b(accounting|balance sheet|debit|credit|c#|python|dart|javascript|php)\b"))
         {
             return BuildFormulaBreakdownResponse(rawPrompt, topic) + OfflineNotice;
         }
@@ -57,13 +99,17 @@ public static class AcademicTutorSynthesizer
         }
 
         // 6. Quick Prompt: Exam Pitfalls
-        if (lowerPrompt.Contains("pitfall") || lowerPrompt.Contains("common mistake") || lowerPrompt.Contains("exam trap"))
+        if ((lowerPrompt.Contains("pitfall") || lowerPrompt.Contains("common mistake") || lowerPrompt.Contains("exam trap")) &&
+            !Regex.IsMatch(lowerPrompt, @"\b(barangay|punong barangay|kagawad)\b"))
         {
             return BuildExamPitfallsResponse(rawPrompt, topic) + OfflineNotice;
         }
 
         // 7. Quick Prompt: Core Principles / Summary
-        if (lowerPrompt.Contains("summarize") || lowerPrompt.Contains("core theoretical") || lowerPrompt.Contains("overview"))
+        if ((lowerPrompt.Equals("summarize", StringComparison.OrdinalIgnoreCase) ||
+             lowerPrompt.Equals("core principles", StringComparison.OrdinalIgnoreCase) ||
+             lowerPrompt.Contains("core theoretical principles")) &&
+            !Regex.IsMatch(lowerPrompt, @"\b(barangay|punong barangay|kagawad|due process|debit|credit)\b"))
         {
             return BuildCorePrinciplesResponse(rawPrompt, topic) + OfflineNotice;
         }
@@ -137,7 +183,42 @@ public static class AcademicTutorSynthesizer
             return BuildBiologyResponse(rawPrompt, topic) + OfflineNotice;
         }
 
-        // 15. General Structured Academic Response
+        // 15. Philippine Local Governance, Barangay Administration & Community Volunteerism
+        if (Regex.IsMatch(lowerPrompt, @"\b(barangay|punong barangay|kagawad|sangguniang barangay|sk\b|sangguniang kabataan|purok|lgu|dilg|ra 7160|local government code|clean-?up|volunteer(?:ism)?|solid waste|ra 9003|ra 9418|kalinisan|barangay assembly|aip\b|annual investment program)\b") ||
+            Regex.IsMatch(lowerTopic, @"\b(barangay|governance|local government|volunteer|clean-?up)\b"))
+        {
+            return BuildBarangayGovernanceResponse(rawPrompt, topic) + OfflineNotice;
+        }
+
+        // 16. Philippine Law, Constitutional Law & Jurisprudence
+        if (Regex.IsMatch(lowerPrompt, @"\b(law\b|constitution|due process|bill of rights|police power|eminent domain|taxation|jurisprudence|statutory|tort|contract|obligation|criminal law|civil code|penal code)\b") ||
+            Regex.IsMatch(lowerTopic, @"\b(law|jurisprudence|legal)\b"))
+        {
+            return BuildLawAndJurisprudenceResponse(rawPrompt, topic) + OfflineNotice;
+        }
+
+        // 17. Business, Economics & Accounting
+        if (Regex.IsMatch(lowerPrompt, @"\b(accounting|journal entry|balance sheet|income statement|ledger|debit|credit|gaap|ifrs|economics|microeconomics|macroeconomics|inflation|gdp|supply and demand|fiscal policy|monetary policy)\b") ||
+            Regex.IsMatch(lowerTopic, @"\b(economics|accounting|finance|business)\b"))
+        {
+            return BuildEconomicsAndAccountingResponse(rawPrompt, topic) + OfflineNotice;
+        }
+
+        // 18. Health Sciences, Nursing & Clinical Procedures
+        if (Regex.IsMatch(lowerPrompt, @"\b(nursing|vital signs|patient care|dosage|pharmacology|pharmacokinetics|pathology|anatomy|physiology|triage|adpie)\b") ||
+            Regex.IsMatch(lowerTopic, @"\b(nursing|health|medicine)\b"))
+        {
+            return BuildHealthSciencesResponse(rawPrompt, topic) + OfflineNotice;
+        }
+
+        // 19. Computer Systems, Operating Systems & Networking
+        if (Regex.IsMatch(lowerPrompt, @"\b(operating system|concurrency|deadlock|virtual memory|process|thread|tcp/?ip|udp|dns|osi model|router|subnet|docker|kubernetes|microservice|rest api)\b") ||
+            Regex.IsMatch(lowerTopic, @"\b(networking|operating system|devops|cloud)\b"))
+        {
+            return BuildSystemsAndNetworkingResponse(rawPrompt, topic) + OfflineNotice;
+        }
+
+        // 20. General Structured Academic Response
         return BuildGeneralAcademicResponse(rawPrompt, topic) + OfflineNotice;
     }
 
@@ -1335,7 +1416,7 @@ public static class AcademicTutorSynthesizer
         if (lower.Contains("kabet") || lower.Contains("gagong rapper"))
         {
             return """
-            ### 🎵 Complete Song Lyrics: "Kabet" by Gagong Rapper
+            ### 🎵 Track Reference & Lyrics: "Kabet" by Gagong Rapper
             
             > **Track Overview:**
             > - **Artist:** Gagong Rapper
@@ -1345,7 +1426,7 @@ public static class AcademicTutorSynthesizer
 
             ---
 
-            #### 📝 Verified Official Lyrics:
+            #### 📝 Lyrics Reference:
 
             **[Chorus]**
             Kay sakit naman isipin na sa puso mo ako'y pangalawa
@@ -1604,40 +1685,476 @@ public static class AcademicTutorSynthesizer
         """.Replace("[SUBJECT]", subject);
     }
 
-    private static string BuildGeneralAcademicResponse(string prompt, string topic)
+    private static string BuildBarangayGovernanceResponse(string prompt, string topic)
     {
         var subject = !string.IsNullOrWhiteSpace(topic) ? topic : CleanQuery(prompt);
         return """
-        ### 📚 Academic Concept Breakdown: [SUBJECT]
+        # 🇵🇭 Comprehensive Guide: Barangay Project Implementation & Community Volunteer Mobilization
 
-        Here is a structured conceptual guide to help you master this topic:
-
-        ---
-
-        #### 1. Core Definition & Overview
-        **[SUBJECT]** refers to the structured study, methodology, or mechanism governing how elements interact within this academic domain. It provides the foundation for analyzing, predicting, and applying theoretical models to real-world scenarios.
+        **Subject:** [SUBJECT]  
+        **Governing Framework:** Republic Act No. 7160 (The Local Government Code of 1991), Republic Act No. 9003 (Ecological Solid Waste Management Act of 2000), Republic Act No. 9418 (Volunteer Act of 2007), and DILG Memorandum Circulars (*Kalinisan sa Bagong Pilipinas*).
 
         ---
 
-        #### 2. Fundamental Steps / Logical Flow
-        1. **Baseline Assessment:** Identify inputs, boundary conditions, and starting constraints.
-        2. **Core Operation / Transformation:** Apply governing rules, formulas, or standard principles systematically.
-        3. **Verification & Testing:** Check edge cases, ensure units or types match, and confirm internal consistency.
+        ## 1. Executive Overview & Institutional Architecture
+
+        In the Philippine political and administrative structure, the **Barangay** is the primary planning and implementing unit of government policies, programs, projects, and activities in the community. It serves as the primary forum where collective views of the residents may be expressed, crystallized, and considered.
+
+        ### Key Governance Actors & Roles
+        | Official / Council | Legal Basis | Core Administrative Responsibility |
+        | :--- | :--- | :--- |
+        | **Punong Barangay (Barangay Captain)** | RA 7160 Sec. 389 | Chief executive; enforces laws, negotiates contracts, issues executive orders, and oversees project execution. |
+        | **Sangguniang Barangay (Barangay Council)** | RA 7160 Sec. 390 | Legislative council (7 Kagawads + SK Chairperson); enacts ordinances, approves resolutions, and appropriates project funds. |
+        | **Sangguniang Kabataan (SK)** | RA 10742 / RA 11768 | Directs youth volunteerism, sports, environmental education, and greening initiatives with statutory 10% fund allocation. |
+        | **Barangay Development Council (BDC)** | RA 7160 Sec. 106 | Mobilizes people's participation; at least 1/4 of members come from accredited Non-Governmental Organizations (NGOs) / Civil Society Organizations (CSOs). |
+        | **Barangay Assembly** | RA 7160 Sec. 397 | Body of all residents aged 15+; meets at least twice annually to deliberate on development plans, project reports, and finances. |
+        | **Barangay Tanod Brigade** | DILG Guidelines | Community peacekeeping officers responsible for perimeter security, traffic routing, and volunteer safety during field operations. |
 
         ---
 
-        #### 3. Practical Example & Application
-        Consider an applied scenario where this principle is tested:
-        - **Given Condition:** An environment with defined constraints.
-        - **Action:** Executing the primary rule or equation.
-        - **Result:** The system reaches an equilibrium state that satisfies theoretical criteria.
+        ## 2. End-to-End Implementation Workflow: From Concept to Liquidation
+
+        Implementing community projects (such as Clean-Up Drives, River Desilting, Tree Planting, or Dengue Prevention) requires strict compliance with statutory local governance procedures.
+
+        ### 📋 Phase 1: Community Needs Assessment & Project Conceptualization
+        1. **Purok Consultations & Data Gathering:** The Barangay identifies high-risk areas (e.g., clogged drainage canals, illegal dumpsites, shoreline plastic accumulation) through feedback from Purok leaders and Barangay Health Workers (BHWs).
+        2. **Activity Design & Proposal Formulation:** The relevant committee (e.g., *Committee on Environmental Protection, Sanitation & Health*) prepares the detailed Project Activity Proposal specifying objectives, target zones, participant headcount, logistics, and budget breakdown.
+        3. **Barangay Assembly Presentation:** The proposed priority project is presented during the semi-annual Barangay Assembly (March or October) for community feedback and social consensus.
+
+        ### ⚖️ Phase 2: Sangguniang Barangay Deliberation & Statutory Resolution
+        1. **Committee Referral:** The proposed Activity Design is referred to the Committee on Appropriations and the Committee on Environment.
+        2. **Enactment of Barangay Resolution:** The Sangguniang Barangay formally passes a **Resolution** approving the project design, operational timetable, and community mobilization protocol.
+        3. **Budget Allocation & AIP Integration:** The required funds are certified by the Barangay Treasurer and charged against:
+           - **20% Barangay Development Fund (BDF)**
+           - **Solid Waste Management Fund** (under RA 9003)
+           - **10% Sangguniang Kabataan (SK) Fund** (for youth-led clean-ups)
+           - **Barangay Disaster Risk Reduction and Management Fund (BDRRMF)** (if mitigating flood hazards)
+
+        ### 📢 Phase 3: Public Publishing & Volunteer Mobilization
+        Under the **DILG Full Disclosure Policy** and Republic Act No. 9418 (Volunteer Act of 2007), project details and calls for volunteers must be publicly disseminated:
+        1. **Multi-Channel Publishing:**
+           - **Barangay Transparency Board:** Posted visibly outside the Barangay Hall.
+           - **Official Social Media Channels:** Published on the verified Barangay Facebook page with clear infographics detailing assembly time, target puroks, and safety instructions.
+           - **Traditional "Bandilyo":** Public address broadcasts and megaphone announcements deployed through Purok leaders and Tanods.
+        2. **Civil Society & Youth Mobilization:** Formal invitation letters sent to 4Ps parent-leaders, Boy/Girl Scouts, homeowners' associations (HOAs), church youth ministries, and university NSTP (National Service Training Program) coordinators.
+        3. **Volunteer Registration & Profiling:** Pre-registration to monitor expected participant numbers, identify minors requiring parental consent, and arrange adequate food rations and safety gear.
+
+        ### 🧹 Phase 4: Operational Execution & Safety Protocol (e.g. Oplan Kalinisan Drive)
+        1. **Pre-Deployment Safety Briefing:**
+           - Volunteers assemble at the Barangay Hall or designated covered court.
+           - Safety orientation led by BDRRMC/Kagawad on hazard handling (broken glass, needles, biological waste, deep water).
+           - Health screening by Barangay Health Workers (blood pressure check for seniors).
+        2. **Distribution of Personal Protective Equipment (PPE):**
+           - Heavy-duty rubber gloves, safety tongs, boots, dust masks, and color-coded garbage bags.
+        3. **Zone Deployment & Tanod Escort:** Teams dispatched into designated clusters, each supervised by an assigned Kagawad or Purok leader, with Tanods directing traffic on public roadways.
+        4. **Segregation at Source (RA 9003 Mandate):**
+           - **Biodegradable (Nabubulok):** Leaves, organic matter routed to the Barangay composting facility.
+           - **Recyclable (Di-nabubulok pero Mapapakinabangan):** Plastics, PET bottles, glass, metals routed to the Materials Recovery Facility (MRF).
+           - **Residuals (Di-nabubulok):** Soiled materials collected for city/municipal sanitary landfill hauling.
+           - **Special/Hazardous Waste:** E-waste, batteries, medical supplies stored in designated containment barrels.
+
+        ### 📊 Phase 5: Post-Activity Documentation, Hauling & Liquidation
+        1. **Waste Weighing & Hauling:** All collected waste is measured at the Barangay MRF and loaded into municipal compactors or authorized haulers.
+        2. **Financial Liquidation (COA Rules):** The Barangay Treasurer prepares the official liquidation report compliant with Commission on Audit (COA) Circulars:
+           - Official Receipts (ORs) for purchased snacks, trash bags, brooms, and first-aid supplies.
+           - Signed participant attendance sheets and procurement inspection reports.
+        3. **DILG Reporting:** Completion report filed with the DILG City/Municipal Local Government Operations Officer (MLGOO) under the *Kalinisan sa Bagong Pilipinas* program.
+        4. **Volunteer Recognition:** Distribution of Certificates of Volunteerism and acknowledgement during the succeeding Barangay Assembly.
 
         ---
 
-        #### 4. Common Exam Pitfalls & Takeaway
-        - **Key Distractor:** Confusing this concept with superficially similar terms.
-        - **High-Yield Takeaway:** Focus on the primary mechanism and always verify assumptions before jumping to conclusions.
+        ## 3. Visual Workflow Diagram
+
+        ```text
+        [Community Consultation / Purok Needs]
+                      │
+                      ▼
+        [Activity Design & Committee Proposal]
+                      │
+                      ▼
+        [Sangguniang Barangay Resolution & AIP Budget Allocation]
+                      │
+                      ▼
+        [Public Notice (Transparency Board, FB, Bandilyo) & Volunteer Drive]
+                      │
+                      ▼
+        [On-Site Safety Briefing + PPE Distribution + Tanod Traffic Escort]
+                      │
+                      ▼
+        [Execution: Segregation at Source (Biodegradable / Recyclable / Residual)]
+                      │
+                      ▼
+        [MRF Processing + COA Financial Liquidation + DILG Kalinisan Report]
+        ```
+
+        ---
+
+        ## 4. Key Statutory Distinctions for Exams & Governance Practice
+
+        | Legal Concept | Statutory Definition | Practical Application in Projects |
+        | :--- | :--- | :--- |
+        | **Barangay Ordinance** | Local law enacted with penal sanctions or permanent rule-making power. | Mandatory waste segregation with fines for illegal dumping (Anti-Littering Ordinance). |
+        | **Barangay Resolution** | Declaration of legislative sentiment or temporary administrative authority. | Approves the implementation and budget of a single clean-up activity or event. |
+        | **Barangay Development Plan (BDP)** | Multi-year blueprint of socio-economic priorities. | Ensures projects align with long-term infrastructure and sanitation roadmaps. |
+        | **Annual Investment Program (AIP)** | Annual list of funded projects derived from the BDP. | Mandatory prerequisite before public funds can be disbursed by the treasurer. |
+
+        ---
+
+        ## 5. High-Yield Review Takeaways
+
+        - **RA 7160 Sec. 397:** Barangay Assembly must convene at least twice a year to maintain participatory democracy.
+        - **RA 9003 Sec. 32:** Mandates each barangay or cluster of barangays to establish an active Materials Recovery Facility (MRF).
+        - **RA 9418 Sec. 12:** Protects volunteer rights and mandates host organizations to ensure volunteer safety, orientation, and appropriate recognition.
         """.Replace("[SUBJECT]", subject);
+    }
+
+    private static string BuildLawAndJurisprudenceResponse(string prompt, string topic)
+    {
+        var subject = !string.IsNullOrWhiteSpace(topic) ? topic : CleanQuery(prompt);
+        return """
+        # ⚖️ Legal Principles & Jurisprudence Guide: [SUBJECT]
+
+        **Discipline:** Constitutional Law, Civil Jurisprudence & Public Administration  
+        **Framework:** The 1987 Constitution of the Republic of the Philippines and Established Supreme Court Doctrines.
+
+        ---
+
+        ## 1. Foundational Pillars of Public & Civil Law
+
+        ### The Three Inherent Powers of the State
+        Every sovereign state exercises three fundamental, plenary powers that exist independently of constitutional grant:
+        1. **Police Power:** The power of the state to enact laws promoting public health, safety, morals, and general welfare. Considered the most pervasive and least limitable power.
+        2. **Power of Eminent Domain:** The authority to expropriate private property for public use upon payment of just compensation.
+        3. **Power of Taxation:** The power to impose revenue-generating charges on persons, property, and transactions to fund governmental operations.
+
+        ---
+
+        ## 2. Due Process of Law (Article III, Section 1)
+        No person shall be deprived of life, liberty, or property without due process of law, nor shall any person be denied the equal protection of the laws.
+
+        ### Substantive vs. Procedural Due Process
+        - **Substantive Due Process:** Inquires whether the statute itself is fair, reasonable, and enacted in pursuit of a legitimate governmental objective without being arbitrary or oppressive.
+        - **Procedural Due Process:** Mandates notice and a fair opportunity to be heard before an impartial and competent tribunal (*The cardinal primary requirements of administrative due process* - Ang Tibay v. CIR).
+
+        ---
+
+        ## 3. Law of Obligations & Contracts (Civil Code)
+        - **Sources of Obligations (Art. 1157):**
+          1. Law (*ex lege*)
+          2. Contracts (*ex contractu*)
+          3. Quasi-contracts (*negotiorum gestio* and *solutio indebiti*)
+          4. Delicts / Crimes (*ex delicto*)
+          5. Quasi-delicts / Torts (*culpa aquiliana*)
+        - **Essential Requisites of a Valid Contract (Art. 1318):**
+          1. Consent of the contracting parties
+          2. Object certain which is the subject matter
+          3. Cause or consideration of the obligation
+
+        ---
+
+        ## 4. Statutory Construction & Latin Maxims
+        | Maxim | Translation / Legal Meaning | Applied Rule |
+        | :--- | :--- | :--- |
+        | *Dura lex sed lex* | The law may be harsh, but it is the law. | Courts must apply clear statutes without equitable modification. |
+        | *Ignorantia legis non excusat* | Ignorance of the law excuses no one. | All persons are conclusively presumed to know promulgated laws. |
+        | *Salus populi est suprema lex* | The welfare of the people is the supreme law. | Police power justification for civic health and safety regulations. |
+        | *Expressio unius est exclusio alterius* | The express mention of one implies exclusion of others. | Restricts statutory interpretation to enumerated categories. |
+
+        ---
+
+        ## 5. High-Yield Exam Takeaways
+        - In statutory interpretation, the **Plain Meaning Rule (Verba Legis)** governs when text is clear and unambiguous.
+        - Administrative bodies exercising quasi-judicial functions must provide substantial evidence (*such relevant evidence as a reasonable mind might accept as adequate to support a conclusion*).
+        """.Replace("[SUBJECT]", subject);
+    }
+
+    private static string BuildEconomicsAndAccountingResponse(string prompt, string topic)
+    {
+        var subject = !string.IsNullOrWhiteSpace(topic) ? topic : CleanQuery(prompt);
+        return """
+        # 📊 Economics & Financial Accounting Master Guide: [SUBJECT]
+
+        **Core Fields:** Financial Accounting, Microeconomics & Macroeconomic Analysis  
+        **Standards:** Generally Accepted Accounting Principles (GAAP) & International Financial Reporting Standards (IFRS).
+
+        ---
+
+        ## 1. The Fundamental Accounting Architecture
+
+        ### The Accounting Equation
+        $$\text{Assets} = \text{Liabilities} + \text{Owner's Equity}$$
+
+        - **Assets:** Economic resources owned or controlled that provide probable future economic benefits (Cash, Accounts Receivable, Inventory, Equipment).
+        - **Liabilities:** Present obligations arising from past transactions to be settled via asset transfer or service provision (Accounts Payable, Notes Payable).
+        - **Owner's Equity (Net Worth):** Residual interest in assets after deducting liabilities (Capital, Retained Earnings minus Drawings/Dividends).
+
+        ### Double-Entry Bookkeeping: The Debit & Credit Matrix
+        | Account Type | Normal Balance | Increases Recorded As | Decreases Recorded As |
+        | :--- | :--- | :--- | :--- |
+        | **Assets** | Debit | **Debit (+)** | Credit (-) |
+        | **Expenses** | Debit | **Debit (+)** | Credit (-) |
+        | **Liabilities** | Credit | **Credit (+)** | Debit (-) |
+        | **Equity / Capital** | Credit | **Credit (+)** | Debit (-) |
+        | **Revenues / Income** | Credit | **Credit (+)** | Debit (-) |
+
+        > **Golden Rule:** In every transaction, total Debits must exactly equal total Credits.
+
+        ---
+
+        ## 2. Microeconomics: Supply, Demand & Elasticity
+
+        - **Law of Demand:** Ceteris paribus, as price increases, quantity demanded decreases (inverse relationship).
+        - **Law of Supply:** Ceteris paribus, as price increases, quantity supplied increases (direct relationship).
+        - **Price Elasticity of Demand ($E_d$):**
+          $$E_d = \frac{\% \Delta Q_d}{\% \Delta P}$$
+          - $|E_d| > 1$: Elastic (consumers are sensitive to price adjustments).
+          - $|E_d| < 1$: Inelastic (necessities; consumers maintain consumption regardless of price).
+          - $|E_d| = 1$: Unit elastic.
+
+        ---
+
+        ## 3. Macroeconomics: Output, Inflation & Policy Levers
+
+        ### Gross Domestic Product (Expenditure Approach)
+        $$Y = C + I + G + (X - M)$$
+        Where $C$ = Consumption, $I$ = Investment, $G$ = Government Spending, and $(X - M)$ = Net Exports.
+
+        ### Fiscal Policy vs. Monetary Policy
+        - **Fiscal Policy (Government / Treasury):** Taxes and government spending used to influence aggregate demand.
+        - **Monetary Policy (Central Bank):** Money supply management, interest rates (overnight repo rate), and reserve requirements to control inflation and currency stability.
+
+        ---
+
+        ## 4. High-Yield Exam Pitfalls
+        - **Accrual vs. Cash Accounting:** Under GAAP/IFRS accrual accounting, revenue is recognized when *earned* (performance obligation satisfied), not when cash is received. Expenses are recognized when *incurred* (Matching Principle).
+        - **Depreciation:** Is an allocation of cost over useful life, NOT a valuation method or a cash reserve fund.
+        """.Replace("[SUBJECT]", subject);
+    }
+
+    private static string BuildHealthSciencesResponse(string prompt, string topic)
+    {
+        var subject = !string.IsNullOrWhiteSpace(topic) ? topic : CleanQuery(prompt);
+        return """
+        # 🩺 Clinical Health Sciences & Nursing Guide: [SUBJECT]
+
+        **Domain:** Nursing Process, Clinical Procedures, Pharmacology & Human Physiology.
+
+        ---
+
+        ## 1. The Nursing Process (ADPIE)
+
+        The clinical problem-solving framework used to deliver individualized, safe, and holistic patient care:
+        1. **Assessment (A):** Systematic collection of subjective data (patient statements, symptoms) and objective data (vital signs, laboratory values, physical examination findings).
+        2. **Diagnosis (D):** Identification of human response to actual or potential health problems using standardized NANDA-I taxonomy.
+        3. **Planning (P):** Setting SMART goals (Specific, Measurable, Achievable, Relevant, Time-bound) and prioritizing interventions (Maslow's Hierarchy of Needs).
+        4. **Implementation (I):** Executing nursing interventions, administering prescribed medications, and providing patient education.
+        5. **Evaluation (E):** Comparing patient progress against expected outcomes and adjusting the care plan accordingly.
+
+        ---
+
+        ## 2. Vital Signs: Normal Adult Reference Values
+
+        | Vital Sign | Normal Adult Range | Clinical Term for Low | Clinical Term for High |
+        | :--- | :--- | :--- | :--- |
+        | **Blood Pressure (BP)** | 90/60 to 120/80 mmHg | Hypotension (< 90/60) | Hypertension (≥ 130/80) |
+        | **Heart Rate (HR)** | 60 - 100 beats/min | Bradycardia (< 60 bpm) | Tachycardia (> 100 bpm) |
+        | **Respiratory Rate (RR)** | 12 - 20 breaths/min | Bradypnea (< 12 bpm) | Tachypnea (> 20 bpm) |
+        | **Temperature** | 36.5°C - 37.5°C (Oral) | Hypothermia (< 35.0°C) | Hyperthermia / Pyrexia (> 38.0°C) |
+        | **Pulse Oximetry ($SpO_2$)** | 95% - 100% room air | Hypoxemia (< 90%) | Hyperoxia |
+
+        ---
+
+        ## 3. Principles of Pharmacology
+
+        - **Pharmacokinetics (What the Body Does to the Drug - ADME):**
+          - **Absorption:** Entry into bloodstream.
+          - **Distribution:** Transport to target tissues across physiological barriers.
+          - **Metabolism:** Biotransformation (primarily hepatic cytochrome P450 enzymes).
+          - **Excretion:** Elimination (primarily renal filtration and biliary clearance).
+        - **Pharmacodynamics (What the Drug Does to the Body):**
+          - **Agonist:** Activates receptor to elicit physiological response.
+          - **Antagonist:** Binds receptor without activation, blocking agonist action.
+        - **The Six Rights of Medication Administration:**
+          1. Right Patient (verify two identifiers)
+          2. Right Medication (check label three times)
+          3. Right Dose
+          4. Right Route (oral, IV, IM, SC, sublingual)
+          5. Right Time
+          6. Right Documentation
+
+        ---
+
+        ## 4. Infection Control & Safety Precautions
+        - **Standard Precautions:** Hand hygiene before/after patient contact; PPE use when encountering blood, body fluids, non-intact skin.
+        - **Donning PPE Sequence:** Gown → Mask/Respirator → Goggles/Face Shield → Gloves.
+        - **Doffing PPE Sequence:** Gloves → Goggles → Gown → Mask (Gloves and gown are considered most contaminated).
+        """.Replace("[SUBJECT]", subject);
+    }
+
+    private static string BuildSystemsAndNetworkingResponse(string prompt, string topic)
+    {
+        var subject = !string.IsNullOrWhiteSpace(topic) ? topic : CleanQuery(prompt);
+        return """
+        # 💻 Computer Systems, Operating Systems & Networking: [SUBJECT]
+
+        **Domain:** Computer Science, System Architecture, Concurrency & Network Protocols.
+
+        ---
+
+        ## 1. Operating Systems: Process Management & Concurrency
+
+        ### Process vs. Thread
+        - **Process:** An executing instance of a program with its own dedicated virtual address space, memory pages, file descriptors, and security context.
+        - **Thread:** The smallest sequence of programmed instructions managed independently by the scheduler. Threads within the same process share code, data, and open files, but retain independent program counters, registers, and stack memory.
+
+        ### The Four Coffman Conditions for Deadlock
+        A deadlock occurs if and only if all four conditions hold simultaneously:
+        1. **Mutual Exclusion:** At least one resource must be held in a non-shareable mode.
+        2. **Hold and Wait:** A process holding at least one resource is waiting to acquire additional resources held by others.
+        3. **No Preemption:** Resources cannot be forcibly seized; they are released only voluntarily.
+        4. **Circular Wait:** A closed chain of processes exists where each process waits for a resource held by the next.
+
+        ---
+
+        ## 2. Virtual Memory & Paging Architecture
+        - **Page Table:** Maps virtual addresses generated by the CPU to physical RAM frames.
+        - **Translation Lookaside Buffer (TLB):** Hardware associative cache reducing virtual address translation latency.
+        - **Page Fault:** Hardware trap triggered when a requested virtual page is not currently resident in physical memory, requiring disk retrieval.
+
+        ---
+
+        ## 3. Computer Networking & The OSI Model
+
+        | OSI Layer | Protocol Data Unit (PDU) | Primary Protocols / Standards | Key Responsibility |
+        | :--- | :--- | :--- | :--- |
+        | **7. Application** | Data | HTTP, HTTPS, DNS, SSH, SMTP | End-user interface and application data. |
+        | **6. Presentation**| Data | TLS/SSL, JSON, JPEG | Data encryption, compression, and formatting. |
+        | **5. Session**     | Data | RPC, NetBIOS | Establishing and maintaining connections. |
+        | **4. Transport**   | Segment (TCP) / Datagram (UDP) | TCP, UDP | End-to-end transport, port numbers, flow control. |
+        | **3. Network**     | Packet | IP (IPv4/IPv6), ICMP, BGP | Logical addressing, routing across subnets. |
+        | **2. Data Link**   | Frame | Ethernet, Wi-Fi (802.11), ARP | Physical MAC addressing, node-to-node transfer. |
+        | **1. Physical**    | Bits | Fiber, Copper, Radio RF | Transmission of raw electrical/optical bitstream. |
+
+        ### The TCP 3-Way Handshake
+        ```text
+        Client                        Server
+          │                             │
+          │─────── SYN (seq=x) ────────>│   1. Client initiates connection
+          │                             │
+          │<── SYN-ACK (seq=y, ack=x+1)─│   2. Server acknowledges & responds
+          │                             │
+          │─────── ACK (ack=y+1) ──────>│   3. Client confirms connection established
+          │                             │
+        [ Connection Established - Bidirectional Data Stream Open ]
+        ```
+
+        ---
+
+        ## 4. High-Yield Networking Distinctions
+        - **TCP vs. UDP:** TCP is connection-oriented, reliable (guaranteed delivery via ACKs and retransmissions), ordered, and flow-controlled. UDP is connectionless, unreliable, unordered, lightweight, and prioritized for low latency (VoIP, DNS, gaming).
+        - **DNS Resolution:** Recursive resolver checks local cache → Root Name Server → TLD Server (.com/.edu) → Authoritative Name Server → IP Address.
+        """.Replace("[SUBJECT]", subject);
+    }
+
+    private static string BuildGeneralAcademicResponse(string prompt, string topic)
+    {
+        var subject = !string.IsNullOrWhiteSpace(topic) ? topic : CleanQuery(prompt);
+        var inquiryContext = ExtractCoreInquiry(prompt, subject);
+
+        return """
+        # 📚 Comprehensive Academic Guide: [SUBJECT]
+
+        **Inquiry Focus:** [INQUIRY]  
+        **Academic Level:** Higher Education / Comprehensive Curriculum Review  
+        **Pedagogical Objective:** Rigorous mastery of foundational concepts, underlying mechanics, step-by-step methodologies, real-world case analysis, and high-yield examination readiness.
+
+        ---
+
+        ## 1. Executive Overview & Disciplinary Scope
+
+        **[SUBJECT]** is a foundational concept within this disciplinary domain. At its core, it establishes the principles, rules, and methodological workflows required to analyze, model, and execute solutions to complex problems.
+
+        ### Key Academic Pillars:
+        1. **Systemic Consistency:** Every component within **[SUBJECT]** operates under well-defined constraints and formal axioms to ensure reproducible outcomes.
+        2. **Hierarchical Decomposition:** High-level abstractions are systematically decomposed into modular sub-problems, minimizing cognitive complexity and isolating points of failure.
+        3. **Deterministic Transformation:** Specific inputs and conditions undergo disciplined operations to yield predictable, verifiable results across theoretical and applied environments.
+
+        ---
+
+        ## 2. Core Theoretical Mechanics & Step-by-Step Methodology
+
+        To master **[SUBJECT]** academically and practically, follow this disciplined five-phase process:
+
+        ### 🔍 Phase 1: Environmental Assessment & Boundary Conditions
+        - Identify all given variables, baseline constraints, and environmental preconditions.
+        - Isolate independent variables from dependent variables to avoid conflating causal drivers with correlation.
+        - Verify unit dimensions, scope boundaries, and operational assumptions before executing any transformation.
+
+        ### ⚙️ Phase 2: Selection of Governing Rules & Principles
+        - Map observed conditions to the appropriate theoretical framework, statutory rule, or mathematical model.
+        - Establish preconditions: verify that all prerequisite assumptions are satisfied before applying the primary transformation.
+
+        ### 🔄 Phase 3: Systematic Execution & Processing
+        - Execute intermediate transformations sequentially rather than combining steps arbitrarily.
+        - Document each transitional state to maintain complete auditability and error traceability.
+        - Account for environmental friction, resource limits, or real-world damping factors that cause deviations from ideal models.
+
+        ### 📊 Phase 4: Verification, Cross-Checking & Validation
+        - Test against standard boundary limits: evaluate behavior at minimum, nominal, and extreme capacity thresholds.
+        - Check conservation laws (mass, energy, value, or state parity) to verify internal coherence.
+
+        ### 📈 Phase 5: Synthesis, Reporting & Iterative Optimization
+        - Interpret final results in context with baseline objectives.
+        - Formulate corrective feedback loops to optimize future performance or refine theoretical models.
+
+        ---
+
+        ## 3. Real-World Applied Case Study
+
+        Consider a practical scenario illustrating **[SUBJECT]** in an operational setting:
+        - **Scenario Setup:** An organization or practitioner faces a challenging problem requiring structured intervention under tight constraints.
+        - **Diagnostic Action:** The team conducts a rigorous initial assessment, identifying key bottlenecks and selecting the governing principles of **[SUBJECT]**.
+        - **Operational Execution:** By applying the step-by-step methodology outlined above, resources are directed toward primary drivers while mitigating secondary risks.
+        - **Outcome & Analysis:** The system stabilizes, meeting required performance criteria while establishing a documented baseline for subsequent iterations.
+
+        ---
+
+        ## 4. High-Yield Distinctions & Conceptual Comparison Matrix
+
+        | Dimension | Theoretical / Ideal Model | Applied / Real-World Implementation |
+        | :--- | :--- | :--- |
+        | **Primary Focus** | Absolute precision and mathematical or statutory perfection. | Pragmatic optimization balancing constraints, time, and resources. |
+        | **Assumption Handling** | Assumes frictionless conditions, complete data, and static states. | Dynamically adapts to incomplete data, stochastic variance, and external shocks. |
+        | **Error Management** | Zero-tolerance theoretical proofs and strict invariants. | Robust error handling, defensive guards, and graceful degradation. |
+        | **Evaluation Metric** | Theoretical correctness and logical elegance. | Measurable impact, reliability, and reproducible outcomes. |
+
+        ---
+
+        ## 5. Common Exam Pitfalls & Misconceptions
+
+        - ⚠️ **Trap 1: Conflating Terminology:** Confusing **[SUBJECT]** with superficially similar concepts. Always identify the distinguishing operational mechanism.
+        - ⚠️ **Trap 2: Ignoring Boundary Conditions:** Forgetting that theoretical rules hold only within their defined domain of validity. Testing edge cases (0, 1, infinity, null) prevents common calculation errors.
+        - ⚠️ **Trap 3: Skipping Intermediate Validation:** Attempting to jump directly from input parameters to final conclusions without verifying prerequisite steps.
+
+        ---
+
+        ## 6. Active Recall & Self-Assessment Checklist
+
+        - [ ] Can you define **[SUBJECT]** in one concise sentence without using circular terminology?
+        - [ ] Can you list the 5 sequential phases required to implement or evaluate this concept?
+        - [ ] Can you identify at least two conditions under which standard assumptions break down?
+        - [ ] Can you explain the difference between the theoretical model and its real-world implementation?
+        """.Replace("[SUBJECT]", subject).Replace("[INQUIRY]", inquiryContext);
+    }
+
+    private static string ExtractCoreInquiry(string prompt, string subject)
+    {
+        if (string.IsNullOrWhiteSpace(prompt)) return subject;
+        var clean = Regex.Replace(prompt, @"^(?:what\s+(?:is|are)\s+(?:the\s+)?(?:actual\s+)?(?:process\s+of\s+)?|how\s+to\s+|explain\s+(?:the\s+)?|tell\s+me\s+about\s+)", "", RegexOptions.IgnoreCase).Trim();
+        if (clean.EndsWith("?", StringComparison.Ordinal)) clean = clean.TrimEnd('?').Trim();
+        if (clean.Length == 0) return subject;
+        if (clean.Length > 80) clean = clean.Substring(0, 80).Trim() + "...";
+        return char.ToUpperInvariant(clean[0]) + clean.Substring(1);
     }
 
     private static string CleanQuery(string raw)

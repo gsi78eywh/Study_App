@@ -59,22 +59,9 @@ void main() {
     expect(find.text("Continue with Google"), findsOneWidget);
     expect(find.text("Apple"), findsNothing);
 
-    // 7. Verify Demo button is rebranded and does NOT expose internal dev email
-    expect(find.text("Try Demo Student Account"), findsOneWidget);
+    // 7. Verify Demo button is removed from login screen to prevent demo backdoors
+    expect(find.text("Try Demo Student Account"), findsNothing);
     expect(find.textContaining("dev@studyapp.local"), findsNothing);
-
-    // 8. Test tapping "Try Demo Student Account" populates demo credentials
-    final demoBtn = find.text("Try Demo Student Account");
-    await tester.ensureVisible(demoBtn);
-    await tester.tap(demoBtn);
-    await tester.pumpAndSettle();
-
-    final emailField = tester.widget<TextFormField>(find.widgetWithText(TextFormField, "Email Address"));
-    expect(emailField.controller?.text, "dev@studyapp.local");
-
-    // Wait for demo credentials snackbar to dismiss so it doesn't obscure the footer
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pumpAndSettle();
 
     // 9. Test long-press on the version footer opens Developer Endpoint dialog in debug builds
     final footerFinder = find.text("StudyApp v1.0.0");

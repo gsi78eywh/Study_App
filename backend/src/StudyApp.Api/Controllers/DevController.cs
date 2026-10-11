@@ -159,6 +159,11 @@ public class DevController : ControllerBase
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
         }
+        else
+        {
+            user.PasswordHash = _passwordHasher.HashPassword(testPass);
+            await _context.SaveChangesAsync();
+        }
 
         // Provision Starter Pack Courses if user has none
         var hasCourses = await _context.Courses.AnyAsync(c => c.UserId == user.Id);

@@ -23,6 +23,9 @@ x86/
 [Aa]rm/
 [Aa]rm64/
 bld/
+build/
+**/build/
+.gradle/
 [Bb]in/
 [Oo]bj/
 [Ll]og/

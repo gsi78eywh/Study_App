@@ -5,8 +5,10 @@ import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
+import "../../sync/services/sync_service.dart";
 import "../models/auth_models.dart";
 import "../widgets/terms_and_privacy_modal.dart";
+import "../widgets/google_sign_in_dialog.dart";
 import "../../courses/screens/dashboard_screen.dart";
 
 class RegisterScreen extends StatefulWidget {
@@ -62,12 +64,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       if (response.statusCode == 200 && response.data != null) {
         final auth = AuthResponse.fromJson(response.data);
+        SyncService.clearCache();
+        await widget.sessionService.clearAllUserData();
         await widget.sessionService.saveAuth(
           token: auth.token,
           userId: auth.userId,
           email: auth.email,
           fullName: auth.fullName,
         );
+        await widget.sessionService.setSampleDataLoaded(false);
 
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
@@ -100,6 +105,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _handleGoogleSignUp() async {
+    final success = await GoogleSignInDialog.show(
+      context,
+      apiClient: widget.apiClient,
+      sessionService: widget.sessionService,
+      initialEmail: _emailController.text.trim(),
+    );
+    if (success && mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => DashboardScreen(
+            apiClient: widget.apiClient,
+            sessionService: widget.sessionService,
+          ),
+        ),
+      );
     }
   }
 
@@ -269,7 +293,61 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   )
                                 : const Text("Create Account"),
                           ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(child: Divider(color: context.cardBorderColor, thickness: 1)),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                child: Text(
+                                  "or sign up with",
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: context.textSecondary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                              Expanded(child: Divider(color: context.cardBorderColor, thickness: 1)),
+                            ],
+                          ),
                           const SizedBox(height: 14),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _isLoading ? null : _handleGoogleSignUp,
+                              icon: Container(
+                                width: 22,
+                                height: 22,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(5),
+                                  border: Border.all(color: const Color(0xFFE2E8F0), width: 0.8),
+                                ),
+                                child: Text(
+                                  "G",
+                                  style: GoogleFonts.outfit(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    color: const Color(0xFF4285F4),
+                                    height: 1.1,
+                                  ),
+                                ),
+                              ),
+                              label: const Text(
+                                "Sign Up with Google",
+                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: context.textPrimary,
+                                side: BorderSide(color: context.cardBorderColor),
+                                padding: const EdgeInsets.symmetric(vertical: 13),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
 
                           // Terms of Service & Privacy Policy Consent
                           Wrap(

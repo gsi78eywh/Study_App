@@ -40,6 +40,116 @@ public class AcademicTutorTests
     }
 
     [Fact]
+    public void SynthesizeResponse_WithBarangayGovernance_ReturnsComprehensivePhilippineGovernanceGuide()
+    {
+        // Act
+        var reply = AcademicTutorSynthesizer.SynthesizeResponse(
+            "what is the actual process of barangay when publishing or implementing projects that needs a volunteer like projects for clean up and so on",
+            "Barangay Project Implementation");
+
+        // Assert
+        Assert.False(string.IsNullOrWhiteSpace(reply));
+        Assert.Contains("Republic Act No. 7160", reply);
+        Assert.Contains("Republic Act No. 9003", reply);
+        Assert.Contains("Sangguniang Barangay", reply);
+        Assert.Contains("Punong Barangay", reply);
+        Assert.Contains("Barangay Assembly", reply);
+        Assert.Contains("Volunteer", reply);
+        Assert.Contains("Materials Recovery Facility", reply);
+        Assert.True(reply.Length > 2000, $"Expected response length > 2000 but got {reply.Length}");
+    }
+
+    [Fact]
+    public void SynthesizeResponse_WithLawAndJurisprudence_ReturnsConstitutionalLawGuide()
+    {
+        // Act
+        var reply = AcademicTutorSynthesizer.SynthesizeResponse("explain due process and equal protection of the laws", "Constitutional Law");
+
+        // Assert
+        Assert.False(string.IsNullOrWhiteSpace(reply));
+        Assert.Contains("Police Power", reply);
+        Assert.Contains("Substantive vs. Procedural Due Process", reply);
+        Assert.Contains("Ang Tibay v. CIR", reply);
+        Assert.True(reply.Length > 1500);
+    }
+
+    [Fact]
+    public void SynthesizeResponse_WithEconomicsAndAccounting_ReturnsAccountingAndEconomicsGuide()
+    {
+        // Act
+        var reply = AcademicTutorSynthesizer.SynthesizeResponse("how do debits and credits affect the balance sheet equation", "Accounting");
+
+        // Assert
+        Assert.False(string.IsNullOrWhiteSpace(reply));
+        Assert.Contains("Assets", reply);
+        Assert.Contains("Liabilities", reply);
+        Assert.Contains("Owner's Equity", reply);
+        Assert.Contains("Debit", reply);
+        Assert.Contains("Credit", reply);
+        Assert.True(reply.Length > 1500);
+    }
+
+    [Fact]
+    public void SynthesizeResponse_WithHealthSciences_ReturnsNursingProcessAndPharmacologyGuide()
+    {
+        // Act
+        var reply = AcademicTutorSynthesizer.SynthesizeResponse("explain the nursing process ADPIE and vital signs", "Nursing");
+
+        // Assert
+        Assert.False(string.IsNullOrWhiteSpace(reply));
+        Assert.Contains("ADPIE", reply);
+        Assert.Contains("Blood Pressure", reply);
+        Assert.Contains("Pharmacokinetics", reply);
+        Assert.True(reply.Length > 1500);
+    }
+
+    [Fact]
+    public void SynthesizeResponse_WithSystemsAndNetworking_ReturnsOperatingSystemsAndNetworkingGuide()
+    {
+        // Act
+        var reply = AcademicTutorSynthesizer.SynthesizeResponse("explain process vs thread, coffman deadlock conditions and TCP 3-way handshake", "Operating Systems");
+
+        // Assert
+        Assert.False(string.IsNullOrWhiteSpace(reply));
+        Assert.Contains("Process vs. Thread", reply);
+        Assert.Contains("Coffman Conditions", reply);
+        Assert.Contains("OSI Layer", reply);
+        Assert.Contains("SYN", reply);
+        Assert.True(reply.Length > 1500);
+    }
+
+    [Fact]
+    public void SynthesizeResponse_WithGeneralSubject_ReturnsSubstantialMultiSectionGuide()
+    {
+        // Act
+        var reply = AcademicTutorSynthesizer.SynthesizeResponse("what are the core principles of cognitive load theory in educational psychology", "Cognitive Psychology");
+
+        // Assert
+        Assert.False(string.IsNullOrWhiteSpace(reply));
+        Assert.Contains("Executive Overview", reply);
+        Assert.Contains("Theoretical Mechanics", reply);
+        Assert.Contains("Real-World Applied Case Study", reply);
+        Assert.Contains("Active Recall", reply);
+        Assert.True(reply.Length > 2000, $"Expected general guide length > 2000 but got {reply.Length}");
+    }
+
+    [Fact]
+    public void IngestionController_TryExtractSearchEngineQuery_WithGoogleSearchUrl_ExtractsQuery()
+    {
+        // Arrange
+        var testUrl = "https://www.google.com/search?q=what+is+the+actual+process+of+barangay+when+publishing+or+implementing+projects+that+needs+a+volunteer+like+projects+for+clean+up+and+so+on&sourceid=chrome&ie=UTF-8";
+
+        // Act
+        var success = IngestionController.TryExtractSearchEngineQuery(testUrl, out var query, out var engineName);
+
+        // Assert
+        Assert.True(success);
+        Assert.Equal("Google Search", engineName);
+        Assert.Contains("process of barangay", query);
+        Assert.Contains("volunteer", query);
+    }
+
+    [Fact]
     public async Task GeminiAiService_AskTutorAsync_WithoutCloudApiKey_ReturnsSynthesizedResponseInsteadOfSleep()
     {
         // Arrange: Configuration explicitly without cloud API key

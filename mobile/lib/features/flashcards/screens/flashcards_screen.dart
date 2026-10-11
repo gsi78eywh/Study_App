@@ -29,8 +29,11 @@ class FlashcardItem {
   final String? category;
   final String? hint;
   final String? dimensionTag;
-  String interval; // "1d", "3d", "7d", "14d"
+  String interval; // dynamic SM-2 interval
   bool isMastered;
+  int repetitions;
+  double easeFactor;
+  int intervalDays;
 
   FlashcardItem({
     required this.id,
@@ -45,7 +48,38 @@ class FlashcardItem {
     this.dimensionTag,
     this.interval = "1d",
     this.isMastered = false,
+    this.repetitions = 0,
+    this.easeFactor = 2.5,
+    this.intervalDays = 0,
   });
+
+  int getNextInterval(int quality) {
+    if (quality < 3) {
+      return 1;
+    }
+    if (repetitions == 0) {
+      return quality == 5 ? 4 : 1;
+    } else if (repetitions == 1) {
+      return quality == 5 ? 8 : (quality == 4 ? 6 : 3);
+    } else {
+      final mult = quality == 5 ? (easeFactor * 1.3) : (quality == 4 ? easeFactor : 1.2);
+      final nextDays = (intervalDays * mult).round();
+      return math.max(nextDays, intervalDays + 1);
+    }
+  }
+
+  void applySm2Rating(int quality) {
+    if (quality < 3) {
+      repetitions = 0;
+      intervalDays = 1;
+      easeFactor = math.max(1.3, easeFactor - 0.2);
+    } else {
+      intervalDays = getNextInterval(quality);
+      repetitions++;
+      easeFactor = math.max(1.3, easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
+    }
+    interval = "${intervalDays}d";
+  }
 }
 
 class FlashcardsScreen extends StatefulWidget {
@@ -453,10 +487,10 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
     }
   }
 
-  void _rateCard(String rating, String interval) {
+  void _rateCard(String rating, int quality) {
     if (_filteredCards.isEmpty) return;
     final currentCard = _filteredCards[_currentIndex];
-    currentCard.interval = interval;
+    currentCard.applySm2Rating(quality);
 
     setState(() {
       if (rating == "again" || rating == "hard") {
@@ -796,6 +830,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
     final masteredCount = inDeckCards.where((c) => _masteredIds.contains(c.id)).length;
     final learningCount = inDeckCards.where((c) => _learningIds.contains(c.id)).length;
     final highRiskCount = inDeckCards.where((c) => _highRiskIds.contains(c.id)).length;
+    final newCount = inDeckCards.where((c) => !_masteredIds.contains(c.id) && !_learningIds.contains(c.id)).length;
     final progress = totalDeckCards > 0 ? (masteredCount / totalDeckCards) : 0.0;
 
     String currentSetTitle = "All Study Sets";
@@ -819,17 +854,17 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
           } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
             _prevCard();
             return KeyEventResult.handled;
-          } else if (event.logicalKey == LogicalKeyboardKey.digit1) {
-            _rateCard("again", "1d");
+          } else if (_showBack && event.logicalKey == LogicalKeyboardKey.digit1) {
+            _rateCard("again", 1);
             return KeyEventResult.handled;
-          } else if (event.logicalKey == LogicalKeyboardKey.digit2) {
-            _rateCard("hard", "3d");
+          } else if (_showBack && event.logicalKey == LogicalKeyboardKey.digit2) {
+            _rateCard("hard", 3);
             return KeyEventResult.handled;
-          } else if (event.logicalKey == LogicalKeyboardKey.digit3) {
-            _rateCard("good", "7d");
+          } else if (_showBack && event.logicalKey == LogicalKeyboardKey.digit3) {
+            _rateCard("good", 4);
             return KeyEventResult.handled;
-          } else if (event.logicalKey == LogicalKeyboardKey.digit4) {
-            _rateCard("easy", "14d");
+          } else if (_showBack && event.logicalKey == LogicalKeyboardKey.digit4) {
+            _rateCard("easy", 5);
             return KeyEventResult.handled;
           }
         }
@@ -1018,10 +1053,10 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text("🟢 Mastered: $masteredCount", style: const TextStyle(fontSize: 12, color: AppColors.accent, fontWeight: FontWeight.w600)),
-                                Text("🟡 Learning: $learningCount", style: const TextStyle(fontSize: 12, color: Color(0xFFF59E0B), fontWeight: FontWeight.w600)),
-                                Text("🔴 High-Risk: $highRiskCount", style: const TextStyle(fontSize: 12, color: Color(0xFFEF4444), fontWeight: FontWeight.w600)),
-                                Text("Total Cards: $totalDeckCards", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                                Text("🔵 New: $newCount", style: const TextStyle(fontSize: 11.5, color: Color(0xFF3B82F6), fontWeight: FontWeight.w600)),
+                                Text("🟡 Learning: $learningCount", style: const TextStyle(fontSize: 11.5, color: Color(0xFFF59E0B), fontWeight: FontWeight.w600)),
+                                Text("🟢 Mastered: $masteredCount", style: const TextStyle(fontSize: 11.5, color: AppColors.accent, fontWeight: FontWeight.w600)),
+                                Text("🔴 High-Risk: $highRiskCount", style: const TextStyle(fontSize: 11.5, color: Color(0xFFEF4444), fontWeight: FontWeight.w600)),
                               ],
                             ),
                           ],
@@ -1538,118 +1573,148 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                           },
                         ),
                       ),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 18),
 
-                      // Spaced Repetition 4-Button Grading Controls
-                      Text(
-                        "Rate Retention (Spaced Repetition Interval)",
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: context.textSecondary),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          // Again (1d)
-                          Expanded(
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.15),
-                                foregroundColor: const Color(0xFFEF4444),
-                                side: const BorderSide(color: Color(0xFFEF4444), width: 1.2),
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                              onPressed: () => _rateCard("again", "1d"),
-                              child: const Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text("Again", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                  SizedBox(height: 2),
-                                  Text("< 1 Day", style: TextStyle(fontSize: 10)),
-                                ],
+                      if (!_showBack) ...[
+                        Center(
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.touch_app_rounded, size: 20),
+                            label: const Text(
+                              "Flip Card to Reveal Answer",
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              elevation: 0,
+                            ),
+                            onPressed: _toggleFlip,
+                          ),
+                        ),
+                      ] else ...[
+                        // Spaced Repetition 4-Button Grading Controls with dynamic SM-2 intervals
+                        Text(
+                          "Rate Retention (SM-2 Spaced Interval)",
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: context.textSecondary),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            // Again (1d)
+                            Expanded(
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                                  foregroundColor: const Color(0xFFEF4444),
+                                  side: const BorderSide(color: Color(0xFFEF4444), width: 1.2),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                onPressed: () => _rateCard("again", 1),
+                                child: const Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text("Again", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                    SizedBox(height: 2),
+                                    Text("< 1 Day", style: TextStyle(fontSize: 10)),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
+                            const SizedBox(width: 8),
 
-                          // Hard (3d)
-                          Expanded(
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFF59E0B).withValues(alpha: 0.15),
-                                foregroundColor: const Color(0xFFF59E0B),
-                                side: const BorderSide(color: Color(0xFFF59E0B), width: 1.2),
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                              onPressed: () => _rateCard("hard", "3d"),
-                              child: const Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text("Hard", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                  SizedBox(height: 2),
-                                  Text("3 Days", style: TextStyle(fontSize: 10)),
-                                ],
+                            // Hard (dynamic days)
+                            Expanded(
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                  foregroundColor: const Color(0xFFF59E0B),
+                                  side: const BorderSide(color: Color(0xFFF59E0B), width: 1.2),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                onPressed: () => _rateCard("hard", 3),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text("Hard", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      "${_filteredCards[_currentIndex].getNextInterval(3)} Days",
+                                      style: const TextStyle(fontSize: 10),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
+                            const SizedBox(width: 8),
 
-                          // Good (7d)
-                          Expanded(
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF10B981).withValues(alpha: 0.15),
-                                foregroundColor: const Color(0xFF10B981),
-                                side: const BorderSide(color: Color(0xFF10B981), width: 1.2),
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                              onPressed: () => _rateCard("good", "7d"),
-                              child: const Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text("Good", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                  SizedBox(height: 2),
-                                  Text("7 Days", style: TextStyle(fontSize: 10)),
-                                ],
+                            // Good (dynamic days)
+                            Expanded(
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                  foregroundColor: const Color(0xFF10B981),
+                                  side: const BorderSide(color: Color(0xFF10B981), width: 1.2),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                onPressed: () => _rateCard("good", 4),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text("Good", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      "${_filteredCards[_currentIndex].getNextInterval(4)} Days",
+                                      style: const TextStyle(fontSize: 10),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
+                            const SizedBox(width: 8),
 
-                          // Easy (14d)
-                          Expanded(
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF6366F1).withValues(alpha: 0.15),
-                                foregroundColor: const Color(0xFF6366F1),
-                                side: const BorderSide(color: Color(0xFF6366F1), width: 1.2),
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                              onPressed: () => _rateCard("easy", "14d"),
-                              child: const Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text("Easy", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                  SizedBox(height: 2),
-                                  Text("14 Days", style: TextStyle(fontSize: 10)),
-                                ],
+                            // Easy (dynamic days)
+                            Expanded(
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                                  foregroundColor: const Color(0xFF6366F1),
+                                  side: const BorderSide(color: Color(0xFF6366F1), width: 1.2),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                onPressed: () => _rateCard("easy", 5),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text("Easy", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      "${_filteredCards[_currentIndex].getNextInterval(5)} Days",
+                                      style: const TextStyle(fontSize: 10),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 16),
 
-                      // Keyboard Shortcuts Helper Bar (Desktop / Web)
-                      Center(
-                        child: Text(
-                          "⌨ Shortcuts: [Space] Flip • [← / →] Prev / Next • [1 - 4] Rate Retention",
-                          style: TextStyle(fontSize: 11, color: context.textSecondary.withValues(alpha: 0.6)),
+                      // Keyboard Shortcuts Helper Bar (Desktop / Web only)
+                      if (MediaQuery.sizeOf(context).width >= 768)
+                        Center(
+                          child: Text(
+                            "⌨ Shortcuts: [Space] Flip • [← / →] Prev / Next • [1 - 4] Rate Retention",
+                            style: TextStyle(fontSize: 11, color: context.textSecondary.withValues(alpha: 0.6)),
+                          ),
                         ),
-                      ),
                     ],
                     const SizedBox(height: 32),
                   ],

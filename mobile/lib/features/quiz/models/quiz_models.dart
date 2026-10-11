@@ -73,6 +73,7 @@ class QuestionModel {
   final String? correctAnswer;
   final List<String> thinkingBreakdown;
   final String? dimensionTag;
+  final String? sourceSnippet;
 
   QuestionModel({
     required this.id,
@@ -91,7 +92,11 @@ class QuestionModel {
     this.correctAnswer,
     this.thinkingBreakdown = const [],
     this.dimensionTag,
+    this.sourceSnippet,
   });
+
+  String get questionText => prompt;
+  String? get rationale => explanation;
 
   QuestionOptionModel? get correctOption {
     try {
@@ -287,6 +292,9 @@ class QuestionModel {
       correctAnswer: correctAnswer,
       thinkingBreakdown: parsedThinking,
       dimensionTag: dimensionTag,
+      sourceSnippet: json["sourceSnippet"]?.toString() ??
+          json["sourceSnippetVerified"]?.toString() ??
+          json["snippet"]?.toString(),
     );
   }
 }

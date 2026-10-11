@@ -36,139 +36,100 @@ extension ThemeHelper on BuildContext {
 }
 
 class AppTheme {
-  static ThemeData get lightTheme {
-    final baseTextTheme = ThemeData.light().textTheme;
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.light,
-      scaffoldBackgroundColor: AppColors.lightBg,
-      colorScheme: const ColorScheme.light(
-        primary: AppColors.primaryDark,
-        secondary: AppColors.accent,
-        surface: AppColors.lightCard,
-        error: AppColors.danger,
-        onSurface: AppColors.lightTextPrimary,
-      ),
-      textTheme: GoogleFonts.outfitTextTheme(baseTextTheme).copyWith(
-        displayLarge: GoogleFonts.outfit(fontWeight: FontWeight.w700, color: AppColors.lightTextPrimary),
-        displayMedium: GoogleFonts.outfit(fontWeight: FontWeight.w700, color: AppColors.lightTextPrimary),
-        headlineMedium: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: AppColors.lightTextPrimary),
-        titleLarge: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: AppColors.lightTextPrimary),
-        bodyLarge: GoogleFonts.inter(fontSize: 16, color: AppColors.lightTextPrimary),
-        bodyMedium: GoogleFonts.inter(fontSize: 14, color: AppColors.lightTextSecondary),
-      ),
-      cardTheme: CardThemeData(
-        color: AppColors.lightCard,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: AppColors.lightCardBorder, width: 1),
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: AppColors.lightCard,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.lightCardBorder),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.lightCardBorder),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primaryDark, width: 2),
-        ),
-        labelStyle: const TextStyle(color: AppColors.lightTextSecondary),
-        hintStyle: const TextStyle(color: AppColors.lightTextSecondary),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primaryDark,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          textStyle: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w600),
-          elevation: 1,
-        ),
-      ),
-      appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.lightCard,
-        elevation: 0,
-        titleTextStyle: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.lightTextPrimary),
-        iconTheme: const IconThemeData(color: AppColors.lightTextPrimary),
-      ),
-      dividerColor: AppColors.lightCardBorder,
-    );
-  }
+  static ThemeData get lightTheme => buildTheme(isDark: false);
+  static ThemeData get darkTheme => buildTheme(isDark: true);
 
-  static ThemeData get darkTheme {
-    final baseTextTheme = ThemeData.dark().textTheme;
+  static ThemeData buildTheme({required bool isDark, bool useDyslexicFont = false}) {
+    final baseTextTheme = isDark ? ThemeData.dark().textTheme : ThemeData.light().textTheme;
+    final textTheme = useDyslexicFont
+        ? GoogleFonts.lexendTextTheme(baseTextTheme).copyWith(
+            displayLarge: GoogleFonts.lexend(fontWeight: FontWeight.w700, color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
+            displayMedium: GoogleFonts.lexend(fontWeight: FontWeight.w700, color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
+            headlineMedium: GoogleFonts.lexend(fontWeight: FontWeight.w600, color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
+            titleLarge: GoogleFonts.lexend(fontWeight: FontWeight.w600, color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
+            bodyLarge: GoogleFonts.lexend(fontSize: 16, color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
+            bodyMedium: GoogleFonts.lexend(fontSize: 14, color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
+          )
+        : GoogleFonts.outfitTextTheme(baseTextTheme).copyWith(
+            displayLarge: GoogleFonts.outfit(fontWeight: FontWeight.w700, color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
+            displayMedium: GoogleFonts.outfit(fontWeight: FontWeight.w700, color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
+            headlineMedium: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
+            titleLarge: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
+            bodyLarge: GoogleFonts.inter(fontSize: 16, color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
+            bodyMedium: GoogleFonts.inter(fontSize: 14, color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
+          );
+
+    final bg = isDark ? AppColors.darkBg : AppColors.lightBg;
+    final card = isDark ? AppColors.darkCard : AppColors.lightCard;
+    final border = isDark ? AppColors.darkCardBorder : AppColors.lightCardBorder;
+    final primary = isDark ? AppColors.primary : AppColors.primaryDark;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: AppColors.darkBg,
-      colorScheme: const ColorScheme.dark(
-        primary: AppColors.primary,
-        secondary: AppColors.accent,
-        surface: AppColors.darkCard,
-        error: AppColors.danger,
-        onSurface: AppColors.darkTextPrimary,
-      ),
-      textTheme: GoogleFonts.outfitTextTheme(baseTextTheme).copyWith(
-        displayLarge: GoogleFonts.outfit(fontWeight: FontWeight.w700, color: AppColors.darkTextPrimary),
-        displayMedium: GoogleFonts.outfit(fontWeight: FontWeight.w700, color: AppColors.darkTextPrimary),
-        headlineMedium: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: AppColors.darkTextPrimary),
-        titleLarge: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: AppColors.darkTextPrimary),
-        bodyLarge: GoogleFonts.inter(fontSize: 16, color: AppColors.darkTextPrimary),
-        bodyMedium: GoogleFonts.inter(fontSize: 14, color: AppColors.darkTextSecondary),
-      ),
+      brightness: isDark ? Brightness.dark : Brightness.light,
+      scaffoldBackgroundColor: bg,
+      colorScheme: isDark
+          ? const ColorScheme.dark(
+              primary: AppColors.primary,
+              secondary: AppColors.accent,
+              surface: AppColors.darkCard,
+              error: AppColors.danger,
+              onSurface: AppColors.darkTextPrimary,
+            )
+          : const ColorScheme.light(
+              primary: AppColors.primaryDark,
+              secondary: AppColors.accent,
+              surface: AppColors.lightCard,
+              error: AppColors.danger,
+              onSurface: AppColors.lightTextPrimary,
+            ),
+      textTheme: textTheme,
       cardTheme: CardThemeData(
-        color: AppColors.darkCard,
+        color: card,
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: AppColors.darkCardBorder, width: 1),
+          side: BorderSide(color: border, width: 1),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.darkCard,
+        fillColor: card,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF475569), width: 1.2),
+          borderSide: BorderSide(color: isDark ? const Color(0xFF475569) : border, width: 1.2),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF475569), width: 1.2),
+          borderSide: BorderSide(color: isDark ? const Color(0xFF475569) : border, width: 1.2),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primaryLight, width: 2),
+          borderSide: BorderSide(color: isDark ? AppColors.primaryLight : AppColors.primaryDark, width: 2),
         ),
-        labelStyle: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 14),
-        hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+        labelStyle: TextStyle(color: isDark ? const Color(0xFFCBD5E1) : textSecondary, fontSize: 14),
+        hintStyle: TextStyle(color: textSecondary, fontSize: 14),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
+          backgroundColor: primary,
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          textStyle: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w600),
-          elevation: 2,
+          textStyle: (useDyslexicFont ? GoogleFonts.lexend : GoogleFonts.inter)(fontSize: 16, fontWeight: FontWeight.w600),
+          elevation: isDark ? 2 : 1,
         ),
       ),
       appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.darkBg,
+        backgroundColor: card,
         elevation: 0,
-        titleTextStyle: GoogleFonts.outfit(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.darkTextPrimary),
-        iconTheme: const IconThemeData(color: AppColors.darkTextPrimary),
+        titleTextStyle: (useDyslexicFont ? GoogleFonts.lexend : GoogleFonts.outfit)(fontSize: 20, fontWeight: FontWeight.w700, color: textPrimary),
+        iconTheme: IconThemeData(color: textPrimary),
       ),
-      dividerColor: AppColors.darkCardBorder,
+      dividerColor: border,
     );
   }
 }

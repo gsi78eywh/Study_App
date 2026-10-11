@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "core/network/api_client.dart";
+import "core/services/app_session.dart";
 import "core/services/child_safety_service.dart";
 import "core/services/notification_service.dart";
 import "core/services/session_service.dart";
@@ -7,9 +8,12 @@ import "core/theme/app_theme.dart";
 import "core/theme/theme_controller.dart";
 import "features/auth/screens/login_screen.dart";
 import "features/courses/screens/dashboard_screen.dart";
+import "features/sync/services/sync_service.dart";
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  AppSession.init();
+  SessionService.onClearUserData = SyncService.clearCache;
 
   final sessionService = await SessionService.init();
   await sessionService.expireIfInactive();
@@ -70,8 +74,8 @@ class _StudyAppMobileState extends State<StudyAppMobile> with WidgetsBindingObse
         return MaterialApp(
           title: "StudyApp",
           debugShowCheckedModeBanner: false,
-          theme: AppTheme.lightTheme,
-          darkTheme: AppTheme.darkTheme,
+          theme: AppTheme.buildTheme(isDark: false, useDyslexicFont: childSafety.dyslexiaFriendlyFont),
+          darkTheme: AppTheme.buildTheme(isDark: true, useDyslexicFont: childSafety.dyslexiaFriendlyFont),
           themeMode: widget.themeController.themeMode,
           builder: (context, child) {
             final system = MediaQuery.textScalerOf(context).scale(1.0);

@@ -14,6 +14,12 @@ import '../../courses/models/course_models.dart';
 import '../models/quiz_models.dart';
 import 'quiz_summary_screen.dart';
 
+enum GradingVerdict {
+  correct,
+  almost,
+  incorrect,
+}
+
 class QuizPlayerScreen extends StatefulWidget {
   final StudySetModel studySet;
   final List<QuestionModel> questions;
@@ -53,6 +59,8 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
   int _revealedHintsCount = 0;
   final List<PracticeAnswerSubmission> _answers = [];
   final Set<String> _starredQuestionIds = {};
+  final Set<String> _overriddenCorrectQuestionIds = {};
+  final Set<String> _reportedQuestionIds = {};
 
   @override
   void initState() {
@@ -130,13 +138,28 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
     }
   }
 
+  int _calculateTotalScore() {
+    int total = 0;
+    for (final q in widget.questions) {
+      if (_overriddenCorrectQuestionIds.contains(q.id)) {
+        total++;
+        continue;
+      }
+      final sub = _answers.where((a) => a.questionId == q.id).firstOrNull;
+      if (sub != null && _isAnswerSubmissionCorrect(q, sub.answer)) {
+        total++;
+      }
+    }
+    return total;
+  }
+
   void _finishQuiz() {
     _timer?.cancel();
     final submission = TestSessionSubmission(
       id: const Uuid().v4(),
       studySetId: widget.studySet.id,
       mode: widget.initialMode,
-      score: 0,
+      score: _calculateTotalScore(),
       totalQuestions: widget.questions.length,
       timeSpentSeconds: _secondsElapsed,
       completedAt: DateTime.now(),
@@ -146,6 +169,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
       MaterialPageRoute(
         builder: (_) => QuizSummaryScreen(
           studySet: widget.studySet,
+          questions: widget.questions,
           submission: submission,
           apiClient: widget.apiClient,
           sessionService: widget.sessionService,
@@ -629,7 +653,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
 
             if (_hasSubmittedCurrent) {
               if (isCorrect) {
-                // 100% Verified Correct Option
+                // Correct Option (Matches notes)
                 borderColor = const Color(0xFF10B981);
                 bgColor = const Color(0xFF10B981).withValues(alpha: 0.15);
                 letterBg = const Color(0xFF10B981);
@@ -653,7 +677,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                       Icon(Icons.check_circle_rounded, color: Colors.white, size: 14),
                       SizedBox(width: 4),
                       Text(
-                        '100% Correct',
+                        'Matches notes',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 11.5,
@@ -929,7 +953,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
             borderRadius: BorderRadius.circular(6),
           ),
           child: const Text(
-            '100% Correct',
+            'Matches notes',
             style: TextStyle(
                 color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
           ),
@@ -1153,7 +1177,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      '100% Match: $expectedDef',
+                      'Matches notes: $expectedDef',
                       style: const TextStyle(
                         color: Color(0xFF10B981),
                         fontSize: 11.5,
@@ -1172,46 +1196,80 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
 
   bool get _isCurrentCorrect {
     final q = widget.questions[_currentIndex];
+    if (_overriddenCorrectQuestionIds.contains(q.id)) {
+      return true;
+    }
+    return _evaluateVerdict(q) == GradingVerdict.correct;
+  }
+
+  GradingVerdict get _currentVerdict {
+    final q = widget.questions[_currentIndex];
+    if (_overriddenCorrectQuestionIds.contains(q.id)) {
+      return GradingVerdict.correct;
+    }
+    return _evaluateVerdict(q);
+  }
+
+  GradingVerdict _evaluateVerdict(QuestionModel q) {
     switch (q.type) {
       case QuestionTypeEnum.multipleChoice:
       case QuestionTypeEnum.scenario:
-        if (_selectedOptionId == null) return false;
+        if (_selectedOptionId == null) return GradingVerdict.incorrect;
         final selected =
             q.options.where((o) => o.id == _selectedOptionId).firstOrNull;
-        return selected?.isCorrect == true;
+        return selected?.isCorrect == true ? GradingVerdict.correct : GradingVerdict.incorrect;
+
       case QuestionTypeEnum.trueFalse:
-        if (_selectedTrueFalse == null || q.isTrue == null) return false;
-        return _selectedTrueFalse == q.isTrue;
+        if (_selectedTrueFalse == null || q.isTrue == null) return GradingVerdict.incorrect;
+        return _selectedTrueFalse == q.isTrue ? GradingVerdict.correct : GradingVerdict.incorrect;
+
       case QuestionTypeEnum.matching:
         if (_matchingSelections.isEmpty ||
             (q.matchingPairs == null || q.matchingPairs!.isEmpty)) {
-          return false;
+          return GradingVerdict.incorrect;
         }
+        int matches = 0;
+        final total = q.matchingPairs!.length;
         for (final pair in q.matchingPairs!) {
           final term = pair["term"] ?? "";
           final def = pair["definition"] ?? "";
-          if (_matchingSelections[term]?.trim().toLowerCase() !=
+          if (_matchingSelections[term]?.trim().toLowerCase() ==
               def.trim().toLowerCase()) {
-            return false;
+            matches++;
           }
         }
-        return true;
+        if (matches == total) return GradingVerdict.correct;
+        if (matches > 0 && matches >= (total / 2)) return GradingVerdict.almost;
+        return GradingVerdict.incorrect;
+
       case QuestionTypeEnum.identification:
       case QuestionTypeEnum.cloze:
-        final entered = _textController.text.trim().toLowerCase();
-        if (entered.isEmpty) return false;
+        final entered = _textController.text.trim();
+        if (entered.isEmpty) return GradingVerdict.incorrect;
+
         final candidates = <String>[];
         if (q.correctAnswer != null && q.correctAnswer!.isNotEmpty) {
-          candidates.add(q.correctAnswer!.trim().toLowerCase());
+          candidates.add(q.correctAnswer!.trim());
         }
         for (final opt in q.options.where((o) => o.isCorrect)) {
-          candidates.add(opt.optionText.trim().toLowerCase());
+          candidates.add(opt.optionText.trim());
         }
-        return candidates.any((c) => _isFuzzyMatch(entered, c));
+        if (candidates.isEmpty) {
+          return entered.length >= 3 ? GradingVerdict.almost : GradingVerdict.incorrect;
+        }
+
+        bool hasAlmost = false;
+        for (final candidate in candidates) {
+          final verdict = _compareFuzzyAnswers(entered, candidate);
+          if (verdict == GradingVerdict.correct) return GradingVerdict.correct;
+          if (verdict == GradingVerdict.almost) hasAlmost = true;
+        }
+        return hasAlmost ? GradingVerdict.almost : GradingVerdict.incorrect;
+
       case QuestionTypeEnum.enumeration:
       case QuestionTypeEnum.bulletPoints:
         final entered = _textController.text.trim().toLowerCase();
-        if (entered.isEmpty) return false;
+        if (entered.isEmpty) return GradingVerdict.incorrect;
         final accepted = q.options
             .where((o) => o.isCorrect)
             .map((o) => o.optionText.trim().toLowerCase())
@@ -1223,38 +1281,156 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
               .map((s) => s.trim())
               .where((s) => s.isNotEmpty));
         }
-        return accepted.any((item) => entered.contains(item));
+        if (accepted.isEmpty) return GradingVerdict.incorrect;
+        final matchedCount = accepted.where((item) => entered.contains(item)).length;
+        if (matchedCount == accepted.length) return GradingVerdict.correct;
+        if (matchedCount > 0) return GradingVerdict.almost;
+        return GradingVerdict.incorrect;
+
       default:
-        final entered = _textController.text.trim().toLowerCase();
-        return entered.isNotEmpty;
+        final entered = _textController.text.trim();
+        if (entered.isEmpty) return GradingVerdict.incorrect;
+        final lower = entered.toLowerCase();
+        if (lower == 'yes' || lower == 'no' || lower == 'qug' || lower == 'idk' || lower == 'ok') {
+          final actual = (q.correctAnswer ?? '').trim().toLowerCase();
+          if (actual != lower) return GradingVerdict.incorrect;
+        }
+        final target = (q.correctAnswer ??
+            q.options.where((o) => o.isCorrect).map((o) => o.optionText).join(' ')).trim();
+        if (target.isEmpty) return GradingVerdict.almost;
+        return _compareFuzzyAnswers(entered, target);
     }
   }
 
-  static bool _isFuzzyMatch(String a, String b) {
-    if (a == b) return true;
-    final cleanA = a.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final cleanB = b.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    if (cleanA == cleanB && cleanA.isNotEmpty) return true;
-    if (cleanB.contains(cleanA) && cleanA.length >= 3) return true;
-    return false;
+  bool _isAnswerSubmissionCorrect(QuestionModel q, String answer) {
+    if (_overriddenCorrectQuestionIds.contains(q.id)) return true;
+    switch (q.type) {
+      case QuestionTypeEnum.multipleChoice:
+      case QuestionTypeEnum.scenario:
+        final opt = q.options.where((o) => o.id == answer).firstOrNull;
+        return opt?.isCorrect == true;
+      case QuestionTypeEnum.trueFalse:
+        return answer.toLowerCase() == (q.isTrue?.toString().toLowerCase() ?? "");
+      default:
+        final target = (q.correctAnswer ??
+            q.options.where((o) => o.isCorrect).map((o) => o.optionText).join(' ')).trim();
+        return _compareFuzzyAnswers(answer, target) == GradingVerdict.correct;
+    }
+  }
+
+  static GradingVerdict _compareFuzzyAnswers(String entered, String target) {
+    final cleanEntered = entered.trim().toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '');
+    final cleanTarget = target.trim().toLowerCase().replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '');
+
+    if (cleanEntered == cleanTarget && cleanEntered.isNotEmpty) {
+      return GradingVerdict.correct;
+    }
+
+    final dist = _levenshtein(cleanEntered, cleanTarget);
+    if (dist <= 1 && cleanTarget.length >= 3) {
+      return GradingVerdict.correct;
+    }
+    if (dist <= 2 && cleanTarget.length >= 5) {
+      return GradingVerdict.almost;
+    }
+
+    if (cleanTarget.contains(cleanEntered) && cleanEntered.length >= 4) {
+      final ratio = cleanEntered.length / cleanTarget.length;
+      if (ratio >= 0.75) return GradingVerdict.almost;
+    }
+    if (cleanEntered.contains(cleanTarget) && cleanTarget.length >= 4) {
+      return GradingVerdict.correct;
+    }
+
+    return GradingVerdict.incorrect;
+  }
+
+  static int _levenshtein(String s1, String s2) {
+    if (s1 == s2) return 0;
+    if (s1.isEmpty) return s2.length;
+    if (s2.isEmpty) return s1.length;
+
+    List<int> v0 = List<int>.generate(s2.length + 1, (i) => i);
+    List<int> v1 = List<int>.filled(s2.length + 1, 0);
+
+    for (int i = 0; i < s1.length; i++) {
+      v1[0] = i + 1;
+      for (int j = 0; j < s2.length; j++) {
+        final cost = (s1[i] == s2[j]) ? 0 : 1;
+        v1[j + 1] = [v1[j] + 1, v0[j + 1] + 1, v0[j] + cost].reduce((a, b) => a < b ? a : b);
+      }
+      for (int j = 0; j <= s2.length; j++) {
+        v0[j] = v1[j];
+      }
+    }
+    return v0[s2.length];
+  }
+
+  void _reportQuestion(QuestionModel q) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Report Question"),
+        content: const Text(
+          "Thank you for helping improve question accuracy. Would you like to flag this question for correction in your study set?",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() => _reportedQuestionIds.add(q.id));
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Feedback recorded. Question flagged for review.")),
+              );
+            },
+            child: const Text("Submit Report"),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildRealtimeAnswerFeedbackBanner(QuestionModel q) {
+    final verdict = _currentVerdict;
     final isCorrect = _isCurrentCorrect;
+    final isAlmost = verdict == GradingVerdict.almost;
     final isJunior = ChildSafetyService.instance.isJuniorMode;
-    final primaryColor =
-        isCorrect ? const Color(0xFF10B981) : (isJunior ? const Color(0xFFF59E0B) : const Color(0xFFEF4444));
-    final iconData =
-        isCorrect ? Icons.check_circle_rounded : (isJunior ? Icons.emoji_objects_rounded : Icons.highlight_off_rounded);
-    final title = isJunior
-        ? ChildSafetyService.instance.getEncouragingFeedback(isCorrect: isCorrect)
-        : (isCorrect ? '100% Correct Recall!' : 'Answer Revealed: Review Key');
-    final subtitle = isCorrect
-        ? 'Spot on! You selected the verified 100% accurate solution.'
-        : (isJunior
-            ? 'Making mistakes is how our brain grows stronger! The correct answer is below.'
-            : 'The exact 100% correct answer is highlighted in green below.');
-    final badgeLabel = isCorrect ? '100% Accurate' : (isJunior ? 'Keep Growing 🌱' : 'Exact Answer Revealed');
+
+    Color primaryColor;
+    IconData iconData;
+    String title;
+    String subtitle;
+    String badgeLabel;
+
+    if (isCorrect) {
+      primaryColor = const Color(0xFF10B981);
+      iconData = Icons.check_circle_rounded;
+      title = isJunior
+          ? ChildSafetyService.instance.getEncouragingFeedback(isCorrect: true)
+          : 'Matches your notes!';
+      subtitle = 'Great job! Your answer matches your study material.';
+      badgeLabel = 'Matches notes';
+    } else if (isAlmost) {
+      primaryColor = const Color(0xFFF59E0B);
+      iconData = Icons.emoji_objects_rounded;
+      title = 'Almost there!';
+      subtitle = 'Your answer is very close to the notes key. Review the phrasing below.';
+      badgeLabel = 'Almost';
+    } else {
+      primaryColor = isJunior ? const Color(0xFFF59E0B) : const Color(0xFFEF4444);
+      iconData = isJunior ? Icons.emoji_objects_rounded : Icons.highlight_off_rounded;
+      title = isJunior
+          ? ChildSafetyService.instance.getEncouragingFeedback(isCorrect: false)
+          : 'Review Answer Key';
+      subtitle = isJunior
+          ? 'Making mistakes is how our brain grows stronger! The correct answer is below.'
+          : 'The correct answer from your notes is highlighted below.';
+      badgeLabel = isJunior ? 'Keep Growing 🌱' : 'Answer Key';
+    }
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1263,64 +1439,114 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: primaryColor, width: 1.5),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: primaryColor.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(iconData, color: primaryColor, size: 24),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 8,
-                  runSpacing: 4,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: primaryColor.withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(iconData, color: primaryColor, size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: GoogleFonts.outfit(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: primaryColor,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: primaryColor,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        badgeLabel,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        Text(
+                          title,
+                          style: GoogleFonts.outfit(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: primaryColor,
+                          ),
                         ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: primaryColor,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            badgeLabel,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: context.textSecondary,
+                        fontSize: 13,
+                        height: 1.35,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: context.textSecondary,
-                    fontSize: 13,
-                    height: 1.35,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Actions: Mark my answer correct override + Report button
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              if (!isCorrect)
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.check_rounded, size: 16),
+                  label: const Text(
+                    "Mark my answer correct",
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                   ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF10B981),
+                    side: const BorderSide(color: Color(0xFF10B981)),
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _overriddenCorrectQuestionIds.add(q.id);
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Marked as correct. Full credit granted!'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                )
+              else
+                const SizedBox.shrink(),
+              TextButton.icon(
+                icon: const Icon(Icons.flag_outlined, size: 14),
+                label: Text(
+                  _reportedQuestionIds.contains(q.id) ? "Reported" : "Report incorrect answer",
+                  style: const TextStyle(fontSize: 11.5),
                 ),
-              ],
-            ),
+                style: TextButton.styleFrom(
+                  foregroundColor: context.textSecondary,
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: _reportedQuestionIds.contains(q.id) ? null : () => _reportQuestion(q),
+              ),
+            ],
           ),
         ],
       ),
@@ -1416,24 +1642,24 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            const Color(0xFF10B981).withValues(alpha: 0.14),
-            const Color(0xFF059669).withValues(alpha: 0.05),
+            const Color(0xFF10B981).withValues(alpha: 0.12),
+            const Color(0xFF059669).withValues(alpha: 0.04),
           ],
         ),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF10B981), width: 1.5),
+        border: Border.all(color: const Color(0xFF10B981), width: 1.2),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.verified_rounded,
+              const Icon(Icons.check_circle_rounded,
                   color: Color(0xFF10B981), size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Exact 100% Answer Key',
+                  'Answer Key (Matches notes)',
                   style: GoogleFonts.outfit(
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
@@ -1450,7 +1676,7 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Text(
-                  '100% Accuracy',
+                  'From Notes',
                   style: TextStyle(
                       color: Colors.white,
                       fontSize: 10,
@@ -1467,6 +1693,17 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
                 color: context.textPrimary,
+              ),
+            ),
+          ],
+          if (q.sourceSnippet != null && q.sourceSnippet!.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Matches source: "${q.sourceSnippet}"',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontStyle: FontStyle.italic,
+                color: context.textSecondary,
               ),
             ),
           ],

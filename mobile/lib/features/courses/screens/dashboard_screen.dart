@@ -15,7 +15,6 @@ import "../../auth/screens/login_screen.dart";
 import "../../auth/widgets/google_sign_in_dialog.dart";
 import "../../flashcards/screens/flashcards_screen.dart";
 import "../../ingestion/screens/ingestion_screen.dart";
-import "../../notebook/screens/notebook_screen.dart";
 import "../../quiz/models/quiz_models.dart";
 import "../../quiz/screens/quiz_player_screen.dart";
 import "../../quiz/screens/rapid_fire_screen.dart";
@@ -39,6 +38,7 @@ import "../widgets/notification_sheet.dart";
 import "../../../core/services/notification_service.dart";
 import "../../quiz/screens/smart_session_player_screen.dart";
 import "../../quiz/screens/mistake_bank_screen.dart";
+import "../../practice/screens/practice_screen.dart";
 
 class DashboardScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -189,10 +189,93 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _studioDraftTitle = title;
           _studioDraftContent = scannedText;
           _studioDraftRevision++;
-          _currentTabIndex = 3;
+          _openAddMaterial();
         });
       },
     );
+  }
+
+  void _openAddMaterial([String? targetCourseId]) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: Text("Add Study Material", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+            elevation: 0,
+          ),
+          body: IngestionScreen(
+            courses: _courses,
+            apiClient: widget.apiClient,
+            initialCourseId: targetCourseId ?? _activeCourseId,
+            settingsService: _settingsService,
+            onCourseSelected: (id) => setState(() => _activeCourseId = id),
+            draftTitle: _studioDraftTitle,
+            draftContent: _studioDraftContent,
+            draftRevision: _studioDraftRevision,
+            onStudySetCreated: (newSet) async {
+              await _fetchCoursesAndSync();
+              if (!mounted) return;
+              setState(() {
+                final course = _courses.firstWhere(
+                  (c) => c.id == newSet.courseId,
+                  orElse: () => _courses.isNotEmpty
+                      ? _courses.first
+                      : CourseModel(
+                          id: newSet.courseId,
+                          code: "GEN-101",
+                          name: "General Studies",
+                          colorHex: "#6366F1",
+                          createdAt: DateTime.now(),
+                          studySets: [newSet],
+                        ),
+                );
+                if (!course.studySets.any((s) => s.id == newSet.id)) {
+                  course.studySets.insert(0, newSet);
+                }
+              });
+              Navigator.of(context).pop();
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _startPracticeForSet(StudySetModel set) async {
+    List<QuestionModel> loadedQuestions = [];
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      final res = await widget.apiClient.dio.get('/api/v1/studysets/${set.id}/questions');
+      if (res.statusCode == 200 && res.data is List) {
+        loadedQuestions = (res.data as List)
+            .map((q) => QuestionModel.fromJson(q as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {}
+    if (mounted) Navigator.of(context).pop();
+
+    if (!mounted) return;
+    if (loadedQuestions.isEmpty && set.questionCount == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No questions available in this set.')),
+      );
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => QuizPlayerScreen(
+          studySet: set,
+          questions: loadedQuestions,
+          apiClient: widget.apiClient,
+          sessionService: widget.sessionService,
+        ),
+      ),
+    ).then((_) => _fetchCoursesAndSync(fullFetch: true));
   }
 
   Widget _buildQuickActionCard(
@@ -2090,6 +2173,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             color: ctx.textSecondary,
                           ),
                         ),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: (widget.sessionService.isGoogleLinked || email.endsWith("@gmail.com"))
+                                ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                                : const Color(0xFF64748B).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: (widget.sessionService.isGoogleLinked || email.endsWith("@gmail.com"))
+                                  ? const Color(0xFF10B981)
+                                  : const Color(0xFF64748B),
+                              width: 0.8,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                (widget.sessionService.isGoogleLinked || email.endsWith("@gmail.com"))
+                                    ? Icons.cloud_done_rounded
+                                    : Icons.cloud_queue_rounded,
+                                size: 13,
+                                color: (widget.sessionService.isGoogleLinked || email.endsWith("@gmail.com"))
+                                    ? const Color(0xFF059669)
+                                    : const Color(0xFF64748B),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                (widget.sessionService.isGoogleLinked || email.endsWith("@gmail.com"))
+                                    ? "Google Cloud Linked • Backup Active"
+                                    : "Local Workspace • Not Linked",
+                                style: TextStyle(
+                                  color: (widget.sessionService.isGoogleLinked || email.endsWith("@gmail.com"))
+                                      ? const Color(0xFF059669)
+                                      : const Color(0xFF64748B),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -2098,7 +2224,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(height: 20),
               const Divider(height: 1),
               const SizedBox(height: 12),
-              if (isDemo) ...[
+              if (!widget.sessionService.isGoogleLinked && !email.endsWith("@gmail.com")) ...[
                 ListTile(
                   leading: Container(
                     padding: const EdgeInsets.all(8),
@@ -2108,13 +2234,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     child: const Icon(Icons.g_mobiledata_rounded, color: Color(0xFF4285F4), size: 24),
                   ),
-                  title: const Text("Sign In with Gmail", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  subtitle: const Text("Replace demo mode with your personal account", style: TextStyle(fontSize: 12)),
+                  title: const Text("Connect Google Account", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  subtitle: const Text("Link account to cloud storage to protect against app reinstall or data loss", style: TextStyle(fontSize: 12)),
                   trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
                   onTap: () {
                     Navigator.of(ctx).pop();
                     _openGoogleSignInModal();
                   },
+                ),
+              ] else ...[
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.25)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.verified_user_rounded, color: Color(0xFF10B981), size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          "Cloud Protection Active: Your courses and notes are safely linked to your Google account. If you reinstall the app or switch devices, signing in restores all your data.",
+                          style: TextStyle(fontSize: 11.5, color: ctx.textPrimary, height: 1.3),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
               ListTile(
@@ -2757,7 +2905,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildCoursesTab() {
+  Widget _buildHomeTab() {
     final isDark = context.isDarkMode;
     final totalSets = _courses.fold<int>(
       0,
@@ -2775,7 +2923,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         studentName == 'Developer Test Account';
 
     final displayName = isDemoUser
-        ? 'Demo Student'
+        ? 'Student'
         : ((studentName != null &&
                 studentName.isNotEmpty &&
                 studentName.toLowerCase() != 'google student')
@@ -2783,6 +2931,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ? studentName.substring(15).trim()
                 : studentName)
             : (userEmail.isNotEmpty ? userEmail.split('@').first : 'Student'));
+
+    final isFirstRun = _courses.isEmpty || totalSets == 0;
+
+    CourseModel? upcomingExamCourse;
+    for (final c in _courses) {
+      if (c.hasUpcomingExam) {
+        if (upcomingExamCourse == null || (c.daysUntilExam ?? 999) < (upcomingExamCourse.daysUntilExam ?? 999)) {
+          upcomingExamCourse = c;
+        }
+      }
+    }
+
+    StudySetModel? recentSet;
+    CourseModel? recentSetCourse;
+    for (final c in _courses) {
+      if (c.studySets.isNotEmpty) {
+        recentSet = c.studySets.first;
+        recentSetCourse = c;
+        break;
+      }
+    }
+
+    final activeStreakDays = _todayStudyPlan?.readiness.spacingDaysActive ?? 0;
+    final hasActiveStreak = activeStreakDays > 0;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -2905,41 +3077,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           );
                         },
                       ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.all(4),
-                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                        icon: const Icon(
-                          Icons.sync_rounded,
-                          color: AppColors.primaryDark,
-                          size: 22,
-                        ),
-                        tooltip: "Sync with Cloud",
-                        onPressed: () => _fetchCoursesAndSync(fullFetch: true, showSnackBar: true),
-                      ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.all(4),
-                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                        icon: const Icon(
-                          Icons.settings_outlined,
-                          color: Color(0xFF6366F1),
-                          size: 22,
-                        ),
-                        tooltip: "Study Configurations",
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => SettingsScreen(
-                                apiClient: widget.apiClient,
-                                sessionService: widget.sessionService,
-                                settingsService: _settingsService,
-                                onLogout: _handleLogout,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
+                      const SizedBox(width: 4),
                       IconButton(
                         visualDensity: VisualDensity.compact,
                         padding: const EdgeInsets.all(4),
@@ -2952,8 +3090,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                           ),
                         ),
-                        tooltip: "Account (${widget.sessionService.email ?? 'Student'})",
-                        onPressed: () => _showAccountMenu(context),
+                        tooltip: "Profile & Settings (${widget.sessionService.email ?? 'Student'})",
+                        onPressed: () => setState(() => _currentTabIndex = 4),
                       ),
                     ],
                   ),
@@ -3076,6 +3214,127 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _buildChildSafetyBanner(context),
               const SizedBox(height: 16),
 
+              // First-Run Checklist for New Users (add course -> add material -> generate set -> first quiz)
+              if (isFirstRun) ...[
+                _buildFirstRunChecklist(isDark, totalSets),
+                const SizedBox(height: 16),
+              ],
+
+              // Next Upcoming Exam Card
+              if (upcomingExamCourse != null) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: isDark
+                          ? [const Color(0xFF7F1D1D).withValues(alpha: 0.35), context.surfaceColor]
+                          : [const Color(0xFFFEF2F2), Colors.white],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.event_available_rounded, color: Color(0xFFEF4444), size: 22),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Target Exam: ${upcomingExamCourse.name} (${upcomingExamCourse.examTitle ?? 'Exam'})",
+                              style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14, color: context.textPrimary),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              "${upcomingExamCourse.daysUntilExam} days remaining • Spaced review active",
+                              style: TextStyle(fontSize: 12, color: context.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFEF4444),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: () => setState(() => _currentTabIndex = 1),
+                        child: const Text("Study Now", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              // Continue Where You Left Off Card
+              if (recentSet != null && recentSetCourse != null) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: context.surfaceColor,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: context.cardBorderColor),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF6366F1).withValues(alpha: 0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.play_arrow_rounded, color: Color(0xFF6366F1), size: 22),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              "Continue Where You Left Off",
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6366F1)),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              "${recentSetCourse.code}: ${recentSet.title}",
+                              style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14, color: context.textPrimary),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              "${recentSet.questionCount} practice questions ready",
+                              style: TextStyle(fontSize: 12, color: context.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6366F1),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: () => _startPracticeForSet(recentSet!),
+                        child: const Text("Resume", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               if (_courses.isNotEmpty) ...[
                 // Today's Study Plan (AI Adaptive Learning System)
                 TodayStudyPlanWidget(
@@ -3090,7 +3349,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     if (step.stepNumber == 1) {
                       setState(() => _currentTabIndex = 1);
                     } else if (step.stepNumber == 4) {
-                      setState(() => _currentTabIndex = 4);
+                      setState(() => _currentTabIndex = 3);
                     } else {
                       _startSmartStudySession(_todayStudyPlan?.courseId);
                     }
@@ -3157,105 +3416,205 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           Icons.psychology_rounded,
                           AppColors.warning,
                         ),
-                        Container(
-                          height: 36,
-                          width: 1,
-                          margin: const EdgeInsets.symmetric(horizontal: 16),
-                          color: context.cardBorderColor,
-                        ),
-                        _buildStatItem(
-                          "Streak",
-                          "${_todayStudyPlan?.readiness.spacingDaysActive ?? 1}d",
-                          "Momentum",
-                          Icons.local_fire_department_rounded,
-                          const Color(0xFFF97316),
-                        ),
+                        if (hasActiveStreak) ...[
+                          Container(
+                            height: 36,
+                            width: 1,
+                            margin: const EdgeInsets.symmetric(horizontal: 16),
+                            color: context.cardBorderColor,
+                          ),
+                          _buildStatItem(
+                            "Streak",
+                            "$activeStreakDays d",
+                            "Momentum",
+                            Icons.local_fire_department_rounded,
+                            const Color(0xFFF97316),
+                          ),
+                        ],
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 16),
+              ],
+              const SizedBox(height: 32),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-                // Quick Study Hub (1-Tap Workflows)
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: context.surfaceColor,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: context.cardBorderColor),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        alignment: WrapAlignment.spaceBetween,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 8,
-                        runSpacing: 4,
-                        children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.bolt_rounded,
-                                color: Color(0xFFF59E0B),
-                                size: 18,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                "Quick Study Hub",
-                                style: GoogleFonts.outfit(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                  color: context.textPrimary,
-                                ),
-                              ),
-                            ],
-                          ),
-                          Text(
-                            "Direct 1-Tap Action",
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: const Color(0xFF10B981),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          _buildQuickActionCard(
-                            "Scan & Ingest Notes",
-                            "Camera OCR, PDF & docs",
-                            Icons.document_scanner_rounded,
-                            const Color(0xFF6366F1),
-                            () => setState(() => _currentTabIndex = 3),
-                          ),
-                          const SizedBox(width: 8),
-                          _buildQuickActionCard(
-                            "Mistake Bank",
-                            "${_todayStudyPlan?.unresolvedMistakesCount ?? 0} errors",
-                            Icons.psychology_alt_outlined,
-                            const Color(0xFFEF4444),
-                            () => _openMistakeBank(),
-                          ),
-                          const SizedBox(width: 8),
-                          _buildQuickActionCard(
-                            "Flashcards Deck",
-                            "Spaced retrieval",
-                            Icons.style_outlined,
-                            const Color(0xFF10B981),
-                            () => setState(() => _currentTabIndex = 1),
-                          ),
-                        ],
-                      ),
-                    ],
+  Widget _buildFirstRunChecklist(bool isDark, int totalSets) {
+    final hasCourse = _courses.isNotEmpty;
+    final hasMaterial = totalSets > 0;
+    final hasGeneratedSet = totalSets > 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: context.surfaceColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: context.cardBorderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.checklist_rounded, color: Color(0xFF6366F1), size: 20),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                "First-Run Setup Checklist",
+                style: GoogleFonts.outfit(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: context.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            "Complete these quick steps to build your connected study loop:",
+            style: TextStyle(fontSize: 12.5, color: context.textSecondary),
+          ),
+          const SizedBox(height: 16),
+
+          _buildChecklistItem(
+            stepNumber: 1,
+            title: "Add your first course",
+            description: "Organize notes and exams by subject (e.g. CS-101, Bio 101)",
+            isDone: hasCourse,
+            actionLabel: "Add Course",
+            onTap: _showAddCourseDialog,
+          ),
+          const Divider(height: 20),
+          _buildChecklistItem(
+            stepNumber: 2,
+            title: "Add study material",
+            description: "Paste notes, upload PDF, or scan textbook photos",
+            isDone: hasMaterial,
+            actionLabel: "Add Material",
+            onTap: () => _openAddMaterial(),
+          ),
+          const Divider(height: 20),
+          _buildChecklistItem(
+            stepNumber: 3,
+            title: "Generate study set & flashcards",
+            description: "Quality-gated extraction turns clean text into questions",
+            isDone: hasGeneratedSet,
+            actionLabel: "Generate",
+            onTap: () => _openAddMaterial(),
+          ),
+          const Divider(height: 20),
+          _buildChecklistItem(
+            stepNumber: 4,
+            title: "Take your first practice quiz",
+            description: "Active retrieval updates your Mistake Bank & spaced review",
+            isDone: false,
+            actionLabel: "Start Quiz",
+            onTap: () => setState(() => _currentTabIndex = 1),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChecklistItem({
+    required int stepNumber,
+    required String title,
+    required String description,
+    required bool isDone,
+    required String actionLabel,
+    required VoidCallback onTap,
+  }) {
+    return Row(
+      children: [
+        Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: isDone ? const Color(0xFF10B981) : Colors.transparent,
+            border: Border.all(
+              color: isDone ? const Color(0xFF10B981) : context.cardBorderColor,
+              width: 1.5,
+            ),
+            shape: BoxShape.circle,
+          ),
+          child: isDone
+              ? const Icon(Icons.check, size: 14, color: Colors.white)
+              : Center(
+                  child: Text(
+                    "$stepNumber",
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: context.textSecondary),
                   ),
                 ),
-                const SizedBox(height: 20),
-              ],
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  decoration: isDone ? TextDecoration.lineThrough : null,
+                  color: isDone ? context.textSecondary : context.textPrimary,
+                ),
+              ),
+              Text(
+                description,
+                style: TextStyle(fontSize: 11.5, color: context.textSecondary),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        TextButton(
+          onPressed: onTap,
+          style: TextButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            foregroundColor: const Color(0xFF6366F1),
+          ),
+          child: Text(isDone ? "Review" : actionLabel, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+        ),
+      ],
+    );
+  }
 
+  Widget _buildLibraryTab() {
+    final isDark = context.isDarkMode;
+    final totalSets = _courses.fold<int>(
+      0,
+      (sum, c) => sum + c.studySets.length,
+    );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1040),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
               // Enrolled Courses Header & Actions
               Wrap(
                 alignment: WrapAlignment.spaceBetween,
@@ -4033,6 +4392,259 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildProfileTab() {
+    final studentName = widget.sessionService.fullName?.trim() ?? 'Student';
+    final userEmail = widget.sessionService.email?.trim() ?? '';
+    final isDemoUser = userEmail == 'dev@studyapp.local' || userEmail.contains('studyapp.local');
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                "Profile & Settings",
+                style: GoogleFonts.outfit(fontSize: 24, fontWeight: FontWeight.bold, color: context.textPrimary),
+              ),
+              const SizedBox(height: 4),
+              Text("Account, grade tracker, study preferences & compliance", style: TextStyle(fontSize: 13, color: context.textSecondary)),
+              const SizedBox(height: 20),
+
+              // Student Card
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: context.surfaceColor,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: context.cardBorderColor),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 28,
+                      backgroundColor: const Color(0xFF4285F4),
+                      child: Text(
+                        studentName.isNotEmpty ? studentName[0].toUpperCase() : "S",
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(studentName, style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                          const SizedBox(height: 2),
+                          Text(userEmail.isNotEmpty ? userEmail : "student@studyapp.local", style: TextStyle(fontSize: 12.5, color: context.textSecondary)),
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text("Verified Account", style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF10B981))),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (isDemoUser)
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.g_mobiledata_rounded, size: 20),
+                        label: const Text("Connect Gmail", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4285F4), foregroundColor: Colors.white),
+                        onPressed: _openGoogleSignInModal,
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Grade Tracker Card
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: context.surfaceColor,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: context.cardBorderColor),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.bar_chart_rounded, color: Color(0xFF10B981), size: 22),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("Grade Tracker", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
+                          const SizedBox(height: 2),
+                          Text("Track assignments, prelims, midterms, and finals with target GPA", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                        ],
+                      ),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10B981),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: () => GradeTrackerSheet.show(
+                        context,
+                        widget.apiClient,
+                        onGradesUpdated: () { _fetchCoursesAndSync(fullFetch: true); _loadTodayStudyPlan(); },
+                      ),
+                      child: const Text("Open Tracker", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Study Configurations & Settings Card
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: context.surfaceColor,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: context.cardBorderColor),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF6366F1).withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.settings_outlined, color: Color(0xFF6366F1), size: 22),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("App Settings & Preferences", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
+                          const SizedBox(height: 2),
+                          Text("Study pacing, dark/light theme, audio voice read-aloud & notifications", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                        ],
+                      ),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF6366F1),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => SettingsScreen(
+                              apiClient: widget.apiClient,
+                              sessionService: widget.sessionService,
+                              settingsService: _settingsService,
+                              onLogout: _handleLogout,
+                            ),
+                          ),
+                        );
+                      },
+                      child: const Text("Configure", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Privacy & Data Protection (RA 10173 Compliance)
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: context.surfaceColor,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: context.cardBorderColor),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF06B6D4).withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.shield_outlined, color: Color(0xFF06B6D4), size: 22),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text("Data Privacy & Security (RA 10173)", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
+                              const SizedBox(height: 2),
+                              Text("Republic Act No. 10173 - Data Privacy Act of 2012 Compliance", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      "• Data Controller: StudyApp Academic Engine\n"
+                      "• Authorized Processor: Google Gemini API (Ephemeral processing; your study materials and uploaded PDFs are never retained by third parties or used to train public foundation models)\n"
+                      "• Storage: Credentials and study sets stored encrypted on your device and private backend.\n"
+                      "• Rights: Right to access, modify, and permanently erase your account data at any time.",
+                      style: TextStyle(fontSize: 11.5, height: 1.5, color: context.textSecondary),
+                    ),
+                    const SizedBox(height: 10),
+                    TextButton.icon(
+                      icon: const Icon(Icons.info_outline, size: 16),
+                      label: const Text("View Learner Safety & Privacy Guidelines", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      onPressed: () => DswdSafetyModal.show(context),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Account Actions: Sign Out
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.logout_rounded, size: 18),
+                      label: const Text("Sign Out", style: TextStyle(fontWeight: FontWeight.bold)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFEF4444),
+                        side: const BorderSide(color: Color(0xFFEF4444)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: _handleLogout,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 32),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildStatItem(
     String label,
     String value,
@@ -4095,11 +4707,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildDesktopSidebar(bool isDark) {
     final cs = ChildSafetyService.instance;
     final navItems = [
-      (Icons.dashboard_rounded, cs.getFriendlyTabName(0, "Courses"), 0),
-      (Icons.style_outlined, cs.getFriendlyTabName(1, "Flashcards"), 1),
-      (Icons.menu_book_outlined, cs.getFriendlyTabName(2, "Notebook"), 2),
-      (Icons.psychology_outlined, cs.getFriendlyTabName(3, "AI Studio"), 3),
-      (Icons.auto_awesome_rounded, cs.getFriendlyTabName(4, "AI Tutor"), 4),
+      (Icons.home_rounded, cs.getFriendlyTabName(0, "Home"), 0),
+      (Icons.fitness_center_rounded, "Practice", 1),
+      (Icons.local_library_rounded, "Library", 2),
+      (Icons.auto_awesome_rounded, cs.getFriendlyTabName(3, "Tutor"), 3),
+      (Icons.person_rounded, "Profile", 4),
     ];
 
     return Container(
@@ -4157,6 +4769,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
           ),
+          // Prominent + Add Material button for Desktop
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: ElevatedButton.icon(
+              onPressed: () => _openAddMaterial(),
+              icon: const Icon(Icons.add_rounded, size: 20),
+              label: const Text(
+                "Add Material",
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
           const Divider(height: 1),
           const SizedBox(height: 12),
 
@@ -4322,68 +4956,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: IndexedStack(
               index: _currentTabIndex,
               children: [
-                // Tab 0: Courses
-                _lazy(0, () => _buildCoursesTab()),
-                // Tab 1: Flashcards
+                // Tab 0: Home
+                _lazy(0, () => _buildHomeTab()),
+                // Tab 1: Practice (Quizzes, Flashcards, Blitz, Mistake Bank, Simulated Exam)
                 _lazy(
                   1,
-                  () => FlashcardsScreen(
-                    courses: _courses,
+                  () => PracticeScreen(
                     apiClient: widget.apiClient,
-                    onLoadStarterPack: _loadStarterDemoPack,
-                    onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
-                    onCardDeleted: () => _fetchCoursesAndSync(fullFetch: true),
+                    sessionService: widget.sessionService,
+                    courses: _courses,
+                    studyPlan: _todayStudyPlan,
+                    onRefresh: () => _fetchCoursesAndSync(fullFetch: true),
+                    onNavigateToStudio: () => _openAddMaterial(),
                   ),
                 ),
-                // Tab 2: Notebook
-                _lazy(
-                  2,
-                  () => NotebookScreen(
-                    courses: _courses,
-                    apiClient: widget.apiClient,
-                    onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
-                    onLoadStarterPack: _loadStarterDemoPack,
-                  ),
-                ),
-                // Tab 3: AI Studio
-                _lazy(
-                  3,
-                  () => IngestionScreen(
-                    courses: _courses,
-                    apiClient: widget.apiClient,
-                    initialCourseId: _activeCourseId,
-                    settingsService: _settingsService,
-                    onCourseSelected: (id) => setState(() => _activeCourseId = id),
-                    draftTitle: _studioDraftTitle,
-                    draftContent: _studioDraftContent,
-                    draftRevision: _studioDraftRevision,
-                    onStudySetCreated: (newSet) async {
-                      await _fetchCoursesAndSync();
-                      if (!mounted) return;
-                      setState(() {
-                        final course = _courses.firstWhere(
-                          (c) => c.id == newSet.courseId,
-                          orElse: () => _courses.isNotEmpty
-                              ? _courses.first
-                              : CourseModel(
-                                  id: newSet.courseId,
-                                  code: "GEN-101",
-                                  name: "General Studies",
-                                  colorHex: "#6366F1",
-                                  createdAt: DateTime.now(),
-                                  studySets: [newSet],
-                                ),
-                        );
-                        if (!course.studySets.any((s) => s.id == newSet.id)) {
-                          course.studySets.insert(0, newSet);
-                        }
-                        _currentTabIndex = 0;
-                      });
-                    },
-                  ),
-                ),
-                // Tab 4: AI Tutor
-                _lazy(4, () => AiTutorScreen(apiClient: widget.apiClient, courses: _courses)),
+                // Tab 2: Library (Courses, Study Sets, Course Notebooks)
+                _lazy(2, () => _buildLibraryTab()),
+                // Tab 3: AI Tutor (Socratic & Feynman Modes)
+                _lazy(3, () => AiTutorScreen(apiClient: widget.apiClient, courses: _courses)),
+                // Tab 4: Profile (Grades, Settings, Privacy & NPC DPA Compliance, Account)
+                _lazy(4, () => _buildProfileTab()),
               ],
             ),
           ),
@@ -4415,29 +5007,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 unselectedLabelStyle: const TextStyle(fontSize: 12),
                 items: [
                   BottomNavigationBarItem(
-                    icon: const Icon(Icons.dashboard_rounded),
-                    label: ChildSafetyService.instance.getFriendlyTabName(0, "Courses"),
+                    icon: const Icon(Icons.home_rounded),
+                    label: ChildSafetyService.instance.getFriendlyTabName(0, "Home"),
                   ),
-                  BottomNavigationBarItem(
-                    icon: const Icon(Icons.style_outlined),
-                    label: ChildSafetyService.instance.getFriendlyTabName(1, "Flashcards"),
+                  const BottomNavigationBarItem(
+                    icon: Icon(Icons.fitness_center_rounded),
+                    label: "Practice",
                   ),
-                  BottomNavigationBarItem(
-                    icon: const Icon(Icons.menu_book_outlined),
-                    label: ChildSafetyService.instance.getFriendlyTabName(2, "Notebook"),
-                  ),
-                  BottomNavigationBarItem(
-                    icon: const Icon(Icons.psychology_outlined),
-                    label: ChildSafetyService.instance.getFriendlyTabName(3, "AI Studio"),
+                  const BottomNavigationBarItem(
+                    icon: Icon(Icons.local_library_rounded),
+                    label: "Library",
                   ),
                   BottomNavigationBarItem(
                     icon: const Icon(Icons.auto_awesome_rounded),
-                    label: ChildSafetyService.instance.getFriendlyTabName(4, "AI Tutor"),
+                    label: ChildSafetyService.instance.getFriendlyTabName(3, "Tutor"),
+                  ),
+                  const BottomNavigationBarItem(
+                    icon: Icon(Icons.person_rounded),
+                    label: "Profile",
                   ),
                 ],
               ),
             ),
-      floatingActionButton: null,
+      floatingActionButton: _currentTabIndex == 3
+          ? null
+          : FloatingActionButton.extended(
+              heroTag: 'dashboard_fab_add_material',
+              onPressed: () => _openAddMaterial(),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text(
+                "Add Material",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
     );
   }
 }

@@ -67,6 +67,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   Timer? _urlScanDebounce;
   Map<String, dynamic>? _detectedVideoInfo;
   bool _isAutoScanningVideo = false;
+  bool _isExtractedContentExpanded = false;
   int _loadingStep = 0;
   Timer? _stepTimer;
   String? _errorMessage;
@@ -336,6 +337,15 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     return match?.group(1);
   }
 
+  bool _isUrlText(String text) {
+    final t = text.trim();
+    if (t.isEmpty) return false;
+    return t.startsWith("http://") ||
+        t.startsWith("https://") ||
+        t.startsWith("www.") ||
+        (t.contains("google.") && t.contains("url"));
+  }
+
   void _onUrlChanged(String rawUrl) {
     _urlScanDebounce?.cancel();
     final clean = rawUrl.trim();
@@ -402,17 +412,23 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         final thumb = (data["thumbnailUrl"] ?? (videoId != null ? "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" : "")) as String;
 
         if (mounted) {
+          final isReallyVideo = (data["isVideo"] == true) || (isYt && videoId != null);
+          final charCount = extractedText.length;
+          final wordCount = extractedText.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+
           setState(() {
             _isAutoScanningVideo = false;
             _detectedVideoInfo = {
-              'videoId': videoId ?? data["videoId"],
-              'title': title.isNotEmpty ? title : (isYt ? "YouTube Video" : uri.host),
+              'videoId': isReallyVideo ? (videoId ?? data["videoId"]) : null,
+              'title': title.isNotEmpty ? title : (isReallyVideo ? "YouTube Video" : uri.host),
               'author': author,
               'duration': duration,
-              'thumbnailUrl': thumb,
+              'thumbnailUrl': isReallyVideo ? thumb : "",
               'extractedText': extractedText,
+              'charCount': charCount,
+              'wordCount': wordCount,
               'loading': false,
-              'isYouTube': isYt,
+              'isYouTube': isReallyVideo,
               'isSong': data['isSong'] == true ||
                   title.toLowerCase().contains("lyrics") ||
                   title.toLowerCase().contains("song") ||
@@ -428,13 +444,23 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               }
             }
 
-            // Automatically export extracted video notes to the editor if editor is empty
-            if (extractedText.isNotEmpty && _textController.text.trim().isEmpty) {
+            // Always load extracted whole content into the Note Editor
+            if (extractedText.isNotEmpty) {
               _textController.text = extractedText;
             }
 
             _errorMessage = null;
           });
+
+          if (extractedText.isNotEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("✨ Successfully loaded whole info ($charCount characters, $wordCount words) into the app!"),
+                backgroundColor: const Color(0xFF10B981),
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
         }
       }
     } catch (_) {
@@ -2006,68 +2032,94 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Playable Video Thumbnail with Click to Play
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () => _playVideo(rawUrl, videoId, title),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Tooltip(
-                    message: "Tap to Play Video ▶",
-                    child: Stack(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            width: 112,
-                            height: 64,
-                            color: Colors.black26,
-                            child: thumb.isNotEmpty
-                                ? Image.network(
-                                    thumb,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) => const Center(
-                                      child: Icon(Icons.broken_image_rounded, size: 24, color: Colors.white38),
+              if (isYt && videoId != null)
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => _playVideo(rawUrl, videoId, title),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Tooltip(
+                      message: "Tap to Play Video ▶",
+                      child: Stack(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              width: 112,
+                              height: 64,
+                              color: Colors.black26,
+                              child: thumb.isNotEmpty
+                                  ? Image.network(
+                                      thumb,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (context, error, stackTrace) => const Center(
+                                        child: Icon(Icons.broken_image_rounded, size: 24, color: Colors.white38),
+                                      ),
+                                    )
+                                  : const Center(
+                                      child: Icon(Icons.video_library_rounded, size: 28, color: Colors.white38),
                                     ),
-                                  )
-                                : const Center(
-                                    child: Icon(Icons.video_library_rounded, size: 28, color: Colors.white38),
-                                  ),
-                          ),
-                        ),
-                        Positioned.fill(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
-                              color: Colors.black.withValues(alpha: 0.28),
                             ),
-                            child: Center(
-                              child: Container(
-                                padding: const EdgeInsets.all(5),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEF4444),
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.5),
-                                      blurRadius: 4,
-                                    ),
-                                  ],
-                                ),
-                                child: const Icon(
-                                  Icons.play_arrow_rounded,
-                                  color: Colors.white,
-                                  size: 18,
+                          ),
+                          Positioned.fill(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                color: Colors.black.withValues(alpha: 0.28),
+                              ),
+                              child: Center(
+                                child: Container(
+                                  padding: const EdgeInsets.all(5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEF4444),
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(alpha: 0.5),
+                                        blurRadius: 4,
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Icon(
+                                    Icons.play_arrow_rounded,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        const Color(0xFF6366F1).withValues(alpha: 0.2),
+                        const Color(0xFF8B5CF6).withValues(alpha: 0.1),
                       ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: const Color(0xFF6366F1).withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      Icons.menu_book_rounded,
+                      color: Color(0xFF818CF8),
+                      size: 28,
                     ),
                   ),
                 ),
-              ),
               const SizedBox(width: 10),
 
               // Video Title & Author
@@ -2113,40 +2165,41 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                       spacing: 6,
                       runSpacing: 4,
                       children: [
-                        // 1. Play Video button
-                        InkWell(
-                          onTap: () => _playVideo(rawUrl, videoId, title),
-                          borderRadius: BorderRadius.circular(6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFEF4444),
-                              borderRadius: BorderRadius.circular(6),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFFEF4444).withValues(alpha: 0.3),
-                                  blurRadius: 3,
-                                  offset: const Offset(0, 1),
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: const [
-                                Icon(Icons.play_arrow_rounded, size: 14, color: Colors.white),
-                                SizedBox(width: 4),
-                                Text(
-                                  "Play Video",
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
+                        // 1. Play Video button (only for video sources)
+                        if (isYt && videoId != null)
+                          InkWell(
+                            onTap: () => _playVideo(rawUrl, videoId, title),
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEF4444),
+                                borderRadius: BorderRadius.circular(6),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFEF4444).withValues(alpha: 0.3),
+                                    blurRadius: 3,
+                                    offset: const Offset(0, 1),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: const [
+                                  Icon(Icons.play_arrow_rounded, size: 14, color: Colors.white),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    "Play Video",
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
 
                         // 2. Export Lyrics / Load to Note Editor
                         InkWell(
@@ -2183,7 +2236,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                           ),
                         ),
 
-                        // 3. View Details / Lyrics
+                        // 3. View Details / Lyrics / Notes
                         if (hasExtractedText)
                           InkWell(
                             onTap: () {
@@ -2191,6 +2244,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                 title,
                                 extractedText,
                                 isSong: isSong,
+                                isVideo: isYt && videoId != null,
                                 rawUrl: rawUrl,
                                 videoId: videoId,
                               );
@@ -2227,6 +2281,183 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                     ),
                   ],
                 ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExtractedWholeInfoCard(BuildContext context) {
+    if (_detectedVideoInfo == null) return const SizedBox.shrink();
+    final extractedText = (_detectedVideoInfo!['extractedText'] as String? ?? '').trim();
+    if (extractedText.isEmpty) return const SizedBox.shrink();
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final title = (_detectedVideoInfo!['title'] as String? ?? 'Extracted Web Content').trim();
+    final charCount = _detectedVideoInfo!['charCount'] ?? extractedText.length;
+    final wordCount = _detectedVideoInfo!['wordCount'] ??
+        extractedText.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10, bottom: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: const Color(0xFF10B981).withValues(alpha: 0.45),
+          width: 1.4,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF10B981).withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header row with stats & expand toggle
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.article_rounded,
+                  color: Color(0xFF10B981),
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Extracted Whole Info / Content",
+                      style: GoogleFonts.outfit(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.bold,
+                        color: context.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      "$charCount characters • $wordCount words loaded",
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF10B981),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: Icon(
+                  _isExtractedContentExpanded
+                      ? Icons.unfold_less_rounded
+                      : Icons.unfold_more_rounded,
+                  size: 20,
+                  color: context.textSecondary,
+                ),
+                tooltip: _isExtractedContentExpanded ? "Collapse Content" : "Expand Full Content",
+                onPressed: () {
+                  setState(() {
+                    _isExtractedContentExpanded = !_isExtractedContentExpanded;
+                  });
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Scrollable Preview Container displaying whole content
+          Container(
+            constraints: BoxConstraints(
+              maxHeight: _isExtractedContentExpanded ? 360 : 130,
+            ),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0F172A) : Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: context.cardBorderColor.withValues(alpha: 0.6),
+              ),
+            ),
+            child: SingleChildScrollView(
+              child: SelectableText(
+                extractedText,
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.5,
+                  color: context.textPrimary,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Action buttons row
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    elevation: 0,
+                  ),
+                  icon: const Icon(Icons.edit_note_rounded, size: 16),
+                  label: const Text(
+                    "Open in Note Editor",
+                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: () {
+                    _textController.text = extractedText;
+                    if (!_isCustomTitle || _titleController.text.trim().isEmpty) {
+                      if (title.isNotEmpty) _titleController.text = title;
+                    }
+                    _tabController.animateTo(0);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text("📝 Loaded all $charCount characters into Note Editor!"),
+                        backgroundColor: const Color(0xFF10B981),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: context.textPrimary,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  side: BorderSide(color: context.cardBorderColor),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.copy_rounded, size: 14),
+                label: const Text("Copy", style: TextStyle(fontSize: 11)),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: extractedText));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("📋 Full text copied to clipboard!"),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                },
               ),
             ],
           ),
@@ -2281,6 +2512,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     String title,
     String content, {
     bool isSong = false,
+    bool isVideo = false,
     String rawUrl = '',
     String? videoId,
   }) {
@@ -2315,14 +2547,22 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               Row(
                 children: [
                   Icon(
-                    isSong ? Icons.music_note_rounded : Icons.smart_display_rounded,
-                    color: isSong ? const Color(0xFF8B5CF6) : const Color(0xFFEF4444),
+                    isSong
+                        ? Icons.music_note_rounded
+                        : (isVideo ? Icons.smart_display_rounded : Icons.public_rounded),
+                    color: isSong
+                        ? const Color(0xFF8B5CF6)
+                        : (isVideo ? const Color(0xFFEF4444) : const Color(0xFF6366F1)),
                     size: 20,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      title.isNotEmpty ? title : (isSong ? "Song Lyrics & Notes" : "Extracted Video Details"),
+                      title.isNotEmpty
+                          ? title
+                          : (isSong
+                              ? "Song Lyrics & Notes"
+                              : (isVideo ? "Extracted Video Details" : "Extracted Study Notes")),
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -2355,7 +2595,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               const SizedBox(height: 12),
               Row(
                 children: [
-                  if (rawUrl.isNotEmpty || (videoId != null && videoId.isNotEmpty)) ...[
+                  if (isVideo && (videoId != null && videoId.isNotEmpty)) ...[
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFFEF4444),
@@ -2378,7 +2618,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                         padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                       icon: Icon(isSong ? Icons.music_note_rounded : Icons.edit_note_rounded),
-                      label: Text(isSong ? "Export Lyrics to Editor" : "Export to Note Editor"),
+                      label: Text(isSong ? "Export Lyrics to Editor" : "Load Notes to Editor"),
                       onPressed: () {
                         Navigator.pop(ctx);
                         _scrapeAndLoadUrlToEditor();
@@ -2937,6 +3177,51 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                               ],
                             ),
                             const SizedBox(height: 8),
+                            if (_isUrlText(_textController.text)) ...[
+                              Container(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF6366F1).withValues(alpha: isDark ? 0.2 : 0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.4)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.link_rounded, size: 18, color: Color(0xFF6366F1)),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        "Pasted link detected! Tap to load whole article & study notes:",
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: context.textPrimary,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF6366F1),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        minimumSize: Size.zero,
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                      ),
+                                      onPressed: () {
+                                        final link = _textController.text.trim();
+                                        _urlController.text = link;
+                                        _tabController.animateTo(2);
+                                        _autoInspectUrl(link);
+                                      },
+                                      child: const Text("Load Whole Info", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                             Expanded(
                               child: TextField(
                                 controller: _textController,
@@ -3330,6 +3615,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                 },
                               ),
                               _buildDetectedVideoCard(context),
+                              _buildExtractedWholeInfoCard(context),
                               const SizedBox(height: 10),
                               TextField(
                                 controller: _transcriptTextController,

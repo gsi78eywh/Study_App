@@ -309,14 +309,6 @@ Photosynthesis transforms solar photon energy into stable chemical bonds (glucos
         var query = _context.Courses.Where(course => course.UserId == userId.Value);
 
         var totalCount = await query.CountAsync(cancellationToken);
-        if (totalCount == 0)
-        {
-            var provisioned = await ProvisionStarterPackAsync(userId.Value, _context, cancellationToken);
-            if (provisioned)
-            {
-                totalCount = await query.CountAsync(cancellationToken);
-            }
-        }
 
         var effectivePage = Math.Max(1, page);
         var effectivePageSize = Math.Clamp(pageSize, 1, 100);

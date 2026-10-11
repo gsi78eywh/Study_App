@@ -203,12 +203,6 @@ public class SyncController : ControllerBase
 
         await _context.SaveChangesAsync();
 
-        // 5. If this user has 0 courses and the client pushed no courses, auto-provision starter demo pack
-        var userCourseCount = await _context.Courses.CountAsync(c => c.UserId == userId);
-        if (userCourseCount == 0 && courses.Count == 0)
-        {
-            await CoursesController.ProvisionStarterPackAsync(userId, _context);
-        }
 
         // Gather updates on the server since client's LastSyncedAt
         var updatedCourses = await _context.Courses

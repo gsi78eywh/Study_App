@@ -32,6 +32,11 @@ class SyncService {
   static List<CourseModel> _cachedCourses = [];
   static List<CourseModel> get cachedCourses => List.unmodifiable(_cachedCourses);
 
+  /// Clears in-memory course cache to prevent cross-session data leakage
+  static void clearCache() {
+    _cachedCourses = [];
+  }
+
   SyncService({required this.apiClient, required this.sessionService});
 
   bool isDataStale({int staleMinutes = 5}) {
