@@ -86,7 +86,6 @@ class FlashcardsScreen extends StatefulWidget {
   final List<CourseModel> courses;
   final String? initialStudySetId;
   final ApiClient? apiClient;
-  final VoidCallback? onLoadStarterPack;
   final VoidCallback? onNavigateToStudio;
   final VoidCallback? onCardDeleted;
 
@@ -95,7 +94,6 @@ class FlashcardsScreen extends StatefulWidget {
     required this.courses,
     this.initialStudySetId,
     this.apiClient,
-    this.onLoadStarterPack,
     this.onNavigateToStudio,
     this.onCardDeleted,
   });
@@ -354,12 +352,9 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                     );
 
               for (final q in questions) {
-                final correctOpt = q.options.firstWhere(
-                  (o) => o.isCorrect,
-                  orElse: () => q.options.isNotEmpty
-                      ? q.options.first
-                      : QuestionOptionModel(id: "none", optionText: "Verified Concept", isCorrect: true),
-                );
+                final correctOptions = q.options.where((o) => o.isCorrect).toList();
+                if (correctOptions.isEmpty) continue;
+                final correctOpt = correctOptions.first;
 
                 final cleanFront = _cleanFlashcardFront(q.prompt);
                 final cleanBackAnswer = _cleanOptionAnswer(correctOpt.optionText);
@@ -1234,7 +1229,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                 Text(
                                   _cardFilter != "ALL"
                                       ? "You have no cards marked under '${_cardFilter == 'HIGH_RISK' ? 'Needs Practice' : 'Mastered'}'. Keep up the great studying!"
-                                      : "Upload lecture notes, whiteboard photos, or PDFs in the AI Studio to generate active recall flashcards.",
+                                      : "Add course material to generate active recall flashcards.",
                                   textAlign: TextAlign.center,
                                   style: TextStyle(color: context.textSecondary, fontSize: 13, height: 1.5),
                                 ),
@@ -1270,7 +1265,7 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                         ),
                                         icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                                        label: const Text("Generate Cards in AI Studio", style: TextStyle(fontWeight: FontWeight.bold)),
+                                        label: const Text("Add Material", style: TextStyle(fontWeight: FontWeight.bold)),
                                         onPressed: widget.onNavigateToStudio,
                                       ),
                                     OutlinedButton.icon(
@@ -1284,18 +1279,6 @@ class _FlashcardsScreenState extends State<FlashcardsScreen> with SingleTickerPr
                                       label: const Text("Sync Existing from Cloud"),
                                       onPressed: () => _refreshDeckFromServer(showToast: true),
                                     ),
-                                    if (widget.courses.isEmpty && widget.onLoadStarterPack != null)
-                                      OutlinedButton.icon(
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: const Color(0xFF6366F1),
-                                          side: const BorderSide(color: Color(0xFF6366F1), width: 1.2),
-                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                        ),
-                                        icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                                        label: const Text("Load Starter Demo Pack"),
-                                        onPressed: widget.onLoadStarterPack,
-                                      ),
                                   ],
                                 ),
                               ],

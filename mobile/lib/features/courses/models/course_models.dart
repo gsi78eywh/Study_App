@@ -30,13 +30,6 @@ class CourseModel {
   bool get hasUpcomingExam =>
       examDate != null && examDate!.isAfter(DateTime.now().subtract(const Duration(days: 1)));
 
-  bool get isSample =>
-      code == "BIO-101" ||
-      code == "CS-101" ||
-      name.toLowerCase().contains("starter demo") ||
-      name.toLowerCase().contains("biology 101") ||
-      name.toLowerCase().contains("computer science");
-
   factory CourseModel.fromJson(Map<String, dynamic> json) {
     return CourseModel(
       id: json["id"]?.toString() ?? "",

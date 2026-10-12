@@ -21,6 +21,7 @@ public sealed class CoursesController : ControllerBase
 
     public CoursesController(IApplicationDbContext context) => _context = context;
 
+#if DEBUG
     [HttpPost("demo-pack")]
     public async Task<IActionResult> LoadDemoPack(CancellationToken cancellationToken)
     {
@@ -297,6 +298,8 @@ Photosynthesis transforms solar photon energy into stable chemical bonds (glucos
         return true;
     }
 
+#endif
+
     [HttpGet]
     public async Task<IActionResult> GetCourses(
         [FromQuery] int page = 1,
@@ -346,7 +349,12 @@ Photosynthesis transforms solar photon energy into stable chemical bonds (glucos
                         set.Description,
                         set.CreatedAt,
                         set.UpdatedAt,
-                        QuestionCount = set.Questions.Count
+                        QuestionCount = set.Questions.Count,
+                        AttemptsCount = _context.SessionAnswers
+                            .Where(answer => answer.Question != null && answer.Question.StudySetId == set.Id)
+                            .Select(answer => answer.TestSessionId)
+                            .Distinct()
+                            .Count()
                     })
             })
             .ToListAsync(cancellationToken);

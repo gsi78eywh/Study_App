@@ -10,12 +10,10 @@ class SessionService {
   static const String _keyBaseUrl = "api_base_url";
   static const String _keyLastSync = "last_sync_timestamp";
   static const String _keyThemeMode = "app_theme_mode";
-  static const String _keyGeminiApiKey = "gemini_api_key";
   static const String _keyOnboardingCompleted = "onboarding_completed";
   static const String _keySchoolLevel = "student_school_level";
   static const String _keyGradingScale = "student_grading_scale";
   static const String _keyMinorConsent = "student_minor_consent";
-  static const String _keySampleDataLoaded = "is_sample_data_loaded";
 
   final SharedPreferences _prefs;
 
@@ -23,6 +21,8 @@ class SessionService {
 
   static Future<SessionService> init() async {
     final prefs = await SharedPreferences.getInstance();
+    // Remove keys saved by older builds. Provider credentials belong on the API.
+    await prefs.remove("gemini_api_key");
     return SessionService(prefs);
   }
 
@@ -36,14 +36,12 @@ class SessionService {
     if (kReleaseMode) return null;
     return _prefs.getString(_keyBaseUrl);
   }
-  String? get geminiApiKey => _prefs.getString(_keyGeminiApiKey);
 
   bool get isOnboardingCompleted => _prefs.getBool(_keyOnboardingCompleted) ?? false;
   String get schoolLevel => _prefs.getString(_keySchoolLevel) ?? "College";
   String get gradingScale => _prefs.getString(_keyGradingScale) ?? "USJ-R (1.00 - 5.00)";
   bool get hasMinorConsent => _prefs.getBool(_keyMinorConsent) ?? false;
-  bool get isSampleDataLoaded => _prefs.getBool(_keySampleDataLoaded) ?? false;
-  bool get isGoogleLinked => _prefs.getBool(_keyIsGoogleLinked) ?? (email != null && email!.endsWith("@gmail.com"));
+  bool get isGoogleLinked => _prefs.getBool(_keyIsGoogleLinked) ?? false;
 
   Future<void> setGoogleLinked(bool linked) async {
     await _prefs.setBool(_keyIsGoogleLinked, linked);
@@ -66,18 +64,6 @@ class SessionService {
 
   Future<void> setGradingScale(String scale) async {
     await _prefs.setString(_keyGradingScale, scale);
-  }
-
-  Future<void> setSampleDataLoaded(bool loaded) async {
-    await _prefs.setBool(_keySampleDataLoaded, loaded);
-  }
-
-  Future<void> setGeminiApiKey(String? key) async {
-    if (key == null || key.trim().isEmpty) {
-      await _prefs.remove(_keyGeminiApiKey);
-    } else {
-      await _prefs.setString(_keyGeminiApiKey, key.trim());
-    }
   }
 
   DateTime? get lastSyncAt {

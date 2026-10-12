@@ -167,8 +167,6 @@ class _GoogleSignInDialogState extends State<GoogleSignInDialog> {
           fullName: auth.fullName,
         );
         await widget.sessionService.setGoogleLinked(true);
-        await widget.sessionService.setSampleDataLoaded(false);
-
         if (!mounted) return;
         // Capture the messenger before popping; the dialog context goes away after pop.
         final messenger = ScaffoldMessenger.maybeOf(context);

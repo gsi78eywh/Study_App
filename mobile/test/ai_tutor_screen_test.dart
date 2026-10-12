@@ -25,7 +25,7 @@ class MockAiTutorHttpAdapter implements HttpClientAdapter {
 
     final responseMap = {
       "reply": "### 🚀 Flutter Development Setup\n\nRun `flutter doctor -v` and `flutter create app`.",
-      "modelUsed": "Built-In Academic Engine",
+      "modelUsed": "StudyApp Tutor",
       "timestamp": DateTime.now().toIso8601String(),
     };
 
@@ -47,7 +47,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets("AiTutorScreen renders header, key indicator, and built-in model tag without key", (WidgetTester tester) async {
+  testWidgets("AiTutorScreen renders the tutor header and configured model without a client key", (WidgetTester tester) async {
     final sessionService = await SessionService.init();
     final apiClient = ApiClient(sessionService);
     final mockAdapter = MockAiTutorHttpAdapter();
@@ -62,14 +62,13 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify Title & Subtitle
-    expect(find.text("Gemini Study Tutor"), findsOneWidget);
-    expect(find.text("Google Gemini Multimodal AI Engine"), findsOneWidget);
+    expect(find.text("Study Tutor"), findsOneWidget);
 
     // Verify status indicator shows "AI Tutor Online" securely without exposing API keys
     expect(find.text("AI Tutor Online"), findsOneWidget);
 
-    // Verify default initial greeting shows "Built-In Academic Engine"
-    expect(find.text("Built-In Academic Engine"), findsOneWidget);
+    // Provider choice is configured by the API; the client uses a neutral label.
+    expect(find.text("StudyApp Tutor"), findsOneWidget);
   });
 
   testWidgets("AiTutorScreen displays AI Tutor Online badge and secures client from exposing keys", (WidgetTester tester) async {
@@ -92,9 +91,8 @@ void main() {
     expect(find.text("API Key"), findsNothing);
   });
 
-  testWidgets("AiTutorScreen sends question with apiKey and receives synthesized reply", (WidgetTester tester) async {
+  testWidgets("AiTutorScreen sends question without a client apiKey", (WidgetTester tester) async {
     final sessionService = await SessionService.init();
-    await sessionService.setGeminiApiKey("AIzaSyLiveTestKey123");
     final apiClient = ApiClient(sessionService);
     final mockAdapter = MockAiTutorHttpAdapter();
     apiClient.dio.httpClientAdapter = mockAdapter;
@@ -119,8 +117,8 @@ void main() {
     // Verify tutor reply appears
     expect(find.textContaining("Flutter Development Setup"), findsOneWidget);
 
-    // Verify adapter captured the apiKey in secure header and not in body
-    expect(mockAdapter.lastCapturedApiKeyHeader, equals("AIzaSyLiveTestKey123"));
+    // Provider credentials remain on the server and are never sent by the client.
+    expect(mockAdapter.lastCapturedApiKeyHeader, isNull);
     expect(mockAdapter.lastCapturedRequestBody, isNot(contains("AIzaSyLiveTestKey123")));
   });
 

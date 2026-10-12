@@ -197,7 +197,6 @@ class _ProgressiveExamStudioState extends State<ProgressiveExamStudio> {
 
     // 2. Call backend multi-kind ingestion endpoint
     try {
-      final geminiKey = widget.apiClient.sessionService.geminiApiKey;
       final payload = <String, dynamic>{
         "courseId": widget.courseId,
         "title": widget.initialTitle,
@@ -213,15 +212,9 @@ class _ProgressiveExamStudioState extends State<ProgressiveExamStudio> {
         "setIndex": 0,
       };
 
-      final options = Options();
-      if (geminiKey != null && geminiKey.isNotEmpty) {
-        options.headers = {"X-Gemini-ApiKey": geminiKey};
-      }
-
       final response = await widget.apiClient.dio.post(
         ApiConstants.ingestText,
         data: payload,
-        options: options,
         cancelToken: _cancelToken,
       );
 

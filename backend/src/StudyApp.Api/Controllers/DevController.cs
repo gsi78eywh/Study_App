@@ -5,6 +5,7 @@ using StudyApp.Application.Common.Interfaces;
 using StudyApp.Domain.Entities;
 using StudyApp.Domain.Enums;
 
+#if DEBUG
 namespace StudyApp.Api.Controllers;
 
 [ApiController]
@@ -254,8 +255,7 @@ public class DevController : ControllerBase
                 "POST /api/v1/courses",
                 "GET /api/v1/courses/{id}",
                 "PUT /api/v1/courses/{id}",
-                "DELETE /api/v1/courses/{id}",
-                "POST /api/v1/courses/demo-pack"
+                "DELETE /api/v1/courses/{id}"
             },
             ingestion = new[]
             {
@@ -289,3 +289,4 @@ public class DevController : ControllerBase
         });
     }
 }
+#endif

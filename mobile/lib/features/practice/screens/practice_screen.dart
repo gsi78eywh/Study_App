@@ -51,7 +51,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
   }
 
   int get _totalPracticeQuestions {
-    return _availableStudySets.fold(0, (acc, s) => acc + (s.questions.isNotEmpty ? s.questions.length : s.questionCount));
+    return _availableStudySets.fold(0, (acc, s) => acc + s.questionCount);
   }
 
   void _showReadinessFormulaDialog(BuildContext context) {
@@ -75,12 +75,12 @@ class _PracticeScreenState extends State<PracticeScreen> {
             ),
             SizedBox(height: 6),
             Text(
-              "Readiness = (Recent Quiz Accuracy x 0.50) + (Spaced Retention Interval x 0.30) + (Active Spacing Consistency x 0.20) - (Unresolved Mistakes Penalty x 0.05).",
+              "Readiness is the weighted average of available evidence: quiz accuracy (50%), flashcard retention (35%), and active-day consistency (15%). Missing quiz or flashcard data is excluded and the remaining weights are normalized. Subtract 1.5 points per unique question missed, then clamp the result to 0–100. No score is shown until an attempt exists.",
               style: TextStyle(fontSize: 12, height: 1.4),
             ),
             SizedBox(height: 10),
             Text(
-              "• Grounded in Evidence: Derived strictly from your actual quiz attempts and flashcard reviews.\n• Decay factor: Unpracticed concepts decay after 7 days without recall.\n• Zero False Confidence: Never inflates without comprehensive retrieval.",
+              "Active-day consistency is min(active study days, 5) ÷ 5 × 100. Quiz accuracy, flashcard retention, active days, and missed questions use the selected course's recorded attempts. This version does not apply time decay yet.",
               style: TextStyle(fontSize: 11.5, color: Colors.grey, height: 1.4),
             ),
           ],
@@ -96,26 +96,24 @@ class _PracticeScreenState extends State<PracticeScreen> {
   }
 
   Future<List<QuestionModel>> _resolveQuestionsForSet(StudySetModel set) async {
-    if (set.questions.isNotEmpty) return set.questions;
     try {
       final res = await widget.apiClient.dio.get('/api/v1/studysets/${set.id}/questions');
       if (res.statusCode == 200 && res.data is List) {
-        final list = (res.data as List).map((q) => QuestionModel.fromJson(q as Map<String, dynamic>)).toList();
-        set.questions.clear();
-        set.questions.addAll(list);
-        return list;
+        return (res.data as List)
+            .map((q) => QuestionModel.fromJson(q as Map<String, dynamic>))
+            .toList();
       }
     } catch (e) {
       debugPrint("Failed to fetch questions for set ${set.id}: $e");
     }
-    return set.questions;
+    return [];
   }
 
   void _showSessionCompositionModal({
     required StudySetModel set,
     required String modeTitle,
     required String modeDescription,
-    required VoidCallback onProceed,
+    required ValueChanged<List<QuestionModel>> onProceed,
   }) async {
     // Show loading indicator while resolving questions
     showDialog(
@@ -242,7 +240,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
               ),
               onPressed: () {
                 Navigator.of(ctx).pop();
-                onProceed();
+                onProceed(questions);
               },
               child: const Text("Start Practice Session", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
             ),
@@ -253,7 +251,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
   }
 
   void _startSmartQuizSession() {
-    final setsWithQuestions = _availableStudySets.where((s) => s.questions.isNotEmpty || s.questionCount > 0).toList();
+    final setsWithQuestions = _availableStudySets.where((s) => s.questionCount > 0).toList();
     if (setsWithQuestions.isEmpty) {
       _showNoQuestionsDialog();
       return;
@@ -264,14 +262,13 @@ class _PracticeScreenState extends State<PracticeScreen> {
       set: targetSet,
       modeTitle: "Smart Adaptive Practice",
       modeDescription: "Adapts to your recent mistakes and memory curve",
-      onProceed: () {
+      onProceed: (_) {
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => SmartSessionPlayerScreen(
-              studySet: targetSet,
-              courseName: widget.courses.firstWhere((c) => c.id == targetSet.courseId, orElse: () => widget.courses.first).name,
               apiClient: widget.apiClient,
-              sessionService: widget.sessionService,
+              initialCourseId: targetSet.courseId,
+              onSessionComplete: widget.onRefresh,
             ),
           ),
         ).then((_) => widget.onRefresh());
@@ -280,7 +277,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
   }
 
   void _startStandardQuiz() {
-    final setsWithQuestions = _availableStudySets.where((s) => s.questions.isNotEmpty || s.questionCount > 0).toList();
+    final setsWithQuestions = _availableStudySets.where((s) => s.questionCount > 0).toList();
     if (setsWithQuestions.isEmpty) {
       _showNoQuestionsDialog();
       return;
@@ -291,11 +288,12 @@ class _PracticeScreenState extends State<PracticeScreen> {
       set: targetSet,
       modeTitle: "Standard Quiz",
       modeDescription: "Complete test run with instant explanation and review",
-      onProceed: () {
+      onProceed: (questions) {
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => QuizPlayerScreen(
               studySet: targetSet,
+              questions: questions,
               apiClient: widget.apiClient,
               sessionService: widget.sessionService,
             ),
@@ -311,7 +309,6 @@ class _PracticeScreenState extends State<PracticeScreen> {
         builder: (_) => FlashcardsScreen(
           courses: widget.courses,
           apiClient: widget.apiClient,
-          onLoadStarterPack: () {},
           onNavigateToStudio: widget.onNavigateToStudio,
           onCardDeleted: widget.onRefresh,
         ),
@@ -320,7 +317,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
   }
 
   void _startRapidFireBlitz() {
-    final setsWithQuestions = _availableStudySets.where((s) => s.questions.isNotEmpty || s.questionCount > 0).toList();
+    final setsWithQuestions = _availableStudySets.where((s) => s.questionCount > 0).toList();
     if (setsWithQuestions.isEmpty) {
       _showNoQuestionsDialog();
       return;
@@ -331,11 +328,12 @@ class _PracticeScreenState extends State<PracticeScreen> {
       set: targetSet,
       modeTitle: "Rapid-Fire Blitz",
       modeDescription: "Faster, fewer questions (60-second speed drills)",
-      onProceed: () {
+      onProceed: (questions) {
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => RapidFireScreen(
               studySet: targetSet,
+              questions: questions,
               apiClient: widget.apiClient,
               sessionService: widget.sessionService,
             ),
@@ -350,15 +348,15 @@ class _PracticeScreenState extends State<PracticeScreen> {
       MaterialPageRoute(
         builder: (_) => MistakeBankScreen(
           apiClient: widget.apiClient,
-          sessionService: widget.sessionService,
-          filterCourseId: _selectedCourseId,
+          initialCourseId: _selectedCourseId,
+          onMistakesChanged: widget.onRefresh,
         ),
       ),
     ).then((_) => widget.onRefresh());
   }
 
   void _startSimulatedExam() {
-    final setsWithQuestions = _availableStudySets.where((s) => s.questions.isNotEmpty || s.questionCount > 0).toList();
+    final setsWithQuestions = _availableStudySets.where((s) => s.questionCount > 0).toList();
     if (setsWithQuestions.isEmpty) {
       _showNoQuestionsDialog();
       return;
@@ -369,11 +367,12 @@ class _PracticeScreenState extends State<PracticeScreen> {
       set: targetSet,
       modeTitle: "Simulated Exam",
       modeDescription: "Simulates full timed exam conditions without hints",
-      onProceed: () {
+      onProceed: (questions) {
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => QuizPlayerScreen(
               studySet: targetSet,
+              questions: questions,
               apiClient: widget.apiClient,
               sessionService: widget.sessionService,
             ),
@@ -411,7 +410,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final readinessScore = widget.studyPlan?.readiness.compositeScore;
+    final readinessScore = widget.studyPlan?.readiness.readinessScore;
     final hasRealData = readinessScore != null && (widget.studyPlan?.readiness.spacingDaysActive ?? 0) > 0;
 
     return Scaffold(
@@ -568,7 +567,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                "No simulated readiness yet. Take a quiz or Blitz below to begin data-backed tracking.",
+                                "No readiness score yet. Take a quiz or Blitz below to begin data-backed tracking.",
                                 style: TextStyle(fontSize: 12, color: context.textSecondary),
                               ),
                             ),

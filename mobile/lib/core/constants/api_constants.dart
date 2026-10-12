@@ -45,7 +45,6 @@ class ApiConstants {
   static String studySetQuestions(String studySetId) => "/api/v1/studysets/$studySetId/questions";
 
   // Courses & Starter Pack
-  static const String demoPack = "/api/v1/courses/demo-pack";
 
   // Backend AI endpoints. The mobile app never calls an AI provider directly.
   static const String aiTutor = "/api/v1/ai/tutor";

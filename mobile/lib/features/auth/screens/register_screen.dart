@@ -72,8 +72,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
           email: auth.email,
           fullName: auth.fullName,
         );
-        await widget.sessionService.setSampleDataLoaded(false);
-
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(

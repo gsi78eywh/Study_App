@@ -41,7 +41,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // 1. Verify Capture Dropzone and UI elements are present
-        expect(find.text("Study Notes Extractor & Studio"), findsOneWidget);
+        expect(find.text("Add Material"), findsOneWidget);
         expect(find.text("Paste Text"), findsOneWidget);
 
         // 2. "What if" Failure State: Attempting generation with empty notes/title
@@ -82,8 +82,8 @@ void main() {
         await tester.pumpAndSettle();
 
         // 1. Verify header and built-in model status when no project key target is configured
-        expect(find.text("Gemini Study Tutor"), findsOneWidget);
-        expect(find.text("Built-In Academic Engine"), findsOneWidget);
+        expect(find.text("Study Tutor"), findsOneWidget);
+        expect(find.text("StudyApp Tutor"), findsOneWidget);
 
         // 2. Verify AI Tutor Online status badge is active and client key button is eliminated
         expect(find.text("AI Tutor Online"), findsOneWidget);

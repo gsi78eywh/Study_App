@@ -146,11 +146,6 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      FlutterError.onError = (details) {
-        final info = details.informationCollector?.call().map((node) => node.toStringDeep()).join("\n") ?? "";
-        debugPrint("OVERFLOW WIDGET TREE:\n$info");
-      };
-
       await tester.pumpWidget(
         StudyAppMobile(
           sessionService: session,
@@ -160,6 +155,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byType(BottomNavigationBar), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: "Phone layout should not overflow");
 
       // 2. Desktop Viewport (1280x800)
       tester.view.physicalSize = const Size(1280, 800);

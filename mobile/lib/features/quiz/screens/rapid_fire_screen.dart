@@ -104,6 +104,23 @@ class _RapidFireScreenState extends State<RapidFireScreen>
     Future.delayed(const Duration(milliseconds: 1200), _advance);
   }
 
+  bool? _currentAnswerMatchesSavedKey(QuestionModel question) {
+    final submission = _answers.where((answer) => answer.questionId == question.id).firstOrNull;
+    if (submission == null || submission.answer.isEmpty) return false;
+    switch (question.type) {
+      case QuestionTypeEnum.multipleChoice:
+      case QuestionTypeEnum.scenario:
+        final correct = question.correctOption;
+        return correct == null ? null : _selectedOptionId == correct.id;
+      case QuestionTypeEnum.trueFalse:
+        return question.isTrue == null ? null : _selectedTrueFalse == question.isTrue;
+      default:
+        final expected = question.exactAnswerText.trim().toLowerCase();
+        if (expected.isEmpty) return null;
+        return _textController.text.trim().toLowerCase() == expected;
+    }
+  }
+
   void _submitAnswer() {
     if (_hasAnswered) return;
     _questionTimer?.cancel();
@@ -170,10 +187,26 @@ class _RapidFireScreenState extends State<RapidFireScreen>
       MaterialPageRoute(
         builder: (_) => QuizSummaryScreen(
           studySet: widget.studySet,
+          questions: widget.questions,
           submission: sub,
           apiClient: widget.apiClient,
           sessionService: widget.sessionService,
         ),
+      ),
+    );
+  }
+
+  void _showSourceSnippet(QuestionModel question) {
+    final snippet = question.sourceSnippet?.trim();
+    if (snippet == null || snippet.isEmpty) return;
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Source snippet'),
+        content: SingleChildScrollView(child: SelectableText(snippet)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+        ],
       ),
     );
   }
@@ -191,6 +224,12 @@ class _RapidFireScreenState extends State<RapidFireScreen>
     final progress = (_currentIndex + 1) / widget.questions.length;
     final timerPct = _timeLeft / widget.secondsPerQuestion;
     final isDark = context.isDarkMode;
+    final answerMatchesKey = _hasAnswered ? _currentAnswerMatchesSavedKey(q) : null;
+    final verdictColor = answerMatchesKey == true
+        ? AppColors.accent
+        : answerMatchesKey == false
+            ? AppColors.danger
+            : AppColors.warning;
 
     Color timerColor = AppColors.accent;
     if (timerPct < 0.4) timerColor = AppColors.warning;
@@ -329,20 +368,31 @@ class _RapidFireScreenState extends State<RapidFireScreen>
                               padding: const EdgeInsets.symmetric(vertical: 8),
                               margin: const EdgeInsets.only(bottom: 10),
                               decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(
-                                  alpha: 0.15,
-                                ),
+                                color: verdictColor.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
-                                'Answer recorded — server grading follows the round.',
+                                answerMatchesKey == true
+                                    ? 'Your answer matches the saved answer key.'
+                                    : answerMatchesKey == false
+                                        ? 'Your answer does not match the saved answer key.'
+                                        : 'Answer recorded. Check the source and rationale in your results.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  color: AppColors.primary,
+                                  color: verdictColor,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 15,
                                 ),
                               ),
+                            ),
+                          ),
+                        if (_hasAnswered && q.sourceSnippet?.trim().isNotEmpty == true)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: () => _showSourceSnippet(q),
+                              icon: const Icon(Icons.menu_book_outlined, size: 16),
+                              label: const Text('View source snippet'),
                             ),
                           ),
                         // Question prompt

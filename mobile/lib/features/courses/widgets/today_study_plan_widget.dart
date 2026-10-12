@@ -92,6 +92,10 @@ class TodayStudyPlanWidget extends StatelessWidget {
     }
 
     final p = plan!;
+    final hasPracticeHistory = p.readiness.spacingDaysActive > 0 ||
+        p.readiness.questionAccuracyPercent > 0 ||
+        p.readiness.flashcardRetentionPercent > 0 ||
+        p.readiness.unresolvedMistakesCount > 0;
 
     return Container(
       decoration: BoxDecoration(
@@ -264,7 +268,7 @@ class TodayStudyPlanWidget extends StatelessWidget {
                   ],
                 ),
               ),
-              InkWell(
+              if (hasPracticeHistory) InkWell(
                 onTap: () {
                   if (onShowReadinessBreakdown != null) {
                     onShowReadinessBreakdown!(p.courseId ?? "");
@@ -332,12 +336,17 @@ class TodayStudyPlanWidget extends StatelessWidget {
               children: p.priorities.take(3).map((item) {
                 final isHigh = item.status == "High Priority";
                 final isReview = item.status == "Needs Review";
-                final color = isHigh
+                final isNew = item.status == "Not practiced";
+                final color = isNew
+                    ? context.textSecondary
+                    : isHigh
                     ? const Color(0xFFEF4444)
                     : isReview
                         ? const Color(0xFFF59E0B)
                         : const Color(0xFF10B981);
-                final icon = isHigh
+                final icon = isNew
+                    ? Icons.fiber_new_rounded
+                    : isHigh
                     ? Icons.error_outline_rounded
                     : isReview
                         ? Icons.replay_rounded
@@ -372,7 +381,7 @@ class TodayStudyPlanWidget extends StatelessWidget {
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        "${item.masteryPercent.round()}%",
+                        isNew ? "New" : "${item.masteryPercent.round()}%",
                         style: GoogleFonts.outfit(
                           fontSize: 11,
                           fontWeight: FontWeight.w800,

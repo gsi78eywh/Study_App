@@ -268,7 +268,7 @@ class _AcademicPlannerModalState extends State<AcademicPlannerModal> {
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      "Upload your syllabus PDF in AI Studio to instantly extract assignment dates & course milestones.",
+                                      "Upload your syllabus PDF in Add Material to instantly extract assignment dates & course milestones.",
                                       style: GoogleFonts.inter(
                                         fontSize: 11,
                                         color: context.textSecondary,

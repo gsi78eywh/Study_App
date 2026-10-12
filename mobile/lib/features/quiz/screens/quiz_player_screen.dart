@@ -1504,8 +1504,9 @@ class _QuizPlayerScreenState extends State<QuizPlayerScreen> {
           ),
           const SizedBox(height: 12),
           // Actions: Mark my answer correct override + Report button
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            runSpacing: 4,
             children: [
               if (!isCorrect)
                 OutlinedButton.icon(

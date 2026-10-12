@@ -43,7 +43,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify AppBar title and refresh button
-    expect(find.text("Study Notes Extractor & Studio"), findsOneWidget);
+    expect(find.text("Add Material"), findsOneWidget);
     expect(find.byTooltip("Reset Form & Clear Selection"), findsOneWidget);
 
     // Verify Tabs

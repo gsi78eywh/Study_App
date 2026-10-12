@@ -470,7 +470,7 @@ class StudentBrainDailyAnswersModel {
       whatShouldIStudy: "Awaiting your first course or note materials to build your study schedule.",
       whatAmIStrugglingWith: "No active misconception patterns detected. Ready for initial diagnostic synthesis.",
       howCanILearnIt: "Follow the 3-step loop: Spaced Active Recall (5 min) -> Retrieval Practice (10 min) -> Mistake Bank Target Drill (7 min).",
-      whatShouldIDoNext: "Add a course or scan a note in AI Studio to generate your first study deck.",
+      whatShouldIDoNext: "Add a course or add study material to generate your first study deck.",
     );
   }
 }

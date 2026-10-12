@@ -13,6 +13,15 @@ val keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
+val releaseKeyAlias = keystoreProperties.getProperty("keyAlias")
+val releaseKeyPassword = keystoreProperties.getProperty("keyPassword")
+val releaseStoreFile = keystoreProperties.getProperty("storeFile")
+val releaseStorePassword = keystoreProperties.getProperty("storePassword")
+val releaseSigningConfigured = !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank() &&
+    !releaseStoreFile.isNullOrBlank() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    rootProject.file(releaseStoreFile).exists()
 
 android {
     namespace = "com.studyapp.study_app_mobile"
@@ -39,40 +48,36 @@ android {
             val storeFileProp = keystoreProperties.getProperty("storeFile")
             val storePasswordProp = keystoreProperties.getProperty("storePassword")
 
-            if (keystorePropertiesFile.exists() &&
-                !keyAliasProp.isNullOrBlank() &&
-                !storeFileProp.isNullOrBlank() &&
-                rootProject.file(storeFileProp).exists()
-            ) {
+            if (releaseSigningConfigured) {
                 keyAlias = keyAliasProp
                 keyPassword = keyPasswordProp
                 storeFile = rootProject.file(storeFileProp)
                 storePassword = storePasswordProp
-            } else if (keystorePropertiesFile.exists() &&
-                !keyAliasProp.isNullOrBlank() &&
-                !storeFileProp.isNullOrBlank() &&
-                file(storeFileProp).exists()
-            ) {
-                keyAlias = keyAliasProp
-                keyPassword = keyPasswordProp
-                storeFile = file(storeFileProp)
-                storePassword = storePasswordProp
-            } else {
-                // Graceful fallback to debug signing for testing / dev builds without release key
-                val debugConfig = signingConfigs.getByName("debug")
-                keyAlias = debugConfig.keyAlias
-                keyPassword = debugConfig.keyPassword
-                storeFile = debugConfig.storeFile
-                storePassword = debugConfig.storePassword
             }
         }
     }
 
     buildTypes {
+        debug {
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
+        }
         release {
             signingConfig = signingConfigs.getByName("release")
+            manifestPlaceholders["usesCleartextTraffic"] = "false"
             isMinifyEnabled = false
             isShrinkResources = false
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name.startsWith("validateSigning") && name.endsWith("Release")) {
+        doFirst {
+            if (!releaseSigningConfigured) {
+                throw GradleException(
+                    "Release signing is not configured. Set keyAlias, keyPassword, storeFile, and storePassword in android/key.properties."
+                )
+            }
         }
     }
 }

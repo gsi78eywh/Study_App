@@ -9,7 +9,6 @@ class StudentBrainModal extends StatefulWidget {
   final VoidCallback onStartSmartSession;
   final VoidCallback onOpenMistakeBank;
   final VoidCallback onOpenAcademicPlanner;
-  final VoidCallback? onLoadStarterPack;
   final VoidCallback? onAddCourse;
 
   const StudentBrainModal({
@@ -18,7 +17,6 @@ class StudentBrainModal extends StatefulWidget {
     required this.onStartSmartSession,
     required this.onOpenMistakeBank,
     required this.onOpenAcademicPlanner,
-    this.onLoadStarterPack,
     this.onAddCourse,
   });
 
@@ -28,7 +26,6 @@ class StudentBrainModal extends StatefulWidget {
     required VoidCallback onStartSmartSession,
     required VoidCallback onOpenMistakeBank,
     required VoidCallback onOpenAcademicPlanner,
-    VoidCallback? onLoadStarterPack,
     VoidCallback? onAddCourse,
   }) {
     return showModalBottomSheet(
@@ -40,7 +37,6 @@ class StudentBrainModal extends StatefulWidget {
         onStartSmartSession: onStartSmartSession,
         onOpenMistakeBank: onOpenMistakeBank,
         onOpenAcademicPlanner: onOpenAcademicPlanner,
-        onLoadStarterPack: onLoadStarterPack,
         onAddCourse: onAddCourse,
       ),
     );
@@ -368,20 +364,18 @@ class _StudentBrainModalState extends State<StudentBrainModal> {
                                       Navigator.pop(context);
                                       if (hasEnrolledCourses) {
                                         widget.onStartSmartSession();
-                                      } else if (widget.onLoadStarterPack != null) {
-                                        widget.onLoadStarterPack!();
                                       } else if (widget.onAddCourse != null) {
                                         widget.onAddCourse!();
                                       }
                                     },
                                     icon: Icon(
-                                      hasEnrolledCourses ? Icons.bolt_rounded : Icons.auto_awesome_rounded,
+                                      hasEnrolledCourses ? Icons.bolt_rounded : Icons.add_rounded,
                                       color: Colors.yellow,
                                     ),
                                     label: Text(
                                       hasEnrolledCourses
                                           ? "Launch Smart Session"
-                                          : "Load Starter Demo Pack (Course + Notes + Cards)",
+                                          : "Add a Course",
                                     ),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: const Color(0xFF6366F1),

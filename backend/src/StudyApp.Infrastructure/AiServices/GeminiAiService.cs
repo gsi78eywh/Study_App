@@ -256,12 +256,19 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                    - The answer must NEVER be merely the document title or URL.
                    - NEVER output placeholder sentences like "Core academic principles and subject knowledge of...".
                    - Every single question must be grounded in an actual fact explicitly written in the provided text.
+                   - Questions must stand alone. Never write "the text says", "the critique states", "the passage", or "the document" as a substitute for the concept.
+                   - Test important concepts, mechanisms, and implications rather than incidental names or trivia.
 
-                4. AUTHENTIC DISTRACTORS:
+                4. SOURCE EVIDENCE:
+                   - For every question, sourceReference must be an exact verbatim excerpt copied from the provided material, ideally 8–60 words.
+                   - Do not put a topic label, summary, or paraphrase in sourceReference. If no exact supporting excerpt exists, do not generate that question.
+                   - The answer must be supported by the cited excerpt. Rationales should teach the concept and not merely point back to the material.
+
+                5. AUTHENTIC DISTRACTORS:
                    - For multiple-choice questions, every distractor must be plausible and drawn from adjacent concepts, items, prices, or details in the text.
                    - NEVER use joke options, obvious throwaway options, or generic placeholders.
 
-                5. DIRECT & METADATA-FREE:
+                6. DIRECT & METADATA-FREE:
                    - Make question prompts direct and professional.
                    - NEVER use meta-referencing phrases like "Based on the text", "According to the notes", "In the provided document", or "As seen on the website".
 
@@ -311,7 +318,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
                       "thinkingBreakdown": ["DIMENSION: CORE CONCEPT", "ANALYSIS: Reasoning step"],
 
-                      "sourceReference": "Specific excerpt or topic from notes"
+                      "sourceReference": "Exact verbatim supporting excerpt copied from the supplied material"
 
                     }
 

@@ -15,7 +15,7 @@ void main() {
 
   group("Quiz Check Answer Real-time Reveal Tests", () {
     testWidgets(
-        "Checking answer automatically reveals 100% correct answer and highlights choices",
+        "Checking an answer reveals the notes-matched answer and highlights choices",
         (WidgetTester tester) async {
       final sessionService = await SessionService.init();
       final apiClient = ApiClient(sessionService);
@@ -88,9 +88,8 @@ void main() {
       await tester.tap(find.text("Check Answer"));
       await tester.pumpAndSettle();
 
-      // 4. Verification of 100% real-time reveal:
-      // The 100% Correct Answer badge must be visible on Option C
-      expect(find.text("100% Correct"), findsOneWidget);
+      // The answer key is labeled as matching notes rather than as verified.
+      expect(find.text("Matches notes"), findsOneWidget);
 
       // The User's Choice (Incorrect) badge must be visible on Option A
       expect(find.text("Your Choice (Incorrect)"), findsOneWidget);
@@ -107,7 +106,7 @@ void main() {
     });
 
     testWidgets(
-        "Selecting correct answer reveals 100% Correct Recall celebratory banner",
+        "Selecting the correct answer shows notes-grounded feedback",
         (WidgetTester tester) async {
       final sessionService = await SessionService.init();
       final apiClient = ApiClient(sessionService);
@@ -161,10 +160,8 @@ void main() {
       await tester.tap(find.text("Check Answer"));
       await tester.pumpAndSettle();
 
-      // Verification: 100% Correct Recall banner is shown
-      expect(find.text("100% Correct Recall!"), findsOneWidget);
-      expect(find.text("100% Accurate"), findsOneWidget);
-      expect(find.text("100% Correct"), findsOneWidget);
+      // Positive feedback describes agreement with source material without a guarantee.
+      expect(find.text("Matches your notes!"), findsOneWidget);
       expect(find.text("AI Pedagogical Explanation & Rationale"), findsOneWidget);
     });
   });

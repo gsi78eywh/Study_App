@@ -53,7 +53,7 @@ class _UserManualSheetState extends State<UserManualSheet> {
           heading: "1. Capture Effortlessly",
           summary: "Students often don't have time to take detailed notes during rapid lectures. Passive Capture converts textbook photos, blackboard snapshots, or YouTube lectures into clean, structured notes and flashcards with one tap.",
           steps: [
-            "Open Ingest / Studio tab",
+            "Tap Add Material",
             "Upload image/document or paste YouTube lecture URL",
             "Tap '1-Tap Auto-Flashcards' or 'Save to Notebook'",
           ],
@@ -97,7 +97,7 @@ class _UserManualSheetState extends State<UserManualSheet> {
           heading: "YouTube & Lecture Transcript Synthesis",
           summary: "Paste any educational YouTube lecture URL or audio transcript. The engine strips timestamp clutter, structures the lecture into Cornell Notes (Summary, Cues, Notes), and automatically creates active recall flashcards.",
           steps: [
-            "Go to Ingest / Studio ➔ Tab 3 'Link'",
+            "Open Add Material and choose Link",
             "Paste the video URL or lecture transcript",
             "Tap 'Synthesize Structured Notes & Auto-Flashcards'",
           ],

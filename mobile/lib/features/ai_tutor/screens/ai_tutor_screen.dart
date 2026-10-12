@@ -190,19 +190,17 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
   }
 
   ChatMessage _createDefaultGreeting() {
-    final hasGeminiKey =
-        widget.apiClient.sessionService.geminiApiKey?.isNotEmpty ?? false;
     final isJunior = ChildSafetyService.instance.isJuniorMode;
     return ChatMessage(
       role: "assistant",
       text: isJunior
-          ? "👋 Hello friend! I'm your **Study Buddy**, powered by Gemini AI!\n\n"
+          ? "👋 Hello friend! I'm your **Study Buddy**,\n\n"
               "I can explain lessons simply, tell fun learning stories, give gentle hints, and help you practice without stress! 🌟\n\n"
               "What topic would you like to explore today?"
-          : "👋 Hi! I'm your **Study Tutor**, powered by Gemini.\n\n"
+          : "👋 Hi! I'm your **Study Tutor**,\n\n"
               "I can help you master complex coursework, explain tricky equations, break down practice problems, and give you conceptual clarity.\n\n"
               "What topic or question are we tackling today?",
-      modelUsed: hasGeminiKey ? "gemini-3.1-flash-lite" : "Built-In Academic Engine",
+      modelUsed: "StudyApp Tutor",
       timestamp: DateTime.now(),
     );
   }
@@ -635,7 +633,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
           setState(() {
             _isTutorOnline = isOnline;
             _tutorStatusLabel = isOnline
-                ? (isGemini ? "Gemini Online" : "AI Tutor Online")
+                ? (isGemini ? "AI Tutor Online" : "AI Tutor Online")
                 : "Tutor Offline";
           });
         }
@@ -711,7 +709,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
         final reply =
             response.data["reply"] as String? ?? "No response received.";
         final model =
-            response.data["modelUsed"] as String? ?? "gemini-3.1-flash-lite";
+            response.data["modelUsed"] as String? ?? "StudyApp Tutor";
         final latency = response.data["latencySeconds"] is num
             ? (response.data["latencySeconds"] as num).toDouble()
             : (stopwatch.elapsedMilliseconds / 1000.0);
@@ -863,25 +861,31 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                 Text(
-                  "Gemini Study Tutor",
+                  "Study Tutor",
                   style: GoogleFonts.outfit(
                     fontWeight: FontWeight.bold,
                     fontSize: 17,
                     color: context.textPrimary,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 Text(
-                  "Google Gemini Multimodal AI Engine",
+                  "Ask questions about your courses and study material",
                   style: GoogleFonts.inter(
                     fontSize: 11,
                     color: context.textSecondary,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
@@ -1379,7 +1383,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                         ),
                         const SizedBox(width: 10),
                         Text(
-                          "Gemini is analyzing context and formulating step-by-step response...",
+                          "Preparing a response...",
                           style: GoogleFonts.inter(
                             fontSize: 12,
                             fontStyle: FontStyle.italic,
@@ -1412,7 +1416,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                             fontSize: 14,
                           ),
                           decoration: InputDecoration(
-                            hintText: "Ask Gemini any academic concept, formula, or question...",
+                            hintText: "Ask a course question or request an explanation...",
                             hintStyle: GoogleFonts.inter(
                               color: context.textSecondary,
                               fontSize: 13,

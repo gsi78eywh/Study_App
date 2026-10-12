@@ -42,7 +42,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late StudySettingsModel _current;
-  late final TextEditingController _geminiApiKeyController;
   late final TextEditingController _serverUrlController;
   bool _isSaving = false;
   bool _isTestingConnection = false;
@@ -62,7 +61,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _developerModeUnlocked = widget.initialDeveloperModeUnlocked;
     _current = widget.settingsService.settings;
-    _geminiApiKeyController = TextEditingController(text: widget.sessionService.geminiApiKey ?? "");
     _serverUrlController = TextEditingController(
       text: widget.sessionService.baseUrl ?? ApiConstants.defaultBaseUrl,
     );
@@ -74,7 +72,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
-    _geminiApiKeyController.dispose();
     _serverUrlController.dispose();
     super.dispose();
   }
@@ -169,8 +166,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     setState(() => _isSaving = true);
-    await widget.sessionService.setGeminiApiKey(_geminiApiKeyController.text.trim());
-
     if (newUrl.isNotEmpty) {
       await widget.sessionService.setBaseUrl(newUrl);
     }
@@ -231,7 +226,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final version = data["version"]?.toString() ?? "1.0.0-prod";
         final aiService = data["aiService"] as Map?;
         final geminiReachable = aiService?["reachable"] == true;
-        final geminiModel = aiService?["model"]?.toString() ?? "gemini-3.1-flash-lite";
+        final geminiModel = aiService?["model"]?.toString() ?? "StudyApp Tutor";
         final auth = data["auth"] as Map?;
         final userAccepted = auth?["accepted"] == true;
         final userName = auth?["name"]?.toString() ?? auth?["email"]?.toString();
@@ -1814,7 +1809,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Text(
                       _hasGeminiOnServer == true
-                          ? "StudyApp v1.0.0 (Build 104) • Powered by Gemini AI"
+                          ? "StudyApp v1.0.0 (Build 104) • AI features available"
                           : "StudyApp v1.0.0 (Build 104)",
                       style: TextStyle(
                         color: context.textSecondary,

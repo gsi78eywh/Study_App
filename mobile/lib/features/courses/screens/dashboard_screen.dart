@@ -3,7 +3,6 @@ import "package:dio/dio.dart";
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
-import "package:shared_preferences/shared_preferences.dart";
 
 import "../../../core/network/api_client.dart";
 import "../../../core/services/app_session.dart";
@@ -12,7 +11,6 @@ import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../models/course_models.dart";
 import "../../auth/screens/login_screen.dart";
-import "../../auth/widgets/google_sign_in_dialog.dart";
 import "../../flashcards/screens/flashcards_screen.dart";
 import "../../ingestion/screens/ingestion_screen.dart";
 import "../../quiz/models/quiz_models.dart";
@@ -24,12 +22,9 @@ import "../../settings/services/settings_service.dart";
 import "../../settings/screens/settings_screen.dart";
 import "../../settings/widgets/dswd_safety_modal.dart";
 import "../widgets/onboarding_modal.dart";
-import "../../../core/constants/api_constants.dart";
 import "../widgets/grade_tracker_sheet.dart";
 import "../widgets/user_manual_sheet.dart";
 import "../widgets/eye_break_dialog.dart";
-import "../../ingestion/widgets/camera_scanner_modal.dart";
-import "../../ingestion/widgets/progressive_exam_studio.dart";
 import "../../practice/models/adaptive_models.dart";
 import "../widgets/today_study_plan_widget.dart";
 import "../widgets/student_brain_modal.dart";
@@ -60,66 +55,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _currentTabIndex = 0;
   List<CourseModel> _courses = [];
   bool _isLoadingCourses = true;
-  bool _isLoadingDemoPack = false;
   TodayStudyPlanModel? _todayStudyPlan;
   bool _isLoadingStudyPlan = false;
   String? _studioDraftTitle;
   String? _studioDraftContent;
-  int _studioDraftRevision = 0;
+  final int _studioDraftRevision = 0;
   String? _activeCourseId;
-
-  Future<void> _loadStarterDemoPack() async {
-    setState(() => _isLoadingDemoPack = true);
-    try {
-      final response = await widget.apiClient.dio.post(ApiConstants.demoPack);
-      if (response.statusCode == 200) {
-        await _fetchCoursesAndSync(fullFetch: true, showSnackBar: true);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                "✨ Starter Demo Pack loaded! Explore your new Biology 101 flashcards & quizzes.",
-              ),
-              backgroundColor: AppColors.accent,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Could not load starter pack: $e"),
-            backgroundColor: AppColors.danger,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoadingDemoPack = false);
-    }
-  }
-
-  Future<void> _removeStarterDemoPack() async {
-    setState(() => _isLoadingCourses = true);
-    try {
-      final sampleCourses = _courses.where((c) => c.isSample).toList();
-      for (final c in sampleCourses) {
-        try {
-          await widget.apiClient.dio.delete("/api/v1/courses/${c.id}");
-        } catch (_) {}
-      }
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool("has_loaded_sample_data", false);
-      await _fetchCoursesAndSync(fullFetch: true);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Sample data removed.")),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoadingCourses = false);
-    }
-  }
 
   String _cleanDescription(String? raw) {
     if (raw == null || raw.trim().isEmpty) {
@@ -140,59 +81,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       cleaned = "${cleaned.substring(0, 132)}...";
     }
     return cleaned;
-  }
-
-  void _openCameraScanner([String? targetCourseId]) {
-    CameraScannerModal.show(
-      context,
-      courses: _courses,
-      initialCourseId: targetCourseId,
-      apiClient: widget.apiClient,
-      onExportAndCreateExam: (courseId, title, scannedText) {
-        final course = _courses.firstWhere(
-          (c) => c.id == courseId,
-          orElse: () => _courses.isNotEmpty
-              ? _courses.first
-              : CourseModel(
-                  id: courseId.isNotEmpty ? courseId : "default",
-                  code: "GEN-101",
-                  name: "General Studies",
-                  colorHex: "#6366F1",
-                  createdAt: DateTime.now(),
-                ),
-        );
-        ProgressiveExamStudio.show(
-          context,
-          courseId: course.id,
-          courseName: course.name,
-          initialTitle: title,
-          sourceText: scannedText,
-          apiClient: widget.apiClient,
-          onExamSaved: (newSet) {
-            setState(() {
-              final idx = _courses.indexWhere((c) => c.id == course.id);
-              if (idx >= 0) {
-                if (!_courses[idx].studySets.any((s) => s.id == newSet.id)) {
-                  _courses[idx] = _courses[idx].copyWith(
-                    studySets: [newSet, ..._courses[idx].studySets],
-                  );
-                }
-              } else if (!course.studySets.any((s) => s.id == newSet.id)) {
-                course.studySets.insert(0, newSet);
-              }
-            });
-          },
-        );
-      },
-      onExportToEditor: (title, scannedText) {
-        setState(() {
-          _studioDraftTitle = title;
-          _studioDraftContent = scannedText;
-          _studioDraftRevision++;
-          _openAddMaterial();
-        });
-      },
-    );
   }
 
   void _openAddMaterial([String? targetCourseId]) {
@@ -420,7 +308,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _fetchCoursesAndSync(fullFetch: true);
             _loadTodayStudyPlan();
           },
-          onCreateStudySet: () => setState(() => _currentTabIndex = 3),
+          onCreateStudySet: _openAddMaterial,
         ),
       ),
     );
@@ -445,7 +333,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       onStartSmartSession: () => _startSmartStudySession(_todayStudyPlan?.courseId),
       onOpenMistakeBank: () => _openMistakeBank(_todayStudyPlan?.courseId),
       onOpenAcademicPlanner: () => _openAcademicPlannerModal(),
-      onLoadStarterPack: _loadStarterDemoPack,
       onAddCourse: _showAddCourseDialog,
     );
   }
@@ -455,7 +342,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       context,
       apiClient: widget.apiClient,
       courses: _courses,
-      onNavigateToStudio: () => setState(() => _currentTabIndex = 3),
+      onNavigateToStudio: _openAddMaterial,
     );
   }
 
@@ -2072,29 +1959,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Future<void> _openGoogleSignInModal() async {
-    // Release builds: the local dialog is unavailable, so return to the login
-    // screen where the verified Google SDK sign-in runs.
-    if (!GoogleSignInDialog.isAvailable) {
-      _handleLogout();
-      return;
-    }
-    final success = await GoogleSignInDialog.show(
-      context,
-      apiClient: widget.apiClient,
-      sessionService: widget.sessionService,
-    );
-    if (success && mounted) {
-      await _fetchCoursesAndSync(fullFetch: true, showSnackBar: true);
-      await _loadTodayStudyPlan();
-      if (mounted) setState(() {});
-    }
-  }
-
   void _showAccountMenu(BuildContext context) {
     final email = widget.sessionService.email ?? "Unknown student";
     final fullName = widget.sessionService.fullName ?? "Student";
-    final isDemo = email.contains("studyapp.local") || email == "dev@studyapp.local" || fullName == "Developer Test Account";
 
     showModalBottomSheet(
       context: context,
@@ -2124,7 +1991,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 children: [
                   CircleAvatar(
                     radius: 24,
-                    backgroundColor: isDemo ? const Color(0xFFF59E0B) : const Color(0xFF4285F4),
                     child: Text(
                       fullName.isNotEmpty ? fullName[0].toUpperCase() : "S",
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
@@ -2146,23 +2012,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ),
                             const SizedBox(width: 6),
-                            if (isDemo)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: const Color(0xFFF59E0B), width: 0.8),
-                                ),
-                                child: const Text(
-                                  "Demo Mode",
-                                  style: TextStyle(
-                                    color: Color(0xFFD97706),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
                           ],
                         ),
                         const SizedBox(height: 2),
@@ -2177,12 +2026,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
-                            color: (widget.sessionService.isGoogleLinked || email.endsWith("@gmail.com"))
+                            color: widget.sessionService.isGoogleLinked
                                 ? const Color(0xFF10B981).withValues(alpha: 0.12)
                                 : const Color(0xFF64748B).withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(6),
                             border: Border.all(
-                              color: (widget.sessionService.isGoogleLinked || email.endsWith("@gmail.com"))
+                              color: widget.sessionService.isGoogleLinked
                                   ? const Color(0xFF10B981)
                                   : const Color(0xFF64748B),
                               width: 0.8,
@@ -2192,21 +2041,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
-                                (widget.sessionService.isGoogleLinked || email.endsWith("@gmail.com"))
+                                widget.sessionService.isGoogleLinked
                                     ? Icons.cloud_done_rounded
                                     : Icons.cloud_queue_rounded,
                                 size: 13,
-                                color: (widget.sessionService.isGoogleLinked || email.endsWith("@gmail.com"))
+                                color: widget.sessionService.isGoogleLinked
                                     ? const Color(0xFF059669)
                                     : const Color(0xFF64748B),
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                (widget.sessionService.isGoogleLinked || email.endsWith("@gmail.com"))
-                                    ? "Google Cloud Linked • Backup Active"
-                                    : "Local Workspace • Not Linked",
+                                widget.sessionService.isGoogleLinked
+                                    ? "Google sign-in connected"
+                                    : "Email sign-in",
                                 style: TextStyle(
-                                  color: (widget.sessionService.isGoogleLinked || email.endsWith("@gmail.com"))
+                                  color: widget.sessionService.isGoogleLinked
                                       ? const Color(0xFF059669)
                                       : const Color(0xFF64748B),
                                   fontSize: 11,
@@ -2224,47 +2073,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(height: 20),
               const Divider(height: 1),
               const SizedBox(height: 12),
-              if (!widget.sessionService.isGoogleLinked && !email.endsWith("@gmail.com")) ...[
-                ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF4285F4).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.g_mobiledata_rounded, color: Color(0xFF4285F4), size: 24),
-                  ),
-                  title: const Text("Connect Google Account", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  subtitle: const Text("Link account to cloud storage to protect against app reinstall or data loss", style: TextStyle(fontSize: 12)),
-                  trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    _openGoogleSignInModal();
-                  },
-                ),
-              ] else ...[
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF10B981).withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.25)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.verified_user_rounded, color: Color(0xFF10B981), size: 20),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          "Cloud Protection Active: Your courses and notes are safely linked to your Google account. If you reinstall the app or switch devices, signing in restores all your data.",
-                          style: TextStyle(fontSize: 11.5, color: ctx.textPrimary, height: 1.3),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
               ListTile(
                 leading: Container(
                   padding: const EdgeInsets.all(8),
@@ -2848,7 +2656,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           _startSmartStudySession(_courses.first.id);
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text("Add a course or load the Starter Demo Pack to begin Exam Cram.")),
+                            const SnackBar(content: Text("Add a course and study material to start an exam session.")),
                           );
                         }
                       },
@@ -2918,21 +2726,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
     final studentName = widget.sessionService.fullName?.trim();
     final userEmail = widget.sessionService.email?.toLowerCase().trim() ?? '';
-    final isDemoUser = userEmail == 'dev@studyapp.local' ||
-        userEmail.contains('studyapp.local') ||
-        studentName == 'Developer Test Account';
-
-    final displayName = isDemoUser
-        ? 'Student'
-        : ((studentName != null &&
+    final displayName = (studentName != null &&
                 studentName.isNotEmpty &&
                 studentName.toLowerCase() != 'google student')
             ? (studentName.toLowerCase().startsWith('google student ')
                 ? studentName.substring(15).trim()
                 : studentName)
-            : (userEmail.isNotEmpty ? userEmail.split('@').first : 'Student'));
+            : (userEmail.isNotEmpty ? userEmail.split('@').first : 'Student');
 
-    final isFirstRun = _courses.isEmpty || totalSets == 0;
+    final hasCompletedQuiz = _courses.any(
+      (course) => course.studySets.any((set) => set.attemptsCount > 0),
+    );
+    final isFirstRun = _courses.isEmpty || totalSets == 0 || !hasCompletedQuiz;
 
     CourseModel? upcomingExamCourse;
     for (final c in _courses) {
@@ -2953,8 +2758,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
 
-    final activeStreakDays = _todayStudyPlan?.readiness.spacingDaysActive ?? 0;
-    final hasActiveStreak = activeStreakDays > 0;
+    final activeStudyDays = _todayStudyPlan?.readiness.spacingDaysActive ?? 0;
+    final hasActiveStudyDays = activeStudyDays > 0;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -2985,27 +2790,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 color: context.textPrimary,
                               ),
                             ),
-                            if (isDemoUser)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: const Color(0xFFF59E0B).withValues(alpha: 0.5),
-                                  ),
-                                ),
-                                child: const Text(
-                                  "Demo Mode",
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFFD97706),
-                                  ),
-                                ),
-                              ),
-                            if ((_todayStudyPlan?.readiness.spacingDaysActive ?? 0) > 0 &&
-                                _courses.any((c) => !c.isSample))
+                            if ((_todayStudyPlan?.readiness.spacingDaysActive ?? 0) > 0)
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                 decoration: BoxDecoration(
@@ -3023,7 +2808,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       const Text("🔥", style: TextStyle(fontSize: 12)),
                                       const SizedBox(width: 4),
                                       Text(
-                                        "${_todayStudyPlan?.readiness.spacingDaysActive ?? 1}-Day Streak",
+                                        "$activeStudyDays active study ${activeStudyDays == 1 ? 'day' : 'days'}",
                                         style: GoogleFonts.inter(
                                           fontSize: 11,
                                           fontWeight: FontWeight.w700,
@@ -3084,7 +2869,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                         icon: CircleAvatar(
                           radius: 13,
-                          backgroundColor: isDemoUser ? const Color(0xFFF59E0B) : const Color(0xFF4285F4),
+                          backgroundColor: const Color(0xFF4285F4),
                           child: Text(
                             displayName.isNotEmpty ? displayName[0].toUpperCase() : "S",
                             style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
@@ -3099,124 +2884,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Demo Account Notification & Quick Switch to Gmail Banner
-              if (isDemoUser) ...[
-                Container(
-                  margin: const EdgeInsets.only(bottom: 14),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFEF3C7).withValues(alpha: isDark ? 0.25 : 0.9),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.6), width: 1.2),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF59E0B).withValues(alpha: 0.25),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.info_outline_rounded, color: Color(0xFFD97706), size: 20),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Demo Student Account Active (${widget.sessionService.email})",
-                              style: GoogleFonts.outfit(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                                color: isDark ? Colors.amber.shade200 : const Color(0xFF92400E),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              "Sign in with your Gmail to connect your real courses, flashcards & cloud notes.",
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: isDark ? Colors.amber.shade100 : const Color(0xFF78350F),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.g_mobiledata_rounded, size: 20),
-                        label: const Text("Sign In with Gmail", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF4285F4),
-                          foregroundColor: Colors.white,
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        onPressed: _openGoogleSignInModal,
-                      ),
-                      const SizedBox(width: 6),
-                      TextButton.icon(
-                        icon: const Icon(Icons.logout_rounded, size: 15),
-                        label: const Text("Sign Out", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
-                        style: TextButton.styleFrom(
-                          foregroundColor: const Color(0xFFEF4444),
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                        ),
-                        onPressed: _handleLogout,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-
-              // Sample Data Banner (When sample pack is loaded)
-              if (_courses.any((c) => c.isSample)) ...[
-                Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.35)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.science_outlined, color: Color(0xFFD97706), size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          "Sample Data active (excluded from streaks & sync)",
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: context.textPrimary,
-                          ),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: _removeStarterDemoPack,
-                        style: TextButton.styleFrom(
-                          foregroundColor: const Color(0xFFEF4444),
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                        ),
-                        child: const Text("Remove sample data", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-
               // Child Safety & Learner Mode Bar
               _buildChildSafetyBanner(context),
               const SizedBox(height: 16),
 
               // First-Run Checklist for New Users (add course -> add material -> generate set -> first quiz)
               if (isFirstRun) ...[
-                _buildFirstRunChecklist(isDark, totalSets),
+                _buildFirstRunChecklist(isDark, totalSets, hasCompletedQuiz),
                 const SizedBox(height: 16),
               ],
 
@@ -3335,7 +3009,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ],
 
-              if (_courses.isNotEmpty) ...[
+              if (_courses.isNotEmpty &&
+                  (_isLoadingStudyPlan ||
+                      (_todayStudyPlan?.totalEstimatedMinutes ?? 0) > 0 ||
+                      (_todayStudyPlan?.priorities.isNotEmpty ?? false))) ...[
                 // Today's Study Plan (AI Adaptive Learning System)
                 TodayStudyPlanWidget(
                   plan: _todayStudyPlan,
@@ -3416,7 +3093,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           Icons.psychology_rounded,
                           AppColors.warning,
                         ),
-                        if (hasActiveStreak) ...[
+                        if (hasActiveStudyDays) ...[
                           Container(
                             height: 36,
                             width: 1,
@@ -3424,9 +3101,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             color: context.cardBorderColor,
                           ),
                           _buildStatItem(
-                            "Streak",
-                            "$activeStreakDays d",
-                            "Momentum",
+                            "Study Days",
+                            "$activeStudyDays",
+                            "Recorded",
                             Icons.local_fire_department_rounded,
                             const Color(0xFFF97316),
                           ),
@@ -3445,7 +3122,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildFirstRunChecklist(bool isDark, int totalSets) {
+  Widget _buildFirstRunChecklist(bool isDark, int totalSets, bool hasCompletedQuiz) {
     final hasCourse = _courses.isNotEmpty;
     final hasMaterial = totalSets > 0;
     final hasGeneratedSet = totalSets > 0;
@@ -3479,12 +3156,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: const Icon(Icons.checklist_rounded, color: Color(0xFF6366F1), size: 20),
               ),
               const SizedBox(width: 10),
-              Text(
-                "First-Run Setup Checklist",
-                style: GoogleFonts.outfit(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: context.textPrimary,
+              Expanded(
+                child: Text(
+                  "First-Run Setup Checklist",
+                  style: GoogleFonts.outfit(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: context.textPrimary,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
@@ -3517,7 +3198,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _buildChecklistItem(
             stepNumber: 3,
             title: "Generate study set & flashcards",
-            description: "Quality-gated extraction turns clean text into questions",
+            description: "Review your extracted material, then generate practice questions.",
             isDone: hasGeneratedSet,
             actionLabel: "Generate",
             onTap: () => _openAddMaterial(),
@@ -3527,9 +3208,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             stepNumber: 4,
             title: "Take your first practice quiz",
             description: "Active retrieval updates your Mistake Bank & spaced review",
-            isDone: false,
-            actionLabel: "Start Quiz",
-            onTap: () => setState(() => _currentTabIndex = 1),
+            isDone: hasCompletedQuiz,
+            actionLabel: hasGeneratedSet ? "Start Quiz" : "Add Material",
+            onTap: hasGeneratedSet
+                ? () => setState(() => _currentTabIndex = 1)
+                : _openAddMaterial,
           ),
         ],
       ),
@@ -3602,10 +3285,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildLibraryTab() {
     final isDark = context.isDarkMode;
-    final totalSets = _courses.fold<int>(
-      0,
-      (sum, c) => sum + c.studySets.length,
-    );
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -3811,33 +3490,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 onPressed: _showAddCourseDialog,
                               ),
                               const SizedBox(height: 10),
-                              // Receded Secondary Action: Explore with demo pack
-                              TextButton.icon(
-                                style: TextButton.styleFrom(
-                                  foregroundColor: context.textSecondary,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 8,
-                                  ),
-                                ),
-                                icon: _isLoadingDemoPack
-                                    ? const SizedBox(
-                                        width: 14,
-                                        height: 14,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Color(0xFF6366F1),
-                                        ),
-                                      )
-                                    : const Icon(Icons.auto_awesome_outlined, size: 16),
-                                label: Text(
-                                  _isLoadingDemoPack
-                                      ? "Loading Sample Curriculum..."
-                                      : "Or explore with Starter Demo Pack",
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-                                ),
-                                onPressed: _isLoadingDemoPack ? null : _loadStarterDemoPack,
-                              ),
+
                             ],
                           ),
                         ],
@@ -4009,7 +3662,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ],
                             InkWell(
-                              onTap: () => _openCameraScanner(course.id),
+                              onTap: _openAddMaterial,
                               borderRadius: BorderRadius.circular(6),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(
@@ -4030,7 +3683,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     ),
                                     SizedBox(width: 3),
                                     Text(
-                                      "Scan",
+                                      "Add Material",
                                       style: TextStyle(
                                         color: Color(0xFF06B6D4),
                                         fontSize: 11,
@@ -4042,7 +3695,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ),
                             InkWell(
-                              onTap: () => setState(() => _currentTabIndex = 3),
+                              onTap: _openAddMaterial,
                               borderRadius: BorderRadius.circular(6),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(
@@ -4094,7 +3747,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
-                                    "No study sets yet. Ingest notes or lecture slides using AI Studio.",
+                                    "No study sets yet. Add study material to create your first set.",
                                     style: TextStyle(
                                       color: context.textSecondary,
                                       fontSize: 13,
@@ -4102,8 +3755,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   ),
                                 ),
                                 TextButton(
-                                  onPressed: () =>
-                                      setState(() => _currentTabIndex = 3),
+                                  onPressed: _openAddMaterial,
                                   child: const Text("Ingest Now"),
                                 ),
                               ],
@@ -4395,7 +4047,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildProfileTab() {
     final studentName = widget.sessionService.fullName?.trim() ?? 'Student';
     final userEmail = widget.sessionService.email?.trim() ?? '';
-    final isDemoUser = userEmail == 'dev@studyapp.local' || userEmail.contains('studyapp.local');
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -4438,7 +4089,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         children: [
                           Text(studentName, style: GoogleFonts.outfit(fontSize: 17, fontWeight: FontWeight.bold, color: context.textPrimary)),
                           const SizedBox(height: 2),
-                          Text(userEmail.isNotEmpty ? userEmail : "student@studyapp.local", style: TextStyle(fontSize: 12.5, color: context.textSecondary)),
+                          Text(userEmail.isNotEmpty ? userEmail : "Email not available", style: TextStyle(fontSize: 12.5, color: context.textSecondary)),
                           const SizedBox(height: 6),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -4446,18 +4097,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               color: const Color(0xFF10B981).withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: const Text("Verified Account", style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF10B981))),
+                            child: const Text("Account", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
                           ),
                         ],
                       ),
                     ),
-                    if (isDemoUser)
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.g_mobiledata_rounded, size: 20),
-                        label: const Text("Connect Gmail", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4285F4), foregroundColor: Colors.white),
-                        onPressed: _openGoogleSignInModal,
-                      ),
                   ],
                 ),
               ),
@@ -4592,22 +4236,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text("Data Privacy & Security (RA 10173)", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
+                              Text("Privacy & Study Data", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
                               const SizedBox(height: 2),
-                              Text("Republic Act No. 10173 - Data Privacy Act of 2012 Compliance", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                              Text("Review data handling before uploading personal documents.", style: TextStyle(fontSize: 12, color: context.textSecondary)),
                             ],
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      "• Data Controller: StudyApp Academic Engine\n"
-                      "• Authorized Processor: Google Gemini API (Ephemeral processing; your study materials and uploaded PDFs are never retained by third parties or used to train public foundation models)\n"
-                      "• Storage: Credentials and study sets stored encrypted on your device and private backend.\n"
-                      "• Rights: Right to access, modify, and permanently erase your account data at any time.",
-                      style: TextStyle(fontSize: 11.5, height: 1.5, color: context.textSecondary),
-                    ),
+                    Text("Avoid uploading documents with sensitive personal information. Study material may be sent to the configured AI service when you request extraction, tutoring, or question generation.", style: TextStyle(fontSize: 11.5, height: 1.5, color: context.textSecondary)),
                     const SizedBox(height: 10),
                     TextButton.icon(
                       icon: const Icon(Icons.info_outline, size: 16),
@@ -4889,7 +4527,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   tooltip: "User Manual & Feature Guide",
                   onPressed: () => UserManualSheet.show(
                     context,
-                    onOpenIngest: () => setState(() => _currentTabIndex = 3),
+                    onOpenIngest: _openAddMaterial,
                     onOpenGradeTracker: () => GradeTrackerSheet.show(
                       context,
                       widget.apiClient,

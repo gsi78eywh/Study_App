@@ -20,7 +20,9 @@ public record GoogleLoginRequest(string IdToken);
 public class AuthController : ControllerBase
 {
     /// <summary>Unverified local-only Google sign-in format. Accepted in Development only.</summary>
+#if DEBUG
     public const string DevGoogleTokenPrefix = "dev-google:";
+#endif
     private readonly IApplicationDbContext _context;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenGenerator _jwtTokenGenerator;
@@ -184,9 +186,12 @@ public class AuthController : ControllerBase
         var configuredClientId = _configuration["Authentication:Google:ClientId"]
             ?? Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID");
 
+#if DEBUG
         var tokenStr = request.IdToken.Trim();
+#endif
         GoogleJsonWebSignature.Payload payload;
 
+#if DEBUG
         // SECURITY: The "dev-google:email|Full Name" format performs NO identity verification.
         // It exists only so developers can exercise the Google flow locally without a
         // GOOGLE_CLIENT_ID. It is rejected outright in every non-Development environment,
@@ -231,6 +236,7 @@ public class AuthController : ControllerBase
             };
         }
         else
+#endif
         {
             if (!_environment.IsDevelopment() && string.IsNullOrWhiteSpace(configuredClientId))
             {

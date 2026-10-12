@@ -384,10 +384,12 @@ public sealed class PracticeController : ControllerBase
         {
             var setAttempts = attempts.Where(a => a.Question?.StudySetId == set.Id).ToList();
             var accuracy = setAttempts.Count == 0
-                ? 50m
+                ? 0m
                 : Math.Round(setAttempts.Average(a => a.PartialScore) * 100m, 1);
             var missedCount = setAttempts.Count(a => !a.IsCorrect);
-            var status = accuracy >= 85m ? "Strong" : accuracy >= 60m ? "Needs Review" : "High Priority";
+            var status = setAttempts.Count == 0
+                ? "Not practiced"
+                : accuracy >= 85m ? "Strong" : accuracy >= 60m ? "Needs Review" : "High Priority";
             priorities.Add(new CoursePriorityDto(set.Title, accuracy, status, missedCount));
         }
 
@@ -397,54 +399,62 @@ public sealed class PracticeController : ControllerBase
         var flashcardAttempts = recentAttempts.Where(a => a.TestSession?.Mode == StudyMode.Flashcards).ToList();
         var quizAttempts = recentAttempts.Where(a => a.TestSession?.Mode != StudyMode.Flashcards).ToList();
 
-        var qAccuracy = quizAttempts.Count == 0 ? 70m : Math.Round(quizAttempts.Average(a => a.PartialScore) * 100m, 1);
-        var fRetention = flashcardAttempts.Count == 0 ? 75m : Math.Round(flashcardAttempts.Average(a => a.PartialScore) * 100m, 1);
+        var qAccuracy = quizAttempts.Count == 0 ? 0m : Math.Round(quizAttempts.Average(a => a.PartialScore) * 100m, 1);
+        var fRetention = flashcardAttempts.Count == 0 ? 0m : Math.Round(flashcardAttempts.Average(a => a.PartialScore) * 100m, 1);
         var activeDays = recentAttempts.Select(a => a.TestSession?.CompletedAt.Date).Distinct().Count(d => d.HasValue);
-        var unresolvedMistakes = recentAttempts.Where(a => !a.IsCorrect).GroupBy(a => a.QuestionId).Count();
+        var latestAnswers = GetLatestAnswersByQuestion(recentAttempts);        var unresolvedMistakes = latestAnswers.Count(a => !a.IsCorrect);
+        var hasPracticeHistory = recentAttempts.Count > 0;
+        var overallReadiness = CalculateReadiness(
+            qAccuracy, quizAttempts.Count, fRetention, flashcardAttempts.Count, activeDays, unresolvedMistakes);
 
-        var overallReadiness = Math.Clamp(
-            Math.Round((qAccuracy * 0.5m) + (fRetention * 0.35m) + (Math.Min(activeDays, 5) * 3m) - (unresolvedMistakes * 1.5m), 1),
-            20m, 98m);
-
-        var readinessExplanation = unresolvedMistakes > 0
-            ? $"Based on {qAccuracy}% question accuracy, {fRetention}% flashcard retention, and {unresolvedMistakes} active misconception patterns."
-            : $"Strong concept retention across {activeDays} study days with zero active misconception patterns.";
+        var readinessExplanation = !hasPracticeHistory
+            ? "No practice attempts recorded yet. Complete a quiz or flashcard review to establish a baseline."
+            : unresolvedMistakes > 0
+                ? $"Based on {qAccuracy}% question accuracy, {fRetention}% flashcard retention, and {unresolvedMistakes} questions missed."
+                : $"Based on {qAccuracy}% question accuracy, {fRetention}% flashcard retention, and activity across {activeDays} study days.";
 
         var steps = new List<StudyPlanStepDto>();
         var lowestSet = courseSets.OrderBy(s => priorities.FirstOrDefault(p => p.TopicName == s.Title)?.MasteryPercent ?? 50m).FirstOrDefault();
         var allFlashcards = primaryCourse.StudySets.SelectMany(s => s.Questions.Where(q => q.Type == QuestionType.Identification || (q.ThinkingBreakdownJson != null && q.ThinkingBreakdownJson.Contains("DIMENSION:")))).ToList();
 
-        steps.Add(new StudyPlanStepDto(
+        if (allFlashcards.Count > 0) steps.Add(new StudyPlanStepDto(
             1, "spaced_flashcards",
-            "Review Spaced Flashcards",
+            "Review Flashcards",
             5,
-            "Spaced repetition retrieval prompt. Solidifies decaying memory traces before new concepts.",
-            Math.Min(allFlashcards.Count > 0 ? allFlashcards.Count : 6, 8),
+            "Review flashcards available in this course.",
+            Math.Min(allFlashcards.Count, 8),
             lowestSet?.Id,
             lowestSet?.Title
         ));
 
-        steps.Add(new StudyPlanStepDto(
-            2, "retrieval_practice",
-            $"Retrieval Practice: {lowestSet?.Title ?? "Core Topics"}",
-            10,
-            $"Prioritized due to {priorities.FirstOrDefault()?.MasteryPercent ?? 42}% mastery and {priorities.FirstOrDefault()?.MissedCount ?? 2} recent misses.",
-            5,
-            lowestSet?.Id,
-            lowestSet?.Title
-        ));
+        if (lowestSet is not null && lowestSet.Questions.Count > 0)
+        {
+            var lowestPriority = priorities.FirstOrDefault(p => p.TopicName == lowestSet.Title);
+            var retrievalReason = lowestPriority is null || lowestPriority.Status == "Not practiced"
+                ? "Start with an initial retrieval check; no prior accuracy is available."
+                : $"Prioritized from {lowestPriority.MasteryPercent}% recorded accuracy and {lowestPriority.MissedCount} missed answers.";
+            steps.Add(new StudyPlanStepDto(
+                2, "retrieval_practice",
+                $"Retrieval Practice: {lowestSet.Title}",
+                10,
+                retrievalReason,
+                Math.Min(lowestSet.Questions.Count, 5),
+                lowestSet.Id,
+                lowestSet.Title
+            ));
+        }
 
-        steps.Add(new StudyPlanStepDto(
+        if (unresolvedMistakes > 0) steps.Add(new StudyPlanStepDto(
             3, "mistake_drill",
             "Mistake Bank Targeted Drill",
             7,
-            $"Directly targets {Math.Max(1, unresolvedMistakes)} previously missed questions to prevent recurring exam errors.",
-            Math.Max(1, Math.Min(unresolvedMistakes, 5)),
+            $"Review {unresolvedMistakes} questions with recorded incorrect attempts.",
+            Math.Min(unresolvedMistakes, 5),
             lowestSet?.Id,
             lowestSet?.Title
         ));
 
-        steps.Add(new StudyPlanStepDto(
+        if (lowestSet is not null && lowestSet.Questions.Count > 0) steps.Add(new StudyPlanStepDto(
             4, "socratic_tutor",
             "Socratic AI Tutor Check-in",
             3,
@@ -467,10 +477,13 @@ public sealed class PracticeController : ControllerBase
             else gradeRiskLevel = "Good Standing";
         }
 
-        var aiRec = $"Focus on {primaryCourse.Code}: {primaryRiskReason}. " +
-            (unresolvedMistakes > 0
-                ? $"{unresolvedMistakes} active misconception patterns flagged for review."
-                : "Maintain study momentum with targeted active recall.");
+        var aiRec = courseSets.Count == 0
+            ? $"Add study material to {primaryCourse.Code} to build a course-specific study plan."
+            : !hasPracticeHistory
+                ? $"Start with an initial practice check for {primaryCourse.Code}. Readiness will be available after recorded attempts."
+                : unresolvedMistakes > 0
+                    ? $"Focus on {primaryCourse.Code}: {primaryRiskReason}. Review {unresolvedMistakes} questions with recorded incorrect attempts."
+                    : $"Focus on {primaryCourse.Code}: {primaryRiskReason}. Continue practicing with questions from your study sets.";
 
         return Ok(new TodayStudyPlanDto(
             primaryCourse.Id,
@@ -478,11 +491,11 @@ public sealed class PracticeController : ControllerBase
             primaryCourse.Code,
             primaryCourse.ExamDate,
             daysUntilExam,
-            25,
+            steps.Sum(s => s.DurationMinutes),
             priorities,
             steps,
             aiRec,
-            new ExplainableReadinessDto(overallReadiness, qAccuracy, fRetention, Math.Max(1, activeDays), unresolvedMistakes, readinessExplanation),
+            new ExplainableReadinessDto(overallReadiness, qAccuracy, fRetention, activeDays, unresolvedMistakes, readinessExplanation),
             gradeRiskLevel,
             primaryRiskReason
         ));
@@ -727,20 +740,20 @@ public sealed class PracticeController : ControllerBase
         var quizAttempts = attempts.Where(a => a.TestSession?.Mode != StudyMode.Flashcards).ToList();
         var flashcardAttempts = attempts.Where(a => a.TestSession?.Mode == StudyMode.Flashcards).ToList();
 
-        var qAccuracy = quizAttempts.Count == 0 ? 65m : Math.Round(quizAttempts.Average(a => a.PartialScore) * 100m, 1);
-        var fRetention = flashcardAttempts.Count == 0 ? 70m : Math.Round(flashcardAttempts.Average(a => a.PartialScore) * 100m, 1);
+        var qAccuracy = quizAttempts.Count == 0 ? 0m : Math.Round(quizAttempts.Average(a => a.PartialScore) * 100m, 1);
+        var fRetention = flashcardAttempts.Count == 0 ? 0m : Math.Round(flashcardAttempts.Average(a => a.PartialScore) * 100m, 1);
         var activeDays = attempts.Select(a => a.TestSession?.CompletedAt.Date).Distinct().Count(d => d.HasValue);
-        var unresolved = attempts.Where(a => !a.IsCorrect).GroupBy(a => a.QuestionId).Count();
+        var latestAnswers = GetLatestAnswersByQuestion(attempts);        var unresolved = latestAnswers.Count(a => !a.IsCorrect);
+        var overall = CalculateReadiness(
+            qAccuracy, quizAttempts.Count, fRetention, flashcardAttempts.Count, activeDays, unresolved);
 
-        var overall = Math.Clamp(
-            Math.Round((qAccuracy * 0.5m) + (fRetention * 0.35m) + (Math.Min(activeDays, 5) * 3m) - (unresolved * 1.5m), 1),
-            20m, 98m);
+        var explanation = attempts.Count == 0
+            ? "No practice attempts recorded yet. Complete a quiz or flashcard review to establish a baseline."
+            : unresolved > 0
+                ? $"Readiness is {overall}% based on {qAccuracy}% quiz accuracy, {fRetention}% flashcard retention, {activeDays} active study days, and {unresolved} questions missed."
+                : $"Readiness is {overall}% based on {qAccuracy}% quiz accuracy, {fRetention}% flashcard retention, and {activeDays} active study days.";
 
-        var explanation = unresolved > 0
-            ? $"Readiness is {overall}% based on {qAccuracy}% accuracy, {fRetention}% flashcard retention, and {unresolved} active mistake patterns."
-            : $"High readiness of {overall}% with consistent retrieval accuracy and 0 active mistake patterns.";
-
-        return Ok(new ExplainableReadinessDto(overall, qAccuracy, fRetention, Math.Max(1, activeDays), unresolved, explanation));
+        return Ok(new ExplainableReadinessDto(overall, qAccuracy, fRetention, activeDays, unresolved, explanation));
     }
 
     [HttpGet("student-brain")]
@@ -803,8 +816,7 @@ public sealed class PracticeController : ControllerBase
         }
 
         var priorityWhy = topCourse == null
-            ? "No courses enrolled yet. Add your first course or load the starter demo pack to activate AI insights and personalized recommendations."
-            : daysUntilExam.HasValue && daysUntilExam.Value <= 7
+            ? "No courses enrolled yet. Add your first course and study material to build personalized recommendations."            : daysUntilExam.HasValue && daysUntilExam.Value <= 7
                 ? $"You have an upcoming assessment in {daysUntilExam.Value} days, your recent accuracy is {priorityMastery}%, and {Math.Min(pendingReviews, 8)} flashcards are due for review."
                 : $"Current mastery is {priorityMastery}% with {weakConcepts} concepts flagged for active recall reinforcement.";
 
@@ -822,7 +834,7 @@ public sealed class PracticeController : ControllerBase
                 : "No active misconception patterns detected. Ready for initial diagnostic synthesis.",
             HowCanILearnIt: "Follow the 3-step loop: Spaced Active Recall (5 min) -> Retrieval Practice (10 min) -> Mistake Bank Target Drill (7 min).",
             WhatShouldIDoNext: topCourse == null
-                ? "Add a course or scan a note in AI Studio to generate your first study deck."
+                ? "Add a course and study material to generate your first study deck."
                 : "Launch today's 25-Minute Smart Study Session to address weak areas immediately."
         );
 
@@ -1161,6 +1173,40 @@ public sealed class PracticeController : ControllerBase
             GetCorrectAnswer(question));
     }
 
+    private static decimal CalculateReadiness(
+        decimal quizAccuracy,
+        int quizAttemptCount,
+        decimal flashcardRetention,
+        int flashcardAttemptCount,
+        int activeDays,
+        int unresolvedMistakes)    {
+        decimal weightedTotal = 0m;
+        decimal includedWeight = 0m;
+
+        if (quizAttemptCount > 0)
+        {
+            weightedTotal += quizAccuracy * 0.50m;
+            includedWeight += 0.50m;
+        }
+
+        if (flashcardAttemptCount > 0)
+        {
+            weightedTotal += flashcardRetention * 0.35m;
+            includedWeight += 0.35m;
+        }
+
+        if (activeDays > 0)
+        {
+            var activeDayConsistency = Math.Min(activeDays, 5) / 5m * 100m;
+            weightedTotal += activeDayConsistency * 0.15m;
+            includedWeight += 0.15m;
+        }
+
+        if (includedWeight == 0m) return 0m;
+
+        var evidenceScore = weightedTotal / includedWeight;
+        return Math.Clamp(Math.Round(evidenceScore - (unresolvedMistakes * 1.5m), 1), 0m, 100m);    }
+    private static List<SessionAnswer> GetLatestAnswersByQuestion(IEnumerable<SessionAnswer> answers) =>        answers            .GroupBy(answer => answer.QuestionId)            .Select(group => group                .OrderByDescending(answer => answer.TestSession?.CompletedAt ?? DateTime.MinValue)                .First())            .ToList();
     private Guid? GetUserId() => Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId) ? userId : null;
 
     private static TimeSpan GetReviewDelay(int rating, int historyCount)

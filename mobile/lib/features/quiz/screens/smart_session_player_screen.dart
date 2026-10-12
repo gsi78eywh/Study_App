@@ -859,27 +859,6 @@ class _SmartSessionPlayerScreenState extends State<SmartSessionPlayerScreen> {
               ),
               const SizedBox(height: 18),
 
-              // Mastery Delta Badge
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.trending_up_rounded, color: Color(0xFF10B981)),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        "Estimated Topic Mastery: +8% gain recorded from today's retrieval practice!",
-                        style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF10B981)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
               const Spacer(),
 
               SizedBox(

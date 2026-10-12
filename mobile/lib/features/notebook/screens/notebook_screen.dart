@@ -32,14 +32,12 @@ class NotebookScreen extends StatefulWidget {
   final List<CourseModel> courses;
   final ApiClient apiClient;
   final VoidCallback? onNavigateToStudio;
-  final VoidCallback? onLoadStarterPack;
 
   const NotebookScreen({
     super.key,
     required this.courses,
     required this.apiClient,
     this.onNavigateToStudio,
-    this.onLoadStarterPack,
   });
 
   @override
@@ -236,9 +234,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                               }
 
                               final multipart = MultipartFile.fromBytes(bytes, filename: f.name);
-                              final geminiKey = widget.apiClient.sessionService.geminiApiKey;
                               final map = <String, dynamic>{"file": multipart};
-                              if (geminiKey != null && geminiKey.isNotEmpty) map["apiKey"] = geminiKey;
                               final resp = await widget.apiClient.dio.post(
                                 ApiConstants.scanContent,
                                 data: FormData.fromMap(map),
@@ -620,7 +616,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                 foregroundColor: Colors.white,
               ),
               icon: const Icon(Icons.auto_awesome, size: 16),
-              label: const Text("Synthesize in AI Studio"),
+              label: const Text("Add Material"),
               onPressed: () {
                 Navigator.pop(ctx);
                 widget.onNavigateToStudio!();
@@ -866,30 +862,6 @@ class _NotebookScreenState extends State<NotebookScreen> {
                                     label: const Text("Create Your First Note", style: TextStyle(fontWeight: FontWeight.bold)),
                                     onPressed: _showAddNoteDialog,
                                   ),
-                                  if (widget.onLoadStarterPack != null &&
-                                      widget.courses.isEmpty)
-                                    OutlinedButton.icon(
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: AppColors.accent,
-                                        side: const BorderSide(
-                                          color: AppColors.accent,
-                                          width: 1.2,
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 18,
-                                          vertical: 12,
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                      icon: const Icon(
-                                        Icons.auto_awesome,
-                                        size: 18,
-                                      ),
-                                      label: const Text("Load Starter Demo Pack"),
-                                      onPressed: widget.onLoadStarterPack,
-                                    ),
                                 ],
                               ),
                             ],
@@ -1002,7 +974,7 @@ class _NotebookScreenState extends State<NotebookScreen> {
                                       size: 16,
                                     ),
                                     label: const Text(
-                                      "Synthesize in AI Studio",
+                                      "Add Material",
                                     ),
                                     onPressed: widget.onNavigateToStudio,
                                   ),
