@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 📚 Study App
 
 An adaptive, intelligent study companion designed for students of all educational levels—from primary elementary (Grades 1–6) and junior/senior high school (Grades 7–12) to collegiate and university academia.
@@ -106,3 +107,6 @@ flutter analyze
 
 For detailed architectural diagrams, bit-by-bit workflows, security defense implementations, and testing matrices, see:
 * [Implementation & Fixes Guide](docs/IMPLEMENTATION_AND_FIXES.md)
+=======
+yuhuuu
+>>>>>>> f2af11b5bda5c10b6fa1bae0b20b7c47c91a9dbf
