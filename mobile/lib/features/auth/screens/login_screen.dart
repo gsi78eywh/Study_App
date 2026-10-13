@@ -537,8 +537,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   ActionChip(
                     avatar: const Icon(Icons.cloud_rounded, size: 14, color: AppColors.primary),
-                    label: const Text("Railway Production", style: TextStyle(fontSize: 11.5)),
-                    onPressed: () => urlController.text = "https://your-app.up.railway.app",
+                    label: const Text("Render Cloud", style: TextStyle(fontSize: 11.5)),
+                    onPressed: () => urlController.text = "https://study-app-b0xq.onrender.com",
                   ),
                   ActionChip(
                     avatar: const Icon(Icons.wifi_rounded, size: 14, color: AppColors.accent),

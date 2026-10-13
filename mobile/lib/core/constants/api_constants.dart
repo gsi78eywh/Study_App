@@ -2,13 +2,14 @@ import "package:flutter/foundation.dart";
 
 class ApiConstants {
   // Preset URLs for different runtime environments
-  static const String railwayProductionUrl = "https://studyapp-backend.up.railway.app";
+  static const String renderProductionUrl = "https://study-app-b0xq.onrender.com";
+  static const String railwayProductionUrl = renderProductionUrl;
   static const String androidEmulatorUrl = "http://10.0.2.2:5000";
   static const String localWifiUrl = "http://172.23.249.209:5000";
   static const String localhostUrl = "http://localhost:5000";
 
   // Configurable base URL:
-  // For production (e.g. Railway): pass via flutter build --dart-define=API_BASE_URL=https://studyapp-backend.up.railway.app
+  // For production: pass via flutter build --dart-define=API_BASE_URL=https://study-app-b0xq.onrender.com
   static const String _configuredBaseUrl = String.fromEnvironment("API_BASE_URL");
 
   static String get defaultBaseUrl {
@@ -16,14 +17,14 @@ class ApiConstants {
     if (kIsWeb) {
       if (Uri.base.host.isNotEmpty && Uri.base.host != "localhost" && Uri.base.host != "127.0.0.1") {
         if (Uri.base.scheme == "https") {
-          return railwayProductionUrl;
+          return renderProductionUrl;
         }
         return "http://${Uri.base.host}:5000";
       }
       return localhostUrl;
     }
-    // In mobile release builds, Android blocks plain http:// by default, so use HTTPS Railway as default
-    if (kReleaseMode) return railwayProductionUrl;
+    // In mobile release builds, Android blocks plain http:// by default, so use HTTPS Render as default
+    if (kReleaseMode) return renderProductionUrl;
     return defaultTargetPlatform == TargetPlatform.android
         ? androidEmulatorUrl
         : localhostUrl;
