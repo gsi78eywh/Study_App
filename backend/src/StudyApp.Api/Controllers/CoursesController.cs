@@ -137,19 +137,20 @@ public sealed class CoursesController : ControllerBase
             Id = Guid.NewGuid(),
             CourseId = bioCourse.Id,
             Title = "Lecture 1: Photosynthesis & Cellular Energetics",
-            ContentMarkdown = @"# Photosynthesis & Cellular Energetics
-
-## 1. Overview
-Photosynthesis transforms solar photon energy into stable chemical bonds (glucose), which cellular respiration subsequently metabolizes to generate ATP.
-
-## 2. Key Stages
-- **Light Reactions**: Occur in thylakoid membranes. Photolysis of H2O supplies electrons to photosystem II, releasing O2 and generating ATP + NADPH.
-- **Calvin Cycle (Dark Reactions)**: Occurs in the stroma. RuBisCO fixes atmospheric CO2 into G3P (3-carbon sugar).
-- **Cellular Respiration**: Glycolysis (cytosol, anaerobic) -> Krebs Cycle (mitochondrial matrix) -> Oxidative Phosphorylation (inner membrane via ATP Synthase).
-
-## 3. High-Yield Retention Rules
-1. *Glycolysis is anaerobic* and produces a net of 2 ATP and 2 NADH per glucose.
-2. *ATP Synthase* utilizes the proton motive force (chemiosmosis) across the inner mitochondrial membrane.",
+            ContentMarkdown = string.Join("\n",
+                "# Photosynthesis & Cellular Energetics",
+                "",
+                "## 1. Overview",
+                "Photosynthesis transforms solar photon energy into stable chemical bonds (glucose), which cellular respiration subsequently metabolizes to generate ATP.",
+                "",
+                "## 2. Key Stages",
+                "- **Light Reactions**: Occur in thylakoid membranes. Photolysis of H2O supplies electrons to photosystem II, releasing O2 and generating ATP + NADPH.",
+                "- **Calvin Cycle (Dark Reactions)**: Occurs in the stroma. RuBisCO fixes atmospheric CO2 into G3P (3-carbon sugar).",
+                "- **Cellular Respiration**: Glycolysis (cytosol, anaerobic) -> Krebs Cycle (mitochondrial matrix) -> Oxidative Phosphorylation (inner membrane via ATP Synthase).",
+                "",
+                "## 3. High-Yield Retention Rules",
+                "1. *Glycolysis is anaerobic* and produces a net of 2 ATP and 2 NADH per glucose.",
+                "2. *ATP Synthase* utilizes the proton motive force (chemiosmosis) across the inner mitochondrial membrane."),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -268,25 +269,26 @@ Photosynthesis transforms solar photon energy into stable chemical bonds (glucos
             Id = Guid.NewGuid(),
             CourseId = csCourse.Id,
             Title = "Lecture 1: C# Architecture, Data Types & OOP Foundations",
-            ContentMarkdown = @"# C# Architecture & Object-Oriented Programming
-
-## 1. .NET Runtime Architecture
-- **Roslyn Compiler**: Converts C# high-level source code into Common Intermediate Language (CIL/IL).
-- **Common Language Runtime (CLR)**: The execution environment providing Just-In-Time (JIT) compilation from IL to native CPU instructions, memory management, garbage collection, and type verification.
-
-## 2. Type System Fundamentals
-- **Value Types**: Stored directly where declared (typically on the stack). Examples: `int`, `double`, `bool`, `struct`.
-- **Reference Types**: Contain references (memory pointers) to data residing on the managed garbage-collected heap. Examples: `string`, `class`, arrays, delegates.
-
-## 3. Core Object-Oriented Principles in C#
-1. **Encapsulation**: Bundling state and behavior with access modifiers (`private`, `protected`, `public`, `internal`).
-2. **Inheritance**: Subclassing with `:` syntax and single implementation inheritance.
-3. **Polymorphism**: Dynamic method dispatch using `virtual` in the base class and `override` in the derived class.
-4. **Abstraction**: Contract definition via `interface` and `abstract` classes.
-
-## 4. Modern C# Features
-- **LINQ**: Declarative data queries (`from x in list where x.Active select x`).
-- **Resource Management**: Deterministic disposal with `using var resource = new Resource();`.",
+            ContentMarkdown = string.Join("\n",
+                "# C# Architecture & Object-Oriented Programming",
+                "",
+                "## 1. .NET Runtime Architecture",
+                "- **Roslyn Compiler**: Converts C# high-level source code into Common Intermediate Language (CIL/IL).",
+                "- **Common Language Runtime (CLR)**: The execution environment providing Just-In-Time (JIT) compilation from IL to native CPU instructions, memory management, garbage collection, and type verification.",
+                "",
+                "## 2. Type System Fundamentals",
+                "- **Value Types**: Stored directly where declared (typically on the stack). Examples: `int`, `double`, `bool`, `struct`.",
+                "- **Reference Types**: Contain references (memory pointers) to data residing on the managed garbage-collected heap. Examples: `string`, `class`, arrays, delegates.",
+                "",
+                "## 3. Core Object-Oriented Principles in C#",
+                "1. **Encapsulation**: Bundling state and behavior with access modifiers (`private`, `protected`, `public`, `internal`).",
+                "2. **Inheritance**: Subclassing with `:` syntax and single implementation inheritance.",
+                "3. **Polymorphism**: Dynamic method dispatch using `virtual` in the base class and `override` in the derived class.",
+                "4. **Abstraction**: Contract definition via `interface` and `abstract` classes.",
+                "",
+                "## 4. Modern C# Features",
+                "- **LINQ**: Declarative data queries (`from x in list where x.Active select x`).",
+                "- **Resource Management**: Deterministic disposal with `using var resource = new Resource();`."),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };

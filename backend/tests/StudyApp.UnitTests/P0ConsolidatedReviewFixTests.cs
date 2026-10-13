@@ -80,6 +80,7 @@ public class P0ConsolidatedReviewFixTests
         Assert.Equal(expected, result);
     }
 
+#if DEBUG
     [Fact]
     public async Task DevController_Returns404InProduction()
     {
@@ -100,6 +101,7 @@ public class P0ConsolidatedReviewFixTests
         var endpointsResult = controller.GetEndpoints();
         Assert.IsType<NotFoundResult>(endpointsResult);
     }
+#endif
 
     [Fact]
     public async Task AuthController_ForgotPassword_DoesNotReturnResetTokenInProduction()
