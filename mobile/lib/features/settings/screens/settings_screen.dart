@@ -10,10 +10,11 @@ import "../../../core/services/app_session.dart";
 import "../../../core/services/child_safety_service.dart";
 import "../../../core/services/notification_service.dart";
 import "../../../core/services/session_service.dart";
+import "../../../core/services/google_auth_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../../core/theme/theme_controller.dart";
 import "../../auth/widgets/terms_and_privacy_modal.dart";
-import "../../auth/widgets/google_sign_in_dialog.dart";
+import "../../auth/models/auth_models.dart";
 import "../../courses/widgets/user_manual_sheet.dart";
 import "../../quiz/models/quiz_models.dart";
 import "../models/study_settings_model.dart";
@@ -43,6 +44,69 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late StudySettingsModel _current;
   late final TextEditingController _serverUrlController;
+
+  Future<void> _connectGoogleAccount() async {
+    if (!GoogleAuthService.isConfigured) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Google Sign-In is not configured for this build.")),
+      );
+      return;
+    }
+
+    try {
+      final result = await GoogleAuthService.instance.signIn();
+      if (!result.success) {
+        if (result.errorMessage != null && !result.errorMessage!.contains("cancelled") && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result.errorMessage!)));
+        }
+        return;
+      }
+
+      final signedInEmail = result.email?.trim().toLowerCase();
+      final currentEmail = widget.sessionService.email?.trim().toLowerCase();
+      if (signedInEmail == null || signedInEmail != currentEmail) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Choose the same Google email as this StudyApp account. To switch accounts, sign out and use Continue with Google.")),
+          );
+        }
+        return;
+      }
+
+      final response = await widget.apiClient.dio.post(
+        ApiConstants.googleAuth,
+        data: {"idToken": result.idToken},
+      );
+      final auth = AuthResponse.fromJson(response.data);
+      if (auth.userId.toString() != widget.sessionService.userId) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Google returned a different StudyApp account. No account was linked.")),
+          );
+        }
+        return;
+      }
+
+      await widget.sessionService.setGoogleLinked(true);
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Google account verified and connected.")),
+        );
+      }
+    } on DioException catch (error) {
+      if (mounted) {
+        final message = error.response?.data is Map && error.response?.data["message"] != null
+            ? error.response!.data["message"].toString()
+            : "Google account verification failed. Check the OAuth configuration and try again.";
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Google account verification failed: $error")));
+      }
+    }
+  }
   bool _isSaving = false;
   bool _isTestingConnection = false;
   String? _connectionTestResult;
@@ -1353,15 +1417,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               icon: const Icon(Icons.link_rounded, size: 18),
                               label: const Text("Connect Google Account Now", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                              onPressed: () async {
-                                final ok = await GoogleSignInDialog.show(
-                                  context,
-                                  apiClient: widget.apiClient,
-                                  sessionService: widget.sessionService,
-                                  initialEmail: widget.sessionService.email,
-                                );
-                                if (ok && mounted) setState(() {});
-                              },
+                              onPressed: _connectGoogleAccount,
                             ),
                           ),
                         ],

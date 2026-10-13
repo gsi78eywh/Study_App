@@ -3,13 +3,12 @@ import "package:flutter/foundation.dart";
 class ApiConstants {
   // Preset URLs for different runtime environments
   static const String renderProductionUrl = "https://study-app-b0xq.onrender.com";
-  static const String railwayProductionUrl = renderProductionUrl;
   static const String androidEmulatorUrl = "http://10.0.2.2:5000";
   static const String localWifiUrl = "http://172.23.249.209:5000";
   static const String localhostUrl = "http://localhost:5000";
 
   // Configurable base URL:
-  // For production: pass via flutter build --dart-define=API_BASE_URL=https://study-app-b0xq.onrender.com
+  // Override for production with --dart-define=API_BASE_URL=https://study-app-b0xq.onrender.com.
   static const String _configuredBaseUrl = String.fromEnvironment("API_BASE_URL");
 
   static String get defaultBaseUrl {

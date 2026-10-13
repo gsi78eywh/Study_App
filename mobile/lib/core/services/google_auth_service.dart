@@ -8,15 +8,12 @@ class GoogleAuthResult {
   final String? displayName;
   final String? errorMessage;
 
-  final bool requiresDirectPrompt;
-
   GoogleAuthResult({
     required this.success,
     this.idToken,
     this.email,
     this.displayName,
     this.errorMessage,
-    this.requiresDirectPrompt = false,
   });
 }
 
@@ -25,27 +22,31 @@ class GoogleAuthService {
   GoogleAuthService._();
 
   static const String configuredClientId = String.fromEnvironment("GOOGLE_CLIENT_ID");
-  static bool get isConfigured => !kIsWeb || configuredClientId.isNotEmpty;
+  static bool get isConfigured => configuredClientId.isNotEmpty;
 
   GoogleSignIn? _googleSignInInstance;
 
   GoogleSignIn get _googleSignIn {
     return _googleSignInInstance ??= GoogleSignIn(
       clientId: kIsWeb && configuredClientId.isNotEmpty ? configuredClientId : null,
+      serverClientId: !kIsWeb && configuredClientId.isNotEmpty ? configuredClientId : null,
       scopes: ["email", "profile"],
     );
   }
 
   Future<GoogleAuthResult> signIn() async {
-    // On web without client ID configured, prompt direct Gmail authentication
     if (kIsWeb && configuredClientId.isEmpty) {
       return GoogleAuthResult(
         success: false,
-        requiresDirectPrompt: true,
+        errorMessage: "Google Sign-In is not configured for this build.",
       );
     }
 
     try {
+      // Clear this app's cached selection first so Google presents its account
+      // picker/authorization flow. Google itself decides whether credentials or
+      // a second factor must be requested for the selected account.
+      await signOut();
       final account = await _googleSignIn.signIn();
       if (account == null) {
         return GoogleAuthResult(

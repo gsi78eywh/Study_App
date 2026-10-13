@@ -9,8 +9,8 @@ import "../../../core/theme/app_theme.dart";
 import "../../../core/theme/theme_controller.dart";
 import "../../../core/widgets/study_app_brand_logo.dart";
 import "../models/auth_models.dart";
+import "../models/auth_password_policy.dart";
 import "../widgets/terms_and_privacy_modal.dart";
-import "../widgets/google_sign_in_dialog.dart";
 import "../../../core/services/google_auth_service.dart";
 import "../../courses/screens/dashboard_screen.dart";
 import "../../sync/services/sync_service.dart";
@@ -170,43 +170,12 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _goToDashboard() {
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => DashboardScreen(
-          apiClient: widget.apiClient,
-          sessionService: widget.sessionService,
-        ),
-      ),
-    );
-  }
-
-  /// Opens the local developer Google sign-in dialog. This dialog performs no real
-  /// Google verification, so it is only offered in debug builds (the backend also
-  /// rejects its tokens outside Development).
-  Future<void> _openLocalGoogleDialog() async {
-    if (!GoogleSignInDialog.isAvailable) {
-      setState(() {
-        _errorMessage = "Google Sign-In isn't set up on this version yet. "
-            "Please sign in with your email and password.";
-      });
-      return;
-    }
-    final success = await GoogleSignInDialog.show(
-      context,
-      apiClient: widget.apiClient,
-      sessionService: widget.sessionService,
-      initialEmail: _emailController.text.trim(),
-    );
-    if (success) _goToDashboard();
-  }
-
-  // Real Google Sign-In with Server-Side ID Token Verification
+  // Google handles account selection and any required password/second-factor
+  // challenge. Only its signed ID token is sent to StudyApp for verification.
   Future<void> _handleRealGoogleSignIn() async {
-    // Web builds without a GOOGLE_CLIENT_ID cannot run the real Google SDK.
     if (!GoogleAuthService.isConfigured) {
-      await _openLocalGoogleDialog();
+      setState(() => _errorMessage =
+          "Google Sign-In is not configured for this build. Set the Google OAuth Web client ID in the app build and backend settings, then rebuild.");
       return;
     }
 
@@ -218,19 +187,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final result = await GoogleAuthService.instance.signIn();
       if (!result.success) {
-        if (result.requiresDirectPrompt) {
-          if (!mounted) return;
-          await _openLocalGoogleDialog();
-          return;
-        }
-
         if (result.errorMessage != null && !result.errorMessage!.contains("cancelled")) {
-          // In local web development the SDK may fail; fall back to the dev dialog.
-          if (kIsWeb && GoogleSignInDialog.isAvailable) {
-            if (!mounted) return;
-            await _openLocalGoogleDialog();
-            return;
-          }
           setState(() => _errorMessage = result.errorMessage);
         }
         return;
@@ -243,6 +200,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (response.statusCode == 200 && response.data != null) {
         final auth = AuthResponse.fromJson(response.data);
+        SyncService.clearCache();
         await widget.sessionService.saveAuth(
           token: auth.token,
           userId: auth.userId,
@@ -337,8 +295,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 ],
                 if (!isStep2) ...[
                   Text(
-                    "Enter your student email and we'll dispatch a secure recovery token to reset your password.",
+                    "For Google accounts, cancel and choose Continue with Google. Google handles your password and any verification code. Google password resets happen through Google's account recovery.",
                     style: TextStyle(color: ctx.textSecondary, fontSize: 13, height: 1.4),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    "StudyApp password resets need email delivery configured by the app administrator.",
+                    style: TextStyle(color: ctx.textSecondary, fontSize: 12, height: 1.35),
                   ),
                   const SizedBox(height: 16),
                   TextField(
@@ -353,7 +316,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ] else ...[
                   Text(
-                    "Recovery instructions dispatched! Enter the reset token and your new password.",
+                    "If your administrator has configured recovery email, enter the reset token and choose a new password.",
                     style: TextStyle(color: ctx.textSecondary, fontSize: 13, height: 1.4),
                   ),
                   const SizedBox(height: 14),
@@ -372,8 +335,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     obscureText: obscureNewPassword,
                     style: TextStyle(color: ctx.textPrimary),
                     decoration: InputDecoration(
-                      labelText: "New Password (8+ chars)",
-                      hintText: "Enter secure password",
+                      labelText: "New Password (12+ characters)",
+                      hintText: "Use a unique passphrase",
                       prefixIcon: Icon(Icons.lock_outline, color: ctx.textSecondary),
                       suffixIcon: IconButton(
                         icon: Icon(
@@ -415,11 +378,15 @@ class _LoginScreenState extends State<LoginScreen> {
                             data: {"email": email},
                           );
                           final token = response.data?["resetToken"]?.toString() ?? "";
+                          final recoveryAvailable = response.data?["recoveryAvailable"] == true || token.isNotEmpty;
                           setDialogState(() {
                             isSubmitting = false;
-                            isStep2 = true;
+                            isStep2 = recoveryAvailable;
                             if (token.isNotEmpty) {
                               tokenController.text = token;
+                            } else if (!recoveryAvailable) {
+                              dialogError = response.data?["message"]?.toString() ??
+                                  "Password recovery email is not configured. Use Google sign-in for Google accounts or contact the app administrator.";
                             }
                           });
                         } catch (e) {
@@ -437,8 +404,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           setDialogState(() => dialogError = "Reset token is required.");
                           return;
                         }
-                        if (newPassword.length < 8) {
-                          setDialogState(() => dialogError = "New password must be at least 8 characters.");
+                        final passwordError = AuthPasswordPolicy.errorFor(newPassword);
+                        if (passwordError != null) {
+                          setDialogState(() => dialogError = passwordError);
                           return;
                         }
 

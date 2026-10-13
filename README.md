@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # 📚 Study App
 
 An adaptive, intelligent study companion designed for students of all educational levels—from primary elementary (Grades 1–6) and junior/senior high school (Grades 7–12) to collegiate and university academia.
@@ -64,22 +63,6 @@ flutter run -d chrome --web-port 5050
 flutter run -d windows
 ```
 
-### 4. Deploy Web App to Firebase Hosting
-```bash
-# Automated 1-click build & deploy
-./deploy_hosting.bat
-# or in PowerShell:
-./deploy_hosting.ps1
-```
-Or manually:
-```bash
-firebase login
-cd mobile
-flutter build web --release
-firebase deploy --only hosting
-```
-Live URL: `https://studyapp-51772.web.app`
-
 ---
 
 ## 🧪 Testing & Quality Assurance
@@ -107,6 +90,4 @@ flutter analyze
 
 For detailed architectural diagrams, bit-by-bit workflows, security defense implementations, and testing matrices, see:
 * [Implementation & Fixes Guide](docs/IMPLEMENTATION_AND_FIXES.md)
-=======
-yuhuuu
->>>>>>> f2af11b5bda5c10b6fa1bae0b20b7c47c91a9dbf
+* [Small Group Deployment Guide](docs/SMALL_GROUP_DEPLOYMENT.md) for Render, Firebase Hosting, and signed Android APK setup.

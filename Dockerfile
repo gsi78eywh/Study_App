@@ -22,12 +22,8 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
 
-# Create volume directory for SQLite database storage
-RUN mkdir -p /app/data
-
-# Default port configuration for Railway / Render
+# Render provides PORT at runtime and DATABASE_URL from the managed PostgreSQL service.
 ENV ASPNETCORE_URLS=http://+:8080
-ENV ConnectionStrings__DefaultConnection="Data Source=/app/data/studyapp.db"
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "StudyApp.Api.dll"]

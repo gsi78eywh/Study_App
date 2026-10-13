@@ -2342,7 +2342,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "Extracted Whole Info / Content",
+                      "Extracted content",
                       style: GoogleFonts.outfit(
                         fontSize: 13.5,
                         fontWeight: FontWeight.bold,
@@ -2384,10 +2384,10 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
             constraints: BoxConstraints(
               maxHeight: _isExtractedContentExpanded ? 360 : 130,
             ),
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: isDark ? const Color(0xFF0F172A) : Colors.white,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: context.cardBorderColor.withValues(alpha: 0.6),
               ),
@@ -2396,10 +2396,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               child: SelectableText(
                 extractedText,
                 style: TextStyle(
-                  fontSize: 12,
-                  height: 1.5,
+                  fontSize: 14,
+                  height: 1.7,
                   color: context.textPrimary,
-                  fontFamily: 'monospace',
                 ),
               ),
             ),
@@ -2582,12 +2581,24 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               Expanded(
                 child: SingleChildScrollView(
                   controller: scrollController,
-                  child: SelectableText(
-                    content,
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.5,
-                      color: context.textPrimary,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(16, 18, 16, 22),
+                    decoration: BoxDecoration(
+                      color: Theme.of(ctx).brightness == Brightness.dark
+                          ? const Color(0xFF0F172A)
+                          : const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: context.cardBorderColor.withValues(alpha: 0.7)),
+                    ),
+                    child: SelectableText(
+                      content,
+                      style: TextStyle(
+                        fontSize: 15,
+                        height: 1.75,
+                        letterSpacing: 0.1,
+                        color: context.textPrimary,
+                      ),
                     ),
                   ),
                 ),

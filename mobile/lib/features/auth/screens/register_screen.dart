@@ -7,9 +7,10 @@ import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../sync/services/sync_service.dart";
 import "../models/auth_models.dart";
+import "../models/auth_password_policy.dart";
 import "../widgets/terms_and_privacy_modal.dart";
-import "../widgets/google_sign_in_dialog.dart";
 import "../../courses/screens/dashboard_screen.dart";
+import "../../../core/services/google_auth_service.dart";
 
 class RegisterScreen extends StatefulWidget {
   final ApiClient apiClient;
@@ -107,21 +108,60 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _handleGoogleSignUp() async {
-    final success = await GoogleSignInDialog.show(
-      context,
-      apiClient: widget.apiClient,
-      sessionService: widget.sessionService,
-      initialEmail: _emailController.text.trim(),
-    );
-    if (success && mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => DashboardScreen(
-            apiClient: widget.apiClient,
-            sessionService: widget.sessionService,
-          ),
-        ),
+    if (!GoogleAuthService.isConfigured) {
+      setState(() => _errorMessage =
+          "Google Sign-In is not configured for this build. Set the Google OAuth Web client ID in the app build and backend settings, then rebuild.");
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final result = await GoogleAuthService.instance.signIn();
+      if (!result.success) {
+        if (result.errorMessage != null && !result.errorMessage!.contains("cancelled")) {
+          setState(() => _errorMessage = result.errorMessage);
+        }
+        return;
+      }
+
+      final response = await widget.apiClient.dio.post(
+        ApiConstants.googleAuth,
+        data: {"idToken": result.idToken},
       );
+      if (response.statusCode == 200 && response.data != null) {
+        final auth = AuthResponse.fromJson(response.data);
+        SyncService.clearCache();
+        await widget.sessionService.clearAllUserData();
+        await widget.sessionService.saveAuth(
+          token: auth.token,
+          userId: auth.userId,
+          email: auth.email,
+          fullName: auth.fullName,
+        );
+        await widget.sessionService.setGoogleLinked(true);
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => DashboardScreen(
+              apiClient: widget.apiClient,
+              sessionService: widget.sessionService,
+            ),
+          ),
+        );
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      setState(() => _errorMessage =
+          e.response?.data is Map && e.response?.data["message"] != null
+              ? e.response!.data["message"].toString()
+              : "Google verification failed. Check the OAuth client configuration and try again.");
+    } catch (e) {
+      if (mounted) setState(() => _errorMessage = "Google Sign-In failed: $e");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -252,6 +292,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             style: TextStyle(color: context.textPrimary),
                             decoration: InputDecoration(
                               labelText: "Password",
+                              helperText: "12+ characters; use a unique passphrase.",
                               prefixIcon: Icon(Icons.lock_outline, color: context.textSecondary),
                               suffixIcon: IconButton(
                                 icon: Icon(
@@ -262,8 +303,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                             ),
                             validator: (val) {
-                              if (val == null || val.length < 8) return "Must be at least 8 characters";
-                              return null;
+                              return AuthPasswordPolicy.errorFor(val);
                             },
                           ),
                           const SizedBox(height: 16),

@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using StudyApp.Application.Common.Interfaces;
 using StudyApp.Application.DTOs.Auth;
 using StudyApp.Domain.Entities;
+using StudyApp.Api.Security;
 
 namespace StudyApp.Api.Controllers;
 
@@ -49,11 +50,15 @@ public class AuthController : ControllerBase
     {
         var email = request.Email?.Trim().ToLowerInvariant();
         var fullName = request.FullName?.Trim();
+        var passwordError = PasswordPolicy.GetError(request.Password);
         if (string.IsNullOrWhiteSpace(email) || email.Length > 254 || !System.Net.Mail.MailAddress.TryCreate(email, out _) ||
-            string.IsNullOrWhiteSpace(fullName) || fullName.Length > 150 ||
-            string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 8 || request.Password.Length > 128)
+            string.IsNullOrWhiteSpace(fullName) || fullName.Length > 150 || passwordError != null)
         {
-            return BadRequest(new { message = "Enter a valid email (max 254 chars), name (max 150 chars), and a password between 8 and 128 characters." });
+            return BadRequest(new
+            {
+                message = passwordError ?? "Enter a valid email (max 254 chars) and name (max 150 chars).",
+                passwordRequirements = $"{PasswordPolicy.MinimumLength}-{PasswordPolicy.MaximumLength} characters, at most {PasswordPolicy.MaximumUtf8Bytes} UTF-8 bytes, and not a common password."
+            });
         }
 
         var existing = await _context.Users.AnyAsync(u => u.Email == email);
@@ -140,7 +145,10 @@ public class AuthController : ControllerBase
 
         return Ok(new
         {
-            message = "If an account is associated with this email, password reset instructions have been dispatched.",
+            message = _environment.IsDevelopment()
+                ? "If an account is associated with this email, use the local recovery token to reset its password."
+                : "Password recovery email is not configured on this server. Use Google sign-in for Google accounts or contact the app administrator for a StudyApp password reset.",
+            recoveryAvailable = _environment.IsDevelopment(),
             resetToken = devResetToken
         });
     }
@@ -155,9 +163,10 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Email and reset token are required." });
         }
 
-        if (string.IsNullOrWhiteSpace(request.NewPassword) || request.NewPassword.Length < 8 || request.NewPassword.Length > 128)
+        var passwordError = PasswordPolicy.GetError(request.NewPassword);
+        if (passwordError != null)
         {
-            return BadRequest(new { message = "New password must be between 8 and 128 characters." });
+            return BadRequest(new { message = passwordError });
         }
 
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
