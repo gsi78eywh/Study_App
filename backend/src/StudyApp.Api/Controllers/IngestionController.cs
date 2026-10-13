@@ -76,7 +76,7 @@ public class IngestionController : ControllerBase
 
         var effectiveCourseId = await ResolveCourseIdAsync(request.CourseId, userId.Value);
 
-        var sourceText = LimitSourceText(CleanInputText(request.Content));
+        var sourceText = LimitSourceText(CleanInputText(request.Content ?? string.Empty));
         var qualityCheck = ValidateInputQuality(sourceText);
         if (!qualityCheck.IsValid)
         {
@@ -144,7 +144,8 @@ public class IngestionController : ControllerBase
         [FromForm] int? targetCount,
         [FromForm] int? setIndex,
         [FromForm] string? variant,
-        [FromForm] string? apiKey)
+        [FromForm] string? apiKey,
+        CancellationToken cancellationToken)
     {
         var userId = CurrentUserId();
         if (userId is null) return Unauthorized();
@@ -175,9 +176,10 @@ public class IngestionController : ControllerBase
         GeneratedStudySetResult result;
         string? extractedSourceText = null;
 
-        using var stream = new MemoryStream();
-        await file.CopyToAsync(stream);
-        stream.Position = 0;
+        // IFormFile has already been size-limited and buffered by ASP.NET Core.
+        // Reuse its seekable stream instead of allocating another 30 MB buffer
+        // for every concurrent upload.
+        using var stream = file.OpenReadStream();
 
         if (!ValidateFileSignature(stream, ext))
         {
@@ -195,7 +197,7 @@ public class IngestionController : ControllerBase
                 ".bmp" => "image/bmp",
                 _ => "image/jpeg"
             };
-            extractedSourceText = await _documentExtractor.ExtractImageTextAsync(stream, mimeType, geminiKey);
+            extractedSourceText = await _documentExtractor.ExtractImageTextAsync(stream, mimeType, geminiKey, cancellationToken);
 
             if (string.IsNullOrWhiteSpace(extractedSourceText))
             {
@@ -214,16 +216,16 @@ public class IngestionController : ControllerBase
         }
         else if (ext == ".pdf")
         {
-            extractedSourceText = await _documentExtractor.ExtractPdfTextAsync(stream);
+            extractedSourceText = await _documentExtractor.ExtractPdfTextAsync(stream, cancellationToken);
         }
         else if (ext == ".docx")
         {
-            extractedSourceText = await _documentExtractor.ExtractDocxTextAsync(stream);
+            extractedSourceText = await _documentExtractor.ExtractDocxTextAsync(stream, cancellationToken);
         }
         else if (ext is ".txt" or ".md")
         {
             using var reader = new StreamReader(stream, leaveOpen: true);
-            extractedSourceText = LimitSourceText(await reader.ReadToEndAsync());
+            extractedSourceText = LimitSourceText(await reader.ReadToEndAsync(cancellationToken));
         }
         else
         {
@@ -249,7 +251,8 @@ public class IngestionController : ControllerBase
             targetNum,
             chosenSetIndex,
             variant,
-            geminiKey);
+            geminiKey,
+            cancellationToken);
 
         var totalQuestions = result.Questions.Count;
         if (totalQuestions == 0)
@@ -296,7 +299,8 @@ public class IngestionController : ControllerBase
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> ScanDocumentContent(
         [FromForm] IFormFile file,
-        [FromForm] string? apiKey)
+        [FromForm] string? apiKey,
+        CancellationToken cancellationToken)
     {
         if (file == null || file.Length == 0)
         {
@@ -311,9 +315,7 @@ public class IngestionController : ControllerBase
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         string? geminiKey = null; // Ignore client-supplied provider credentials.
 
-        using var stream = new MemoryStream();
-        await file.CopyToAsync(stream);
-        stream.Position = 0;
+        using var stream = file.OpenReadStream();
 
         if (!ValidateFileSignature(stream, ext))
         {
@@ -334,23 +336,23 @@ public class IngestionController : ControllerBase
                 _ => "image/jpeg"
             };
 
-            extractedText = await _documentExtractor.ExtractImageTextAsync(stream, mimeType, geminiKey);
+            extractedText = await _documentExtractor.ExtractImageTextAsync(stream, mimeType, geminiKey, cancellationToken);
             engineUsed = !string.IsNullOrWhiteSpace(geminiKey) ? "Gemini Vision (Cloud Multimodal)" : "Native Windows OCR (Offline)";
         }
         else if (ext == ".pdf")
         {
-            extractedText = await _documentExtractor.ExtractPdfTextAsync(stream);
+            extractedText = await _documentExtractor.ExtractPdfTextAsync(stream, cancellationToken);
             engineUsed = "PdfPig Document Parser";
         }
         else if (ext == ".docx")
         {
-            extractedText = await _documentExtractor.ExtractDocxTextAsync(stream);
+            extractedText = await _documentExtractor.ExtractDocxTextAsync(stream, cancellationToken);
             engineUsed = "OpenXml Document Parser";
         }
         else if (ext is ".txt" or ".md")
         {
             using var reader = new StreamReader(stream, leaveOpen: true);
-            extractedText = LimitSourceText(await reader.ReadToEndAsync());
+            extractedText = LimitSourceText(await reader.ReadToEndAsync(cancellationToken));
             engineUsed = "Text Stream Reader";
         }
         else

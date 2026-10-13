@@ -63,6 +63,22 @@ flutter run -d chrome --web-port 5050
 flutter run -d windows
 ```
 
+### 4. Deploy Web App to Firebase Hosting
+```bash
+# Automated 1-click build & deploy
+./deploy_hosting.bat
+# or in PowerShell:
+./deploy_hosting.ps1
+```
+Or manually:
+```bash
+firebase login
+cd mobile
+flutter build web --release
+firebase deploy --only hosting
+```
+Live URL: `https://studyapp-51772.web.app`
+
 ---
 
 ## 🧪 Testing & Quality Assurance

@@ -31,6 +31,7 @@ builder.Services.Configure<FormOptions>(options =>
     options.MultipartBodyLengthLimit = 30L * 1024 * 1024;
     options.ValueLengthLimit = 150_000;
 });
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 32L * 1024 * 1024);
 
 static bool IsLocalPortAvailable(int port)
 {
@@ -79,6 +80,13 @@ static string ResolvePreferredUrl(string? configuredUrl)
     }
 
     return preferred.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? "http://localhost:5000";
+}
+
+static int ReadBoundedInt(string key, int defaultValue, int minimum, int maximum)
+{
+    return int.TryParse(Environment.GetEnvironmentVariable(key), out var value)
+        ? Math.Clamp(value, minimum, maximum)
+        : defaultValue;
 }
 
 static string ResolveDatabaseConnectionString(IConfiguration configuration, IHostEnvironment environment)
@@ -284,8 +292,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    options.KnownIPNetworks.Clear();
-    options.KnownProxies.Clear();
+    // Trust forwarded client addresses only from explicitly configured proxy IPs.
+    // Clearing KnownProxies/KnownNetworks accepts spoofed X-Forwarded-For headers.
+    var trustedProxyIps = (Environment.GetEnvironmentVariable("TRUSTED_PROXY_IPS") ?? string.Empty)
+        .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    foreach (var value in trustedProxyIps)
+    {
+        if (System.Net.IPAddress.TryParse(value, out var address)) options.KnownProxies.Add(address);
+    }
 });
 
 // Configure Fallback Authorization Policy (all endpoints require auth unless [AllowAnonymous])
@@ -333,7 +347,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+    var requestRateLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: httpContext.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value
                 ?? httpContext.User?.Identity?.Name
@@ -346,6 +360,42 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 20,
                 Window = TimeSpan.FromMinutes(1)
             }));
+
+    // Bound CPU/memory-heavy work per process. The work queues are intentionally
+    // finite; excess requests get 429 + Retry-After instead of piling up until
+    // the instance runs out of memory. Configure these values per instance size.
+    var aiConcurrency = ReadBoundedInt("AI_CONCURRENCY_LIMIT", 4, 1, 32);
+    var documentConcurrency = ReadBoundedInt("DOCUMENT_CONCURRENCY_LIMIT", 4, 1, 32);
+    var heavyQueueLimit = ReadBoundedInt("HEAVY_REQUEST_QUEUE_LIMIT", 24, 0, 256);
+    var expensiveWorkLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+    {
+        var path = httpContext.Request.Path;
+        var partition = path.StartsWithSegments("/api/v1/ai")
+            ? "ai"
+            : path.StartsWithSegments("/api/v1/ingestion/file") ||
+              path.StartsWithSegments("/api/v1/ingestion/scan") ||
+              path.StartsWithSegments("/api/v1/ingestion/url")
+                ? "documents"
+                : "other";
+        var capacity = partition switch
+        {
+            "ai" => aiConcurrency,
+            "documents" => documentConcurrency,
+            _ => 10_000
+        };
+        return RateLimitPartition.GetConcurrencyLimiter(partition, _ => new ConcurrencyLimiterOptions
+        {
+            PermitLimit = capacity,
+            QueueLimit = partition == "other" ? 0 : heavyQueueLimit,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+        });
+    });
+    options.GlobalLimiter = PartitionedRateLimiter.CreateChained(requestRateLimiter, expensiveWorkLimiter);
+    options.OnRejected = (context, _) =>
+    {
+        context.HttpContext.Response.Headers["Retry-After"] = "10";
+        return ValueTask.CompletedTask;
+    };
 
     options.AddPolicy("auth", httpContext => RateLimitPartition.GetFixedWindowLimiter(
         httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",

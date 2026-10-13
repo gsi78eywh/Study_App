@@ -581,9 +581,17 @@ public class DocumentExtractor : IDocumentExtractor
 
             using var document = PdfDocument.Open(ms);
 
+            const int maxPdfPages = 1_000;
+            const int maxOcrPages = 20;
+            var pageCount = 0;
+            var skippedOcrPages = false;
+
             foreach (var page in document.GetPages())
 
             {
+
+                cancellationToken.ThrowIfCancellationRequested();
+                if (++pageCount > maxPdfPages) break;
 
                 var pageSb = new StringBuilder();
 
@@ -633,7 +641,7 @@ public class DocumentExtractor : IDocumentExtractor
 
                 // 2. OCR Fallback for scanned PDF pages or embedded diagrams/slides
 
-                if (pageSb.Length < 40)
+                if (pageSb.Length < 40 && page.Number <= maxOcrPages)
 
                 {
 
@@ -700,6 +708,10 @@ public class DocumentExtractor : IDocumentExtractor
                     }
 
                 }
+                else if (pageSb.Length < 40)
+                {
+                    skippedOcrPages = true;
+                }
 
                 var pageResult = pageSb.ToString().Trim();
 
@@ -715,6 +727,21 @@ public class DocumentExtractor : IDocumentExtractor
 
             }
 
+            if (pageCount > maxPdfPages)
+            {
+                sb.AppendLine($"[Extraction stopped after {maxPdfPages:N0} pages to keep processing bounded. Split the PDF into smaller files to extract the remaining pages.]");
+            }
+
+            if (skippedOcrPages)
+            {
+                sb.AppendLine($"[Some scanned pages after page {maxOcrPages} were not OCR-processed. Split the PDF into smaller parts for complete scanned-page extraction.]");
+            }
+
+        }
+
+        catch (OperationCanceledException)
+        {
+            throw;
         }
 
         catch (Exception ex)
