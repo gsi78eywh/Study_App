@@ -539,6 +539,37 @@ using (var scope = app.Services.CreateScope())
         }
     }
 
+    // Ensure this table exists even in databases initialized before the
+    // branding entity was added (EnsureCreated skips schema changes on existing DBs).
+    db.Database.ExecuteSqlRaw(db.Database.IsSqlite()
+        ? "CREATE TABLE IF NOT EXISTS \"AppBrandAssets\" (\"Key\" TEXT NOT NULL PRIMARY KEY, \"ContentType\" TEXT NOT NULL, \"Content\" TEXT NOT NULL, \"UpdatedAt\" TEXT NOT NULL);"
+        : "CREATE TABLE IF NOT EXISTS \"AppBrandAssets\" (\"Key\" TEXT NOT NULL PRIMARY KEY, \"ContentType\" TEXT NOT NULL, \"Content\" TEXT NOT NULL, \"UpdatedAt\" TIMESTAMPTZ NOT NULL);");
+
+    var logoPath = Path.Combine(app.Environment.ContentRootPath, "Assets", "studyapp_logo.svg");
+    if (!File.Exists(logoPath)) logoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "studyapp_logo.svg");
+    if (File.Exists(logoPath))
+    {
+        var logoSvg = await File.ReadAllTextAsync(logoPath);
+        var savedLogo = await db.AppBrandAssets.FindAsync("studyapp-logo");
+        if (savedLogo == null)
+        {
+            db.AppBrandAssets.Add(new StudyApp.Domain.Entities.AppBrandAsset
+            {
+                Key = "studyapp-logo",
+                ContentType = "image/svg+xml",
+                Content = logoSvg
+            });
+            await db.SaveChangesAsync();
+        }
+        else if (!string.Equals(savedLogo.Content, logoSvg, StringComparison.Ordinal))
+        {
+            savedLogo.Content = logoSvg;
+            savedLogo.ContentType = "image/svg+xml";
+            savedLogo.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+    }
+
     Console.WriteLine("[Database] Database schema verified and ready for student records.");
 }
 

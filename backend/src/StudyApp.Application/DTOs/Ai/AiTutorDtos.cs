@@ -24,8 +24,11 @@ public record AskTutorResponse(
     DateTime Timestamp,
     double LatencySeconds = 0.0,
     int? TokenCount = null,
-    bool NotesAttached = false
+    bool NotesAttached = false,
+    List<GroundedSource>? Sources = null
 );
+
+public record GroundedSource(string Title, string Url);
 
 public record TutorStatusResponse(
     bool Online,

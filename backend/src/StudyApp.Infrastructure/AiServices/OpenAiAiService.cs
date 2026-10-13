@@ -543,114 +543,15 @@ public class OpenAiAiService : IAiQuestionGenerator, IAiTutorService
 
 
 
-    public async Task<AskTutorResponse> AskTutorAsync(AskTutorRequest request, CancellationToken cancellationToken = default)
-
+    public Task<AskTutorResponse> AskTutorAsync(AskTutorRequest request, CancellationToken cancellationToken = default)
     {
-
-        var effectiveApiKey = !string.IsNullOrWhiteSpace(request.ApiKey) && IsValidProjectKey(request.ApiKey)
-
-            ? request.ApiKey.Trim()
-
-            : (!IsWiringPaused ? _serverApiKey : null);
-
-
-
-        if (effectiveApiKey == null)
-
-        {
-
-            var localReply = AcademicTutorSynthesizer.SynthesizeResponse(request.Message, request.ContextTopic, request.History);
-
-            return new AskTutorResponse(
-
-                localReply,
-
-                "Built-in Academic Engine (OpenAI paused pending key)",
-
-                DateTime.UtcNow
-
-            );
-
-        }
-
-
-
-        try
-
-        {
-            var systemPrompt = """
-            You are a master academic university tutor and expert software engineer. Provide clear, encouraging, conceptually rigorous responses with analogies, examples, and study recommendations. Keep responses structured in clean markdown.
-            
-            ### ABSOLUTE RULES FOR CODE, APPLICATIONS, AND PROGRAMMING:
-            1. 100% COMPLETE & RUNNABLE: Every code snippet MUST be completely functional, syntactically flawless, and runnable out-of-the-box. Never omit code, never use ellipses (e.g. `// ... rest of code ...`), and never use `// TODO` placeholders.
-            2. ZERO RUNTIME ERRORS & COMPREHENSIVE ERROR HANDLING: Defensively handle invalid inputs, edge cases, divide-by-zero, and empty inputs. Code must never crash or throw unhandled exceptions.
-            3. MODERN STANDARDS & NO SECURITY ANTI-PATTERNS: Never use eval(), Function(), or inline HTML onclick attributes; always use standard DOM event listeners and safe state machines.
-            4. STEP-BY-STEP RUN INSTRUCTIONS: Immediately following the code block, explain exactly how to run and test the code.
-            """;
-
-            var messages = new List<object>
-            {
-                new { role = "system", content = systemPrompt }
-            };
-
-            if (request.History != null)
-            {
-                foreach (var h in request.History.TakeLast(6))
-                {
-                    messages.Add(new { role = h.Role == "model" ? "assistant" : h.Role, content = h.Content });
-                }
-            }
-
-            var promptWithContext = !string.IsNullOrWhiteSpace(request.ContextTopic)
-                ? $"[Context Topic: {request.ContextTopic}]\n\nStudent Question: {request.Message}"
-                : request.Message;
-
-            messages.Add(new { role = "user", content = promptWithContext });
-
-            var payload = new
-            {
-                model = _model,
-                temperature = 0.2,
-                max_tokens = 4096,
-                messages = messages.ToArray()
-            };
-
-
-
-            var reply = await CallOpenAiChatAsync(payload, effectiveApiKey, cancellationToken);
-
-            if (!string.IsNullOrWhiteSpace(reply))
-
-            {
-
-                return new AskTutorResponse(
-
-                    reply,
-
-                    $"OpenAI {_model}",
-
-                    DateTime.UtcNow
-
-                );
-
-            }
-
-        }
-
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[OpenAI] Tutor request failed. Gracefully falling back to academic synthesizer.");
-        }
-
-        var fallbackReply = AcademicTutorSynthesizer.SynthesizeResponse(request.Message, request.ContextTopic, request.History);
-        return new AskTutorResponse(
-            fallbackReply,
-            "Built-in Academic Engine",
-            DateTime.UtcNow
-        );
+        // Chat answers must include Google Search grounding and source links.
+        // AdaptiveAiService routes the application tutor to Gemini for that contract.
+        return Task.FromResult(new AskTutorResponse(
+            "This tutor provider cannot verify answers with Google Search. Please use the Google-grounded tutor route.",
+            "Google Search unavailable",
+            DateTime.UtcNow));
     }
-
-
 
     public async Task<QuestionExplanationResult> ExplainQuestionAsync(ExplainQuestionRequest request, CancellationToken cancellationToken = default)
 

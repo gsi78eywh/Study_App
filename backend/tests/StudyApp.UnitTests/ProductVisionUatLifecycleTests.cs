@@ -153,9 +153,11 @@ public class ProductVisionUatLifecycleTests
 
         var response = await tutor.AskTutorAsync(tutorRequest);
 
-        // ASSERT: Tutor provides structured breakdown with next pedagogical recommendations
+        // ASSERT: A provider without Google Search grounding never returns an unverified answer.
         Assert.NotNull(response);
         Assert.NotEmpty(response.Reply);
-        Assert.Contains("Built-in Academic Engine", response.ModelUsed);
+        Assert.Equal("Google Search unavailable", response.ModelUsed);
+        Assert.Contains("Google Search", response.Reply, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(response.Sources ?? []);
     }
 }

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="left" x1="34" y1="74" x2="126" y2="204" gradientUnits="userSpaceOnUse"><stop stop-color="#25D9E8"/><stop offset=".55" stop-color="#2878E8"/><stop offset="1" stop-color="#3527A0"/></linearGradient>
+    <linearGradient id="right" x1="128" y1="72" x2="224" y2="205" gradientUnits="userSpaceOnUse"><stop stop-color="#FFD65A"/><stop offset=".55" stop-color="#F79A35"/><stop offset="1" stop-color="#E7429B"/></linearGradient>
+    <linearGradient id="ribbon" x1="80" y1="82" x2="178" y2="181" gradientUnits="userSpaceOnUse"><stop stop-color="#D347D9"/><stop offset=".48" stop-color="#793FE4"/><stop offset="1" stop-color="#287DE5"/></linearGradient>
+    <linearGradient id="orbit" x1="30" y1="160" x2="230" y2="100" gradientUnits="userSpaceOnUse"><stop stop-color="#5144D9"/><stop offset=".52" stop-color="#34D8EE"/><stop offset="1" stop-color="#F5A63B"/></linearGradient>
+    <linearGradient id="star" x1="128" y1="10" x2="128" y2="56" gradientUnits="userSpaceOnUse"><stop stop-color="#FFE46A"/><stop offset="1" stop-color="#F28D37"/></linearGradient>
+  </defs>
+  <path d="M25 170c-13 19-7 31 8 35 14 4 27-4 38-15M230 91c17-22 10-38-8-43-16-4-32 6-43 18" stroke="url(#orbit)" stroke-width="5" stroke-linecap="round"/>
+  <path d="M38 87c0-5 4-9 9-9h25v107H47c-5 0-9-4-9-9V87Z" fill="#853CD4"/>
+  <path d="M56 70c0-5 4-9 9-9h21v124H56V70Z" fill="#2876E5"/>
+  <path d="M73 58c0-5 4-9 9-9h21v136H73V58Z" fill="#20C8E4"/>
+  <path d="M128 79c-25-18-48-23-69-16v114c23-9 47-4 69 14V79Z" fill="url(#left)"/>
+  <path d="M128 79c25-18 48-23 69-16v114c-23-9-47-4-69 14V79Z" fill="url(#right)"/>
+  <path d="M128 83c-20-17-40-22-59-18v96c20-5 39 0 59 16V83Z" fill="#37C8E9" opacity=".58"/>
+  <path d="M128 83c20-17 40-22 59-18v96c-20-5-39 0-59 16V83Z" fill="#FFE37A" opacity=".55"/>
+  <path d="M128 194c-19-17-39-27-62-30l-5-7c26 0 48 7 67 22 19-15 41-22 67-22l-5 7c-23 3-43 13-62 30Z" fill="#4530AA"/>
+  <path d="M105 83c-12 6-15 18-8 29l24 27c5 6 4 12-2 15-6 3-14 0-21-6l-10-9-9 18 11 9c19 15 42 14 54 1 11-12 10-28-2-41l-23-26c-4-5-3-10 2-13 6-3 13 0 20 6l6 5 11-17-7-6c-15-12-33-12-46-5Z" fill="url(#ribbon)"/>
+  <path d="m128 12 8 17 17 8-17 8-8 17-8-17-17-8 17-8 8-17Z" fill="url(#star)"/>
+  <path d="m211 59 4 9 9 4-9 4-4 9-4-9-9-4 9-4 4-9Z" fill="#ED70B4"/>
+</svg>

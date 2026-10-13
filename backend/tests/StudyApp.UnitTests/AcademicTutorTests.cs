@@ -150,7 +150,7 @@ public class AcademicTutorTests
     }
 
     [Fact]
-    public async Task GeminiAiService_AskTutorAsync_WithoutCloudApiKey_ReturnsSynthesizedResponseInsteadOfSleep()
+    public async Task GeminiAiService_AskTutorAsync_WithoutCloudApiKeyReturnsResearchUnavailableInsteadOfGuessing()
     {
         // Arrange: Configuration explicitly without cloud API key
         var inMemoryConfig = new Dictionary<string, string?>
@@ -169,10 +169,9 @@ public class AcademicTutorTests
 
         // Assert
         Assert.NotNull(response);
-        Assert.Equal("Built-In Academic Engine", response.ModelUsed);
-        Assert.DoesNotContain("offline / asleep", response.Reply);
-        Assert.Contains("flutter doctor", response.Reply);
-        Assert.Contains("flutter create", response.Reply);
+        Assert.Equal("Google Search unavailable", response.ModelUsed);
+        Assert.Contains("couldn't verify", response.Reply, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(response.Sources ?? []);
     }
 
     [Fact]

@@ -72,12 +72,12 @@ public class AdaptiveAiService : IAiQuestionGenerator, IAiTutorService
 
     public Task<AskTutorResponse> AskTutorAsync(AskTutorRequest request, CancellationToken cancellationToken = default)
     {
-        if (IsOpenAiSelected || (request.ApiKey != null && request.ApiKey.StartsWith("sk-", StringComparison.OrdinalIgnoreCase)))
-        {
-            return _openAiService.AskTutorAsync(request, cancellationToken);
-        }
-
-        return _geminiService.AskTutorAsync(request, cancellationToken);
+        // StudyApp tutor replies require Google Search grounding and citations.
+        // Route chat through Gemini even when OpenAI is selected for other tasks.
+        var googleRequest = request.ApiKey?.StartsWith("sk-", StringComparison.OrdinalIgnoreCase) == true
+            ? request with { ApiKey = null }
+            : request;
+        return _geminiService.AskTutorAsync(googleRequest, cancellationToken);
     }
 
     public Task<QuestionExplanationResult> ExplainQuestionAsync(ExplainQuestionRequest request, CancellationToken cancellationToken = default)

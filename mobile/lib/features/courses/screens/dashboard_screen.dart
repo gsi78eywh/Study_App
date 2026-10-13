@@ -9,6 +9,7 @@ import "../../../core/services/app_session.dart";
 import "../../../core/services/child_safety_service.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
+import "../../../core/widgets/study_app_brand_logo.dart";
 import "../models/course_models.dart";
 import "../../auth/screens/login_screen.dart";
 import "../../flashcards/screens/flashcards_screen.dart";
@@ -4368,19 +4369,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
             child: Row(
               children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [AppColors.primary, AppColors.accent],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.school_rounded, color: Colors.white, size: 22),
-                ),
+                const StudyAppBrandLogo(size: 42),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(

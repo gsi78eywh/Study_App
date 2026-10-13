@@ -587,7 +587,7 @@ public class ComprehensiveSystemExtensiveTests
     [InlineData("none")]
     [InlineData("disabled")]
     [InlineData("offline")]
-    public async Task GeminiAiService_OfflineMode_ConsistentlyUsesLocalSynthesizerWithoutNetworkLeak(string offlineFlag)
+    public async Task GeminiAiService_OfflineMode_RefusesUnverifiedAnswersWithoutNetworkLeak(string offlineFlag)
     {
         var inMemoryConfig = new Dictionary<string, string?>
         {
@@ -603,9 +603,9 @@ public class ComprehensiveSystemExtensiveTests
         var result = await service.AskTutorAsync(new AskTutorRequest("Explain QuickSort algorithm", "Algorithms"));
 
         Assert.NotNull(result);
-        Assert.Equal("Built-In Academic Engine", result.ModelUsed);
-        Assert.False(string.IsNullOrWhiteSpace(result.Reply));
-        Assert.DoesNotContain("offline / asleep", result.Reply);
+        Assert.Equal("Google Search unavailable", result.ModelUsed);
+        Assert.Contains("couldn't verify", result.Reply, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(result.Sources ?? []);
     }
 
     #endregion

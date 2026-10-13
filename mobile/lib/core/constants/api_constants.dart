@@ -13,9 +13,17 @@ class ApiConstants {
 
   static String get defaultBaseUrl {
     if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
-    // In release builds, Android blocks plain http:// by default, so use HTTPS Railway as default
+    if (kIsWeb) {
+      if (Uri.base.host.isNotEmpty && Uri.base.host != "localhost" && Uri.base.host != "127.0.0.1") {
+        if (Uri.base.scheme == "https") {
+          return railwayProductionUrl;
+        }
+        return "http://${Uri.base.host}:5000";
+      }
+      return localhostUrl;
+    }
+    // In mobile release builds, Android blocks plain http:// by default, so use HTTPS Railway as default
     if (kReleaseMode) return railwayProductionUrl;
-    if (kIsWeb) return localhostUrl;
     return defaultTargetPlatform == TargetPlatform.android
         ? androidEmulatorUrl
         : localhostUrl;

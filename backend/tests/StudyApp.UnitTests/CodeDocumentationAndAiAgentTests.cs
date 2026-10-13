@@ -18,6 +18,40 @@ namespace StudyApp.UnitTests;
 public class CodeDocumentationAndAiAgentTests
 {
     [Fact]
+    public async Task GeminiTutor_UsesGoogleSearchAndReturnsGroundingSources()
+    {
+        var handler = new StubGeminiGroundingHandler();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["AiSettings:ApiKey"] = "test-gemini-key",
+            ["AiSettings:ModelId"] = "gemini-3.6-flash"
+        }).Build();
+        var service = new GeminiAiService(new HttpClient(handler), configuration, NullLogger<GeminiAiService>.Instance);
+
+        var response = await service.AskTutorAsync(new AskTutorRequest("Explain photosynthesis"));
+
+        Assert.Contains("google_search", handler.Payload, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(response.Sources);
+        Assert.Contains(response.Sources!, source => source.Title == "University Biology Source" && source.Url == "https://example.edu/photosynthesis");
+        Assert.Equal("Photosynthesis converts light energy into chemical energy.", response.Reply);
+    }
+
+    private sealed class StubGeminiGroundingHandler : HttpMessageHandler
+    {
+        public string Payload { get; private set; } = string.Empty;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Payload = await request.Content!.ReadAsStringAsync(cancellationToken);
+            const string body = """{"candidates":[{"content":{"parts":[{"text":"Photosynthesis converts light energy into chemical energy."}]},"groundingMetadata":{"groundingChunks":[{"web":{"uri":"https://example.edu/photosynthesis","title":"University Biology Source"}}]}}]}""";
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
+    [Fact]
     public void SynthesizeResponse_WithXmlCodeDocumentation_ReturnsSummaryParamReturnsAndBestPractices()
     {
         // Act
@@ -99,7 +133,7 @@ public class CodeDocumentationAndAiAgentTests
     }
 
     [Fact]
-    public async Task GeminiAiService_AskTutorAsync_WithCodeDocumentationPrompt_ReturnsRichDocumentationGuide()
+    public async Task GeminiAiService_AskTutorAsync_WithoutGoogleGroundingDoesNotReturnAnUnverifiedGuide()
     {
         // Arrange
         var inMemoryConfig = new Dictionary<string, string?>
@@ -119,9 +153,9 @@ public class CodeDocumentationAndAiAgentTests
 
         // Assert
         Assert.NotNull(response);
-        Assert.Equal("Built-In Academic Engine", response.ModelUsed);
-        Assert.Contains("<summary>", response.Reply);
-        Assert.Contains("PEP 257", response.Reply);
+        Assert.Equal("Google Search unavailable", response.ModelUsed);
+        Assert.Contains("couldn't verify", response.Reply, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(response.Sources ?? []);
     }
 
     [Fact]
@@ -222,7 +256,7 @@ public class CodeDocumentationAndAiAgentTests
         // Assert
         var okResult = Assert.IsType<OkObjectResult>(actionResult);
         var response = Assert.IsType<AskTutorResponse>(okResult.Value);
-        Assert.Contains("<summary>", response.Reply);
+        Assert.Contains("couldn't verify", response.Reply, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -364,7 +364,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
 
 
-                var (responseText, _) = await CallNativeGeminiWithFallbackAsync(payload, effectiveApiKey, cts.Token);
+                var (responseText, _, _) = await CallNativeGeminiWithFallbackAsync(payload, effectiveApiKey, cts.Token);
 
                 if (!string.IsNullOrWhiteSpace(responseText))
 
@@ -785,37 +785,40 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
 
 
-        if (string.IsNullOrWhiteSpace(effectiveApiKey) || effectiveApiKey.Contains("YOUR_GEMINI_API_KEY"))
+        if (IsUnusableGoogleSearchKey(effectiveApiKey))
         {
-            _logger.LogInformation("No valid cloud Gemini API key; using local AcademicTutorSynthesizer.");
-            var localReply = AcademicTutorSynthesizer.SynthesizeResponse(request.Message, request.ContextTopic, request.History);
-            var localResponse = new AskTutorResponse(
-                localReply,
-                "Built-In Academic Engine",
+            _logger.LogInformation("Google Search grounding is unavailable; returning a verification failure instead of an ungrounded answer.");
+            return new AskTutorResponse(
+                "I couldn't verify this answer with Google Search because the research service is not configured. Please try again after it is configured.",
+                "Google Search unavailable",
                 DateTime.UtcNow,
                 0.0,
                 null,
-                notesAttached
-            );
-            return localResponse;
+                notesAttached);
         }
 
-        // Real System Instruction as specified by User Requirements
+        var isCodingRequest = Regex.IsMatch(request.Message,
+            @"\b(write|show|give|create|build|implement|debug|fix|explain)\b.{0,35}\b(code|coding|html|css|javascript|js|python|dart|flutter|c#|java|c\+\+|sql|program|script|calculator|app|function|algorithm)\b|\b(code|coding|html|css|javascript|js|python|dart|flutter|c#|java|c\+\+|sql|program|script|calculator|function|algorithm)\b",
+            RegexOptions.IgnoreCase);
+
+        // The latest message is authoritative: history is only for resolving
+        // explicit references, never to continue an unrelated earlier task.
         var systemInstruction = request.IsSocraticMode
             ? """
-            You are an expert academic study tutor operating in Socratic mode. Answer the student's actual request. Use the provided course notes first, and say when something isn't in the notes. If you're unsure, say so instead of guessing. If the request is unclear, ask one short clarifying question. If the student asks for a diagram, reply with a Mermaid flowchart in a mermaid code block plus explanation. Never invent facts, formulas, or citations. Keep conceptual answers concise unless asked for more.
+            You are a helpful academic study tutor operating in Socratic mode. Use Google Search for every answer and base factual claims on its search results. Cite factual claims with numbered source markers when possible; the application will show the matching Google Search sources. If the search results do not support an answer, say you could not verify it. Answer the student's latest request directly and in the same language they used. Use course notes only when they are clearly relevant; do not force the selected course topic into an unrelated or casual question. Older conversation turns are only for resolving explicit references. Do not continue an older task when the latest message starts a different topic. For a simple personal or casual question, answer briefly and naturally; do not invent explanations or turn it into a technical analysis. Never provide code, a flowchart, run instructions, or a technical breakdown unless the latest message explicitly asks for that. If unsure, say so. Never invent facts, formulas, or citations. Keep conceptual answers concise unless asked for more.
             
             ### CRITICAL RULES FOR CODE AND PROGRAMMING:
-            When the student asks to write code, debug code, or build applications:
+            Only when the latest message explicitly asks to write, explain, debug, or build code:
             1. Guide the student with 100% accurate, complete, functional code examples.
             2. Never provide toy or broken proofs-of-concept. All variables, imports, and functions must be complete and syntactically valid.
             3. Forbid unsafe anti-patterns: Never use eval(), Function(), or inline HTML onclick handlers. Teach standard DOM event listeners and safe state machines.
             4. In Socratic mode, provide the architectural blueprint, working snippets, and test questions to guide their understanding.
             """
             : """
-            You are a master academic study tutor and elite software engineer. Answer the student's actual request thoroughly, accurately, and cleanly. Use the provided course notes when relevant. If the student asks for code, programming, or an application that is not in the course notes, fulfill their programming request completely. If the student asks for a diagram, reply with a Mermaid flowchart in a mermaid code block plus explanation.
+            You are a helpful academic study tutor. Use Google Search for every answer and base factual claims on its search results. Cite factual claims with numbered source markers when possible; the application will show the matching Google Search sources. If the search results do not support an answer, say you could not verify it. Answer the student's latest request directly, accurately, and in the same language they used. Use the provided course notes only when clearly relevant; never force the selected course topic into an unrelated question. Older conversation turns are only for resolving explicit references. Do not continue an older task when the latest message starts a different topic. For simple personal or casual questions, answer briefly and naturally without inventing facts or explanations. Never provide code, a flowchart, run instructions, or a technical breakdown unless the latest message explicitly asks for that. If unsure, say so. Keep conceptual answers concise unless asked for more.
             
             ### ABSOLUTE RULES FOR CODE, APPLICATIONS, AND PROGRAMMING:
+            Apply the following rules only when the latest message explicitly requests code, programming, debugging, or an application.
             1. 100% COMPLETE & RUNNABLE: Every code snippet MUST be completely functional, syntactically flawless, and runnable out-of-the-box. Never omit code, never use ellipses (e.g. `// ... rest of code ...`), and never use `// TODO` placeholders.
             2. NO TOY TRUNCATION: Always provide complete interfaces (e.g., in a calculator, provide all digits 0-9, all operators +, -, *, /, decimal, clear, backspace, and equals).
             3. ZERO RUNTIME ERRORS & COMPREHENSIVE ERROR HANDLING: Defensively handle invalid inputs, edge cases, divide-by-zero, empty strings, and type conversions. Code must never crash or throw unhandled exceptions.
@@ -847,8 +850,6 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
         // Build current student prompt with grounded notes if available
         var currentPromptBuilder = new StringBuilder();
-        var isCodingRequest = Regex.IsMatch(request.Message, @"\b(code|coding|html|css|javascript|js|python|dart|flutter|c#|java|c\+\+|sql|program|script|calculator|app|function|algorithm)\b", RegexOptions.IgnoreCase);
-
         if (!isCodingRequest)
         {
             if (!string.IsNullOrWhiteSpace(request.ContextTopic))
@@ -893,13 +894,14 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 temperature = 0.2,
                 maxOutputTokens = 8192
             },
-            safetySettings = ChildSafeSafetySettings
+            safetySettings = ChildSafeSafetySettings,
+            tools = new[] { new { google_search = new { } } }
         };
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(TimeSpan.FromSeconds(45));
 
-        var (responseText, modelUsed) = await CallNativeGeminiWithFallbackAsync(payload, effectiveApiKey, cts.Token);
+        var (responseText, modelUsed, sources) = await CallNativeGeminiWithFallbackAsync(payload, effectiveApiKey, cts.Token);
         stopwatch.Stop();
 
         if (!string.IsNullOrWhiteSpace(responseText) &&
@@ -910,22 +912,24 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             _logger.LogInformation("Gemini tutor call successful: model={Model}, latency={Latency}s, notesAttached={NotesAttached}",
                 modelUsed, latencySec, notesAttached);
 
-            var response = new AskTutorResponse(
-                responseText,
-                modelUsed,
-                DateTime.UtcNow,
-                latencySec,
-                null,
-                notesAttached
-            );
+            if (sources.Count == 0)
+            {
+                return new AskTutorResponse(
+                    "I couldn't verify this answer with Google Search right now, so I don't want to guess. Please try again in a moment.",
+                    modelUsed,
+                    DateTime.UtcNow,
+                    latencySec,
+                    null,
+                    notesAttached);
+            }
+
+            var response = new AskTutorResponse(responseText, modelUsed, DateTime.UtcNow, latencySec, null, notesAttached, sources);
 
             return response;
         }
 
-        // When offline, no key provided, or cloud Gemini is unreachable, synthesize high-yield academic response
-        var synthesizedReply = AcademicTutorSynthesizer.SynthesizeResponse(request.Message, request.ContextTopic, request.History);
         var fallbackResponse = new AskTutorResponse(
-            synthesizedReply,
+            "I couldn't verify this answer with Google Search because the research service is unavailable. Please try again when you're back online.",
             "Built-In Academic Engine",
             DateTime.UtcNow,
             Math.Round(stopwatch.Elapsed.TotalSeconds, 2),
@@ -938,7 +942,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
 
 
-    private async Task<(string? Text, string ModelUsed)> CallNativeGeminiWithFallbackAsync(
+    private async Task<(string? Text, string ModelUsed, List<GroundedSource> Sources)> CallNativeGeminiWithFallbackAsync(
 
         object payload,
 
@@ -950,13 +954,9 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
         var key = !string.IsNullOrWhiteSpace(apiKeyOverride) ? apiKeyOverride.Trim() : _apiKey;
 
-        if (string.IsNullOrWhiteSpace(key) ||
-            key.Contains("YOUR_GEMINI_API_KEY") ||
-            string.Equals(key, "none", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(key, "disabled", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(key, "offline", StringComparison.OrdinalIgnoreCase))
+        if (IsUnusableGoogleSearchKey(key))
         {
-            return (null, "Built-In Academic Engine");
+            return (null, "Built-In Academic Engine", new List<GroundedSource>());
         }
 
         var modelsToTry = new[] { _model, "gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-3.8-flash" }
@@ -967,7 +967,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
         if (!acquired)
         {
             _logger.LogWarning("Concurrency limiter saturated, skipping cloud call");
-            return (null, "Built-In Academic Engine");
+            return (null, "Built-In Academic Engine", new List<GroundedSource>());
         }
 
         try
@@ -1019,7 +1019,34 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                                     var text = textSb.ToString().Trim();
                                     if (!string.IsNullOrWhiteSpace(text))
                                     {
-                                        return (text, modelName);
+                                        var sources = new List<GroundedSource>();
+                                        if (firstCandidate.TryGetProperty("groundingMetadata", out var groundingMetadata) &&
+                                            groundingMetadata.TryGetProperty("groundingChunks", out var chunks) &&
+                                            chunks.ValueKind == JsonValueKind.Array)
+                                        {
+                                            foreach (var chunk in chunks.EnumerateArray())
+                                            {
+                                                if (!chunk.TryGetProperty("web", out var web) ||
+                                                    !web.TryGetProperty("uri", out var uriProperty) ||
+                                                    !Uri.TryCreate(uriProperty.GetString(), UriKind.Absolute, out var sourceUri) ||
+                                                    sourceUri.Scheme != Uri.UriSchemeHttps)
+                                                {
+                                                    continue;
+                                                }
+
+                                                var sourceTitle = web.TryGetProperty("title", out var titleProperty)
+                                                    ? titleProperty.GetString()
+                                                    : null;
+                                                if (!sources.Any(s => string.Equals(s.Url, sourceUri.ToString(), StringComparison.OrdinalIgnoreCase)))
+                                                {
+                                                    sources.Add(new GroundedSource(
+                                                        string.IsNullOrWhiteSpace(sourceTitle) ? sourceUri.Host : sourceTitle,
+                                                        sourceUri.ToString()));
+                                                }
+                                            }
+                                        }
+
+                                        return (text, modelName, sources);
                                     }
                                 }
                             }
@@ -1063,7 +1090,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                 }
             }
 
-            return (null, "Built-In Academic Engine");
+            return (null, "Built-In Academic Engine", new List<GroundedSource>());
         }
 
         finally
@@ -1076,9 +1103,17 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
     }
 
+    private static bool IsUnusableGoogleSearchKey(string? key) =>
+        string.IsNullOrWhiteSpace(key) ||
+        key.Contains("YOUR_GEMINI_API_KEY", StringComparison.OrdinalIgnoreCase) ||
+        key.Contains("PLACEHOLDER", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(key, "none", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(key, "disabled", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(key, "offline", StringComparison.OrdinalIgnoreCase);
 
 
-    private Task<(string? Text, string ModelUsed)> CallNativeGeminiWithFallbackAsync(object payload, CancellationToken cancellationToken)
+
+    private Task<(string? Text, string ModelUsed, List<GroundedSource> Sources)> CallNativeGeminiWithFallbackAsync(object payload, CancellationToken cancellationToken)
 
     {
 
@@ -1092,7 +1127,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
     {
 
-        var (text, _) = await CallNativeGeminiWithFallbackAsync(payload, apiKeyOverride, cancellationToken);
+        var (text, _, _) = await CallNativeGeminiWithFallbackAsync(payload, apiKeyOverride, cancellationToken);
 
         return text;
 
@@ -1104,7 +1139,7 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
     {
 
-        var (text, _) = await CallNativeGeminiWithFallbackAsync(payload, null, cancellationToken);
+        var (text, _, _) = await CallNativeGeminiWithFallbackAsync(payload, null, cancellationToken);
 
         return text;
 

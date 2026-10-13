@@ -35,7 +35,7 @@ class GoogleSignInDialog extends StatefulWidget {
   @visibleForTesting
   static bool? debugAvailabilityOverride;
 
-  static bool get isAvailable => debugAvailabilityOverride ?? kDebugMode;
+  static bool get isAvailable => debugAvailabilityOverride ?? (kDebugMode || kIsWeb);
 
   static final RegExp _emailPattern = RegExp(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$");
 

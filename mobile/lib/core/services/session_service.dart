@@ -1,6 +1,7 @@
 import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
 import "package:shared_preferences/shared_preferences.dart";
+import "../constants/api_constants.dart";
 
 class SessionService {
   static const String _keyToken = "jwt_token";
@@ -32,9 +33,11 @@ class SessionService {
   String? get email => _prefs.getString(_keyEmail);
   String? get fullName => _prefs.getString(_keyFullName);
   String? get baseUrl {
-    // Release builds strictly enforce the configured/production HTTPS endpoint with no local override
-    if (kReleaseMode) return null;
-    return _prefs.getString(_keyBaseUrl);
+    // Release builds on mobile strictly enforce the configured/production HTTPS endpoint with no local override
+    if (kReleaseMode && !kIsWeb) return null;
+    final saved = _prefs.getString(_keyBaseUrl);
+    if (saved == ApiConstants.railwayProductionUrl) return null;
+    return saved;
   }
 
   bool get isOnboardingCompleted => _prefs.getBool(_keyOnboardingCompleted) ?? false;
@@ -157,7 +160,7 @@ class SessionService {
   }
 
   Future<void> setBaseUrl(String url) async {
-    if (kReleaseMode) return;
+    if (kReleaseMode && !kIsWeb) return;
     await _prefs.setString(_keyBaseUrl, url);
   }
 

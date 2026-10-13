@@ -19,7 +19,7 @@
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="icon" type="image/png" href="assets/images/studyapp_logo.png"/>
 
   <title>StudyApp | Student Learning & Exam Mastery</title>
   <link rel="manifest" href="manifest.json">
@@ -88,20 +88,17 @@
 
     .logo-badge {
       position: relative;
-      width: 68px;
-      height: 68px;
-      background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
-      border-radius: 20px;
-      box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+      width: 82px;
+      height: 82px;
       display: flex;
       align-items: center;
       justify-content: center;
     }
 
     .logo-icon {
-      width: 36px;
-      height: 36px;
-      fill: #FFFFFF;
+      width: 82px;
+      height: 82px;
+      object-fit: contain;
     }
 
     .brand-title {
@@ -190,11 +187,7 @@
       <div class="logo-container">
         <div class="logo-glow"></div>
         <div class="logo-badge">
-          <!-- Graduation Cap / Learning Book SVG -->
-          <svg class="logo-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3z"/>
-            <path d="M5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82z"/>
-          </svg>
+          <img class="logo-icon" src="assets/images/studyapp_logo.png" alt="StudyApp logo">
         </div>
       </div>
       <h1 class="brand-title">StudyApp</h1>

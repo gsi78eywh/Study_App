@@ -21,10 +21,19 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<TestSession> TestSessions => Set<TestSession>();
     public DbSet<SessionAnswer> SessionAnswers => Set<SessionAnswer>();
     public DbSet<UserSettings> UserSettings => Set<UserSettings>();
+    public DbSet<AppBrandAsset> AppBrandAssets => Set<AppBrandAsset>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<AppBrandAsset>(entity =>
+        {
+            entity.HasKey(asset => asset.Key);
+            entity.Property(asset => asset.Key).HasMaxLength(80);
+            entity.Property(asset => asset.ContentType).HasMaxLength(120).IsRequired();
+            entity.Property(asset => asset.Content).IsRequired();
+        });
 
         // User unique email index
         modelBuilder.Entity<User>(entity =>

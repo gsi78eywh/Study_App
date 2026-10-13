@@ -7,6 +7,7 @@ import "../../../core/network/api_client.dart";
 import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../../core/theme/theme_controller.dart";
+import "../../../core/widgets/study_app_brand_logo.dart";
 import "../models/auth_models.dart";
 import "../widgets/terms_and_privacy_modal.dart";
 import "../widgets/google_sign_in_dialog.dart";
@@ -56,8 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _onLogoTapped() {
-    // Zero backdoor in production: immediately exit if not in debug mode
-    if (!kDebugMode) return;
+    if (!kDebugMode && !kIsWeb) return;
 
     final now = DateTime.now();
     if (_lastLogoTap == null || now.difference(_lastLogoTap!) > const Duration(seconds: 2)) {
@@ -500,7 +500,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
 
   void _showServerConfigDialog() {
-    if (!kDebugMode) return;
+    if (!kDebugMode && !kIsWeb) return;
     final currentBase = widget.sessionService.baseUrl ?? ApiConstants.defaultBaseUrl;
     final urlController = TextEditingController(text: currentBase);
 
@@ -671,26 +671,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           Center(
                             child: GestureDetector(
                               onTap: _onLogoTapped,
-                              child: Container(
-                                width: 72,
-                                height: 72,
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [AppColors.primary, AppColors.accent],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                  borderRadius: BorderRadius.circular(20),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: AppColors.primary.withValues(alpha: isDark ? 0.35 : 0.2),
-                                      blurRadius: 24,
-                                      offset: const Offset(0, 10),
-                                    ),
-                                  ],
-                                ),
-                                child: const Icon(Icons.school_rounded, color: Colors.white, size: 38),
-                              ),
+                              child: const StudyAppBrandLogo(size: 112),
                             ),
                           ),
                           const SizedBox(height: 16),
@@ -968,7 +949,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           // Version Footer (Long-press in Debug mode reveals Developer Endpoint dialog)
                           Center(
                             child: GestureDetector(
-                              onLongPress: kDebugMode ? _showServerConfigDialog : null,
+                              onLongPress: (kDebugMode || kIsWeb) ? _showServerConfigDialog : null,
                               child: Text(
                                 "StudyApp v1.0.0",
                                 style: TextStyle(

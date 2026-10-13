@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using StudyApp.Application.Common.Interfaces;
 using StudyApp.Application.DTOs.Sync;
 using StudyApp.Domain.Entities;
@@ -23,6 +24,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:DefaultConnection", $"Data Source={_dbPath}");
+        builder.ConfigureLogging(logging => logging.ClearProviders());
     }
 
     protected override void Dispose(bool disposing)
@@ -68,6 +70,20 @@ public class UatEndToEndIntegrationTests : IClassFixture<CustomWebApplicationFac
         Assert.DoesNotContain("ASP.NET Core", portalContent);
         Assert.DoesNotContain("/api/v1/auth/login", portalContent);
         Assert.DoesNotContain("Active API Endpoints", portalContent);
+    }
+
+    [Fact]
+    public async Task BrandingLogo_IsSeededInDatabaseAndServedWithoutAuthentication()
+    {
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync("/api/v1/branding/logo");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("image/svg+xml", response.Content.Headers.ContentType?.MediaType);
+        var logo = await response.Content.ReadAsStringAsync();
+        Assert.Contains("<svg", logo);
+        Assert.Contains("linearGradient", logo);
     }
 
     [Fact]
@@ -264,7 +280,8 @@ public class UatEndToEndIntegrationTests : IClassFixture<CustomWebApplicationFac
             targetCount = 5
         });
 
-        Assert.Equal(HttpStatusCode.OK, ingestResp.StatusCode);
+        Assert.True(ingestResp.StatusCode == HttpStatusCode.OK,
+            $"Text ingestion failed with {(int)ingestResp.StatusCode}: {await ingestResp.Content.ReadAsStringAsync()}");
         var ingestResult = await ingestResp.Content.ReadFromJsonAsync<JsonElement>();
         Assert.True(ingestResult.GetProperty("questionCount").GetInt32() > 0);
         Assert.Equal("Action Potentials Mastery", ingestResult.GetProperty("title").GetString());

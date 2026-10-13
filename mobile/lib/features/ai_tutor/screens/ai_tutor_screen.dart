@@ -16,12 +16,14 @@ class ChatMessage {
   final String? modelUsed;
   final double? latencySeconds;
   final DateTime timestamp;
+  final List<Map<String, String>> sources;
 
   ChatMessage({
     required this.role,
     required this.text,
     this.modelUsed,
     this.latencySeconds,
+    this.sources = const [],
     required this.timestamp,
   });
 
@@ -30,6 +32,7 @@ class ChatMessage {
     "text": text,
     "modelUsed": modelUsed,
     "latencySeconds": latencySeconds,
+    "sources": sources,
     "timestamp": timestamp.toIso8601String(),
   };
 
@@ -39,6 +42,11 @@ class ChatMessage {
       text: json["text"] as String? ?? "",
       modelUsed: json["modelUsed"] as String?,
       latencySeconds: (json["latencySeconds"] as num?)?.toDouble(),
+      sources: (json["sources"] as List?)
+              ?.whereType<Map>()
+              .map((source) => source.map((key, value) => MapEntry(key.toString(), value.toString())))
+              .toList() ??
+          const [],
       timestamp: DateTime.tryParse(json["timestamp"]?.toString() ?? "") ?? DateTime.now(),
     );
   }
@@ -713,6 +721,11 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
         final latency = response.data["latencySeconds"] is num
             ? (response.data["latencySeconds"] as num).toDouble()
             : (stopwatch.elapsedMilliseconds / 1000.0);
+        final sources = (response.data["sources"] as List?)
+                ?.whereType<Map>()
+                .map((source) => source.map((key, value) => MapEntry(key.toString(), value.toString())))
+                .toList() ??
+            const <Map<String, String>>[];
 
         if (mounted) {
           setState(() {
@@ -724,6 +737,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                 text: reply,
                 modelUsed: model,
                 latencySeconds: latency,
+                sources: sources,
                 timestamp: DateTime.now(),
               ),
             );
@@ -1238,6 +1252,10 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     _buildMessageContent(msg.text, isUser, context),
+                                    if (!isUser && msg.sources.isNotEmpty) ...[
+                                      const SizedBox(height: 12),
+                                      _buildSourceReferences(msg.sources, context),
+                                    ],
                                     const SizedBox(height: 6),
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
@@ -1491,6 +1509,54 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
           if (i < blocks.length - 1) const SizedBox(height: 10),
         ],
       ],
+    );
+  }
+
+  Widget _buildSourceReferences(List<Map<String, String>> sources, BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: context.isDarkMode ? const Color(0xFF111827) : const Color(0xFFF8FAFC),
+        border: Border.all(color: context.cardBorderColor),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text("Google Search sources", style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: context.textSecondary)),
+          const SizedBox(height: 5),
+          for (var i = 0; i < sources.length; i++)
+            InkWell(
+              onTap: () {
+                final url = sources[i]["url"] ?? "";
+                if (url.isNotEmpty) Clipboard.setData(ClipboardData(text: url));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Source URL copied"), duration: Duration(seconds: 1)));
+              },
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("${i + 1}. ", style: TextStyle(color: context.textSecondary, fontSize: 11)),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(sources[i]["title"] ?? sources[i]["url"] ?? "Source", style: TextStyle(color: context.textPrimary, fontSize: 11, fontWeight: FontWeight.w600)),
+                          if ((sources[i]["url"] ?? "").isNotEmpty)
+                            SelectableText(sources[i]["url"]!, style: const TextStyle(color: Color(0xFF818CF8), fontSize: 10)),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.content_copy_rounded, size: 13, color: Color(0xFF818CF8)),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
