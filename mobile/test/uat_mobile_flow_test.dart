@@ -141,5 +141,37 @@ void main() {
       expect(sessionService.fullName, "Dr. Marie Curie");
       expect(find.text("Welcome back, Dr. Marie Curie 👋"), findsOneWidget);
     });
+
+    testWidgets("UAT_M6: Tapping user avatar in dashboard opens account details sheet", (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({
+        "jwt_token": "mock.jwt.bearer_token_for_tests",
+        "user_id": "test-user-guid-1234",
+        "user_full_name": "Dr. Marie Curie",
+        "user_email": "curie@sorbonne.fr",
+        "onboarding_completed": true,
+      });
+
+      final sessionService = await SessionService.init();
+      final themeController = ThemeController.init(sessionService);
+      final apiClient = ApiClient(sessionService);
+      apiClient.dio.httpClientAdapter = MockHttpAdapter();
+
+      await tester.pumpWidget(StudyAppMobile(
+        sessionService: sessionService,
+        apiClient: apiClient,
+        themeController: themeController,
+      ));
+      await tester.pumpAndSettle();
+
+      final avatarButton = find.byTooltip("Profile & Account (curie@sorbonne.fr)");
+      expect(avatarButton, findsOneWidget);
+
+      await tester.tap(avatarButton);
+      await tester.pumpAndSettle();
+
+      // Bottom sheet should display user information, sync action, and sign out
+      expect(find.text("Sync Workspace Now"), findsOneWidget);
+      expect(find.text("Sign Out"), findsOneWidget);
+    });
   });
 }

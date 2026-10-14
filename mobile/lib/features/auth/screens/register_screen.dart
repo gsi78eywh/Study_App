@@ -110,7 +110,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _handleGoogleSignUp() async {
     if (!GoogleAuthService.isConfigured) {
       setState(() => _errorMessage =
-          "Google Sign-In is not configured for this build. Set the Google OAuth Web client ID in the app build and backend settings, then rebuild.");
+          "Google Sign-In is not configured for this build. Please create your account with email and password above.");
       return;
     }
 

@@ -23,11 +23,14 @@ class GoogleAuthService {
 
   static const String configuredClientId = String.fromEnvironment("GOOGLE_CLIENT_ID");
   static const String configuredIosClientId = String.fromEnvironment("GOOGLE_IOS_CLIENT_ID");
+  static bool _isValidClientId(String id) =>
+      id.trim().isNotEmpty && !id.trim().startsWith("YOUR_");
+
   static bool get isConfigured => kIsWeb
-      ? configuredClientId.isNotEmpty
+      ? _isValidClientId(configuredClientId)
       : defaultTargetPlatform == TargetPlatform.iOS
-          ? configuredClientId.isNotEmpty && configuredIosClientId.isNotEmpty
-          : configuredClientId.isNotEmpty;
+          ? _isValidClientId(configuredClientId) && _isValidClientId(configuredIosClientId)
+          : _isValidClientId(configuredClientId);
 
   GoogleSignIn? _googleSignInInstance;
 

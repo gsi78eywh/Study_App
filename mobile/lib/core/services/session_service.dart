@@ -36,7 +36,7 @@ class SessionService {
     // Release builds on mobile strictly enforce the configured/production HTTPS endpoint with no local override
     if (kReleaseMode && !kIsWeb) return null;
     final saved = _prefs.getString(_keyBaseUrl);
-    if (saved == ApiConstants.railwayProductionUrl) return null;
+    if (saved == ApiConstants.renderProductionUrl) return null;
     return saved;
   }
 

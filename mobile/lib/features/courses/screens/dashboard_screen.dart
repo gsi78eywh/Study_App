@@ -167,54 +167,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ).then((_) => _fetchCoursesAndSync(fullFetch: true));
   }
 
-  Widget _buildQuickActionCard(
-    String title,
-    String desc,
-    IconData icon,
-    Color color,
-    VoidCallback onTap,
-  ) {
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: color.withValues(alpha: 0.25)),
-          ),
-          child: Column(
-            children: [
-              Icon(icon, size: 22, color: color),
-              const SizedBox(height: 6),
-              Text(
-                title,
-                style: GoogleFonts.outfit(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                  color: context.textPrimary,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              Text(
-                desc,
-                style: TextStyle(
-                  color: context.textSecondary,
-                  fontSize: 10,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Timer? _eyeBreakMonitoringTimer;
   Timer? _staleDataRefreshTimer;
   bool _eyeBreakOpen = false;
@@ -2876,8 +2828,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                           ),
                         ),
-                        tooltip: "Profile & Settings (${widget.sessionService.email ?? 'Student'})",
-                        onPressed: () => setState(() => _currentTabIndex = 4),
+                        tooltip: "Profile & Account (${widget.sessionService.email ?? 'Student'})",
+                        onPressed: () => _showAccountMenu(context),
                       ),
                     ],
                   ),

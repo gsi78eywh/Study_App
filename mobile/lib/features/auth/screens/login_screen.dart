@@ -175,7 +175,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _handleRealGoogleSignIn() async {
     if (!GoogleAuthService.isConfigured) {
       setState(() => _errorMessage =
-          "Google Sign-In is not configured for this build. Set the Google OAuth Web client ID in the app build and backend settings, then rebuild.");
+          "Google Sign-In is not configured for this build. Please sign in with your email and password, or tap 'Create Account' below.");
       return;
     }
 

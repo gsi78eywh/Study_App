@@ -1688,7 +1688,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      "Switch active API endpoint between local development and Railway cloud deployment without rebuilding:",
+                      "Switch active API endpoint between local development and Render cloud deployment without rebuilding:",
                       style: TextStyle(color: context.textSecondary, fontSize: 12),
                     ),
                     const SizedBox(height: 12),
@@ -1716,9 +1716,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         ActionChip(
                           avatar: const Icon(Icons.cloud_done_rounded, size: 14, color: Color(0xFF10B981)),
-                          label: const Text("Railway (Production)", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          label: const Text("Render (Production)", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                           onPressed: () {
-                            setState(() => _serverUrlController.text = ApiConstants.railwayProductionUrl);
+                            setState(() => _serverUrlController.text = ApiConstants.renderProductionUrl);
                           },
                         ),
                         ActionChip(
