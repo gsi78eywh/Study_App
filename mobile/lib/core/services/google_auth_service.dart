@@ -22,23 +22,37 @@ class GoogleAuthService {
   GoogleAuthService._();
 
   static const String configuredClientId = String.fromEnvironment("GOOGLE_CLIENT_ID");
-  static bool get isConfigured => configuredClientId.isNotEmpty;
+  static const String configuredIosClientId = String.fromEnvironment("GOOGLE_IOS_CLIENT_ID");
+  static bool get isConfigured => kIsWeb
+      ? configuredClientId.isNotEmpty
+      : defaultTargetPlatform == TargetPlatform.iOS
+          ? configuredClientId.isNotEmpty && configuredIosClientId.isNotEmpty
+          : configuredClientId.isNotEmpty;
 
   GoogleSignIn? _googleSignInInstance;
 
   GoogleSignIn get _googleSignIn {
     return _googleSignInInstance ??= GoogleSignIn(
-      clientId: kIsWeb && configuredClientId.isNotEmpty ? configuredClientId : null,
+      // The web client ID is the ID-token audience expected by the API. On iOS,
+      // the native client ID identifies this app while serverClientId requests
+      // the same web-audience token for backend verification.
+      clientId: kIsWeb
+          ? configuredClientId
+          : defaultTargetPlatform == TargetPlatform.iOS && configuredIosClientId.isNotEmpty
+              ? configuredIosClientId
+              : null,
       serverClientId: !kIsWeb && configuredClientId.isNotEmpty ? configuredClientId : null,
       scopes: ["email", "profile"],
     );
   }
 
   Future<GoogleAuthResult> signIn() async {
-    if (kIsWeb && configuredClientId.isEmpty) {
+    if (!isConfigured) {
       return GoogleAuthResult(
         success: false,
-        errorMessage: "Google Sign-In is not configured for this build.",
+        errorMessage: defaultTargetPlatform == TargetPlatform.iOS
+            ? "Google Sign-In is not configured for this iOS build."
+            : "Google Sign-In is not configured for this build.",
       );
     }
 
