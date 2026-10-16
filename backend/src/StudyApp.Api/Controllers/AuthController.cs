@@ -190,10 +190,14 @@ public class AuthController : ControllerBase
         var configuredClientId = _configuration["Authentication:Google:ClientId"]
             ?? Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID");
 
+        var firstClientId = (configuredClientId ?? string.Empty)
+            .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault() ?? string.Empty;
+
         return Ok(new
         {
-            isConfigured = !string.IsNullOrWhiteSpace(configuredClientId),
-            clientId = configuredClientId ?? string.Empty
+            isConfigured = !string.IsNullOrWhiteSpace(firstClientId),
+            clientId = firstClientId
         });
     }
 
