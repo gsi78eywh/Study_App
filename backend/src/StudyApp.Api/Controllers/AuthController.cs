@@ -21,9 +21,7 @@ public record GoogleLoginRequest(string IdToken);
 public class AuthController : ControllerBase
 {
     /// <summary>Unverified local-only Google sign-in format. Accepted in Development only.</summary>
-#if DEBUG
     public const string DevGoogleTokenPrefix = "dev-google:";
-#endif
     private readonly IApplicationDbContext _context;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenGenerator _jwtTokenGenerator;
