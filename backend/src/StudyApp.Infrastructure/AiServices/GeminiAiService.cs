@@ -146,8 +146,11 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
 
 
 
-        _model = _configuration["AiSettings:ModelId"] ?? "gemini-3.6-flash";
-
+        _model = _configuration["AiSettings:ModelId"] ?? "gemini-2.5-flash";
+        if (_model.Contains("3.1") || _model.Contains("3.8") || _model.Contains("3.6"))
+        {
+            _model = "gemini-2.5-flash";
+        }
     }
 
 
@@ -912,20 +915,30 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             _logger.LogInformation("Gemini tutor call successful: model={Model}, latency={Latency}s, notesAttached={NotesAttached}",
                 modelUsed, latencySec, notesAttached);
 
-            if (sources.Count == 0)
-            {
-                return new AskTutorResponse(
-                    "I couldn't verify this answer with Google Search right now, so I don't want to guess. Please try again in a moment.",
-                    modelUsed,
-                    DateTime.UtcNow,
-                    latencySec,
-                    null,
-                    notesAttached);
-            }
-
-            var response = new AskTutorResponse(responseText, modelUsed, DateTime.UtcNow, latencySec, null, notesAttached, sources);
+            var response = new AskTutorResponse(
+                responseText,
+                modelUsed,
+                DateTime.UtcNow,
+                latencySec,
+                null,
+                notesAttached,
+                sources.Count > 0 ? sources : null);
 
             return response;
+        }
+
+        var fallbackText = AcademicTutorSynthesizer.SynthesizeResponse(request.Message, request.ContextTopic, request.History);
+        if (!string.IsNullOrWhiteSpace(fallbackText))
+        {
+            return new AskTutorResponse(
+                fallbackText,
+                "Built-In Academic Engine",
+                DateTime.UtcNow,
+                Math.Round(stopwatch.Elapsed.TotalSeconds, 2),
+                null,
+                notesAttached,
+                null
+            );
         }
 
         var fallbackResponse = new AskTutorResponse(
@@ -959,9 +972,16 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
             return (null, "Built-In Academic Engine", new List<GroundedSource>());
         }
 
-        var modelsToTry = new[] { _model, "gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemini-3.8-flash" }
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var modelsToTry = new List<string>();
+        if (!string.IsNullOrWhiteSpace(_model) &&
+            !_model.Contains("3.1") &&
+            !_model.Contains("3.8") &&
+            !_model.Contains("3.6"))
+        {
+            modelsToTry.Add(_model);
+        }
+        modelsToTry.AddRange(new[] { "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash" });
+        modelsToTry = modelsToTry.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
         var acquired = await _concurrencyLimiter.WaitAsync(TimeSpan.FromSeconds(3), cancellationToken);
         if (!acquired)
@@ -1062,6 +1082,45 @@ public class GeminiAiService : IAiQuestionGenerator, IAiTutorService
                                 _logger.LogWarning("Gemini API key is unauthorized or forbidden ({StatusCode}), immediately aborting cloud attempts", statusCode);
                                 abortAllModels = true;
                                 break;
+                            }
+
+                            // If 400 Bad Request and payload contained search tool, retry this model WITHOUT tools
+                            if (statusCode == 400 && json.Contains("google_search"))
+                            {
+                                try
+                                {
+                                    var noToolsJson = Regex.Replace(json, @",?\s*""tools""\s*:\s*\[\s*\{\s*""google_search""\s*:\s*\{\s*\}\s*\}\s*\]", "");
+                                    using var noToolsReq = new HttpRequestMessage(HttpMethod.Post, url);
+                                    noToolsReq.Headers.Add("x-goog-api-key", key);
+                                    noToolsReq.Content = new StringContent(noToolsJson, Encoding.UTF8, "application/json");
+                                    using var noToolsResp = await _httpClient.SendAsync(noToolsReq, attemptCts.Token);
+                                    if (noToolsResp.IsSuccessStatusCode)
+                                    {
+                                        var noToolsStr = await noToolsResp.Content.ReadAsStringAsync(attemptCts.Token);
+                                        using var noToolsDoc = JsonDocument.Parse(noToolsStr);
+                                        if (noToolsDoc.RootElement.TryGetProperty("candidates", out var ntCandidates) && ntCandidates.GetArrayLength() > 0)
+                                        {
+                                            var ntCand = ntCandidates[0];
+                                            if (ntCand.TryGetProperty("content", out var ntContent) && ntContent.TryGetProperty("parts", out var ntParts))
+                                            {
+                                                var ntSb = new StringBuilder();
+                                                foreach (var p in ntParts.EnumerateArray())
+                                                {
+                                                    if (p.TryGetProperty("text", out var tProp))
+                                                    {
+                                                        ntSb.Append(tProp.GetString());
+                                                    }
+                                                }
+                                                var ntText = ntSb.ToString().Trim();
+                                                if (!string.IsNullOrWhiteSpace(ntText))
+                                                {
+                                                    return (ntText, modelName, new List<GroundedSource>());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                catch { }
                             }
 
                             if (statusCode == 503 || statusCode == 429)

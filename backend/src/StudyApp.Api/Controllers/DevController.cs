@@ -102,7 +102,7 @@ public class DevController : ControllerBase
                 provider = activeProvider,
                 model = isOpenAi
                     ? (_configuration["AiSettings:OpenAi:ModelId"] ?? "gpt-4o-mini")
-                    : (_configuration["AiSettings:ModelId"] ?? "gemini-3.1-flash-lite"),
+                    : (_configuration["AiSettings:ModelId"] ?? "gemini-2.5-flash"),
                 hasApiKey = isOpenAi ? hasOpenAiKey : hasGeminiKey,
                 openAiWiringStatus = hasOpenAiKey ? "active_live_target" : "paused_pending_key",
                 geminiAvailable = hasGeminiKey,

@@ -176,7 +176,7 @@ public class AiController : ControllerBase
         var isOpenAi = string.Equals(provider, "OpenAI", StringComparison.OrdinalIgnoreCase);
         var model = isOpenAi
             ? (_configuration["AiSettings:OpenAi:ModelId"] ?? _configuration["AiSettings:ModelId"] ?? "gpt-4o-mini")
-            : (_configuration["AiSettings:ModelId"] ?? "gemini-3.1-flash-lite");
+            : (_configuration["AiSettings:ModelId"] ?? "gemini-2.5-flash");
 
         var openAiKey = _configuration["AiSettings:OpenAi:ApiKey"] ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY");
         var isWiringPaused = isOpenAi && !StudyApp.Infrastructure.AiServices.OpenAiAiService.IsValidProjectKey(openAiKey);

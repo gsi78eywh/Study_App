@@ -136,7 +136,7 @@ public static class AcademicTutorSynthesizer
         }
 
         // 10b. Song Lyrics, Musical Transcription & OPM Hip-Hop / Rap
-        if (Regex.IsMatch(lowerPrompt, @"\b(lyrics?|song|kabet|gagong rapper|rap lyrics|opm|verse|chorus)\b"))
+        if (Regex.IsMatch(lowerPrompt, @"\b(lyrics?|song|kabet|gagong rapper|rap lyrics|opm|verse|chorus|upuan|gloc\s*9|gloc-9)\b") || lowerPrompt.Contains("upuan") || lowerPrompt.Contains("gloc"))
         {
             return BuildSongLyricsResponse(rawPrompt) + OfflineNotice;
         }
@@ -1413,6 +1413,48 @@ public static class AcademicTutorSynthesizer
     public static string BuildSongLyricsResponse(string prompt)
     {
         var lower = prompt.ToLowerInvariant();
+        if (lower.Contains("upuan") || lower.Contains("gloc"))
+        {
+            return """
+            ### 🎵 Song Analysis & Meaning: "Upuan" by Gloc-9 (feat. Jeazell Grutas)
+
+            > **Track Overview:**
+            > - **Artist:** Gloc-9 (Aristotle Pollisco) featuring Jeazell Grutas of Zelle
+            > - **Album:** *Matrikula* (2009)
+            > - **Genre / Style:** OPM Conscious Hip-Hop / Social Realism
+            > - **Language:** Tagalog (Filipino)
+
+            ---
+
+            #### 🪑 1. What Does the "Upuan" (Chair / Seat) Symbolize?
+            In the song, the **"Upuan" (Chair)** is a poignant metaphor for **political power, elective office, and ruling entitlement**. 
+            It represents politicians and public officials who remain comfortably seated in air-conditioned halls and positions of authority, utterly detached from the daily suffering, poverty, and struggles of the people they swore to serve.
+
+            ---
+
+            #### ⚖️ 2. Core Themes & Deep Meaning:
+
+            1. **The Stark Social & Class Divide:**
+               Gloc-9 juxtaposes the lavish lifestyle of the leader with the brutal reality of the masses. While those in the chair enjoy abundant feasts (*"Kayo po na naka-upo, subukan niyo namang tumayo..."*), ordinary Filipinos below are rummaging through garbage (*"namamasyal sa tambakan"*), living in makeshift shanties, and watching their children suffer from preventable illnesses and hunger.
+
+            2. **A Direct Plea for Empathy and Action:**
+               The iconic chorus, sung with raw emotion by Jeazell Grutas, acts as a direct appeal to conscience:
+               > *"Kayo po na naka-upo, subukan niyo namang tumayo,*
+               > *At baka matanaw, at baka matanaw na niyo*
+               > *Ang tunay na kalagayan ko."*
+               
+               It literally urges officials to stand up from their seats of privilege, look beyond their gated walls, and witness firsthand the flooding, malnutrition, and destitution endured by ordinary citizens.
+
+            3. **The Cycle of Corruption and Broken Promises:**
+               The verses dissect how leaders only descend to the streets during election campaign periods to shake hands and solicit votes, only to return to their elevated chairs and ignore the electorate once elected.
+
+            ---
+
+            #### 💡 Academic Significance (Literature & Social Studies):
+            In Philippine literature and humanities courses, *"Upuan"* is acclaimed as a quintessential masterpiece of modern Philippine protest art and social realism. It demonstrates how contemporary music and hip-hop can serve as an instrument of social critique, political consciousness, and civic advocacy.
+            """;
+        }
+
         if (lower.Contains("kabet") || lower.Contains("gagong rapper"))
         {
             return """

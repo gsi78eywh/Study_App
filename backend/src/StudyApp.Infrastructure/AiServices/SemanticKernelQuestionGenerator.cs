@@ -28,7 +28,11 @@ public class SemanticKernelQuestionGenerator : IAiQuestionGenerator
 
         var builder = Kernel.CreateBuilder();
         var apiKey = _configuration["AiSettings:ApiKey"] ?? string.Empty;
-        var modelId = _configuration["AiSettings:ModelId"] ?? "gemini-3.6-flash";
+        var modelId = _configuration["AiSettings:ModelId"] ?? "gemini-2.5-flash";
+        if (modelId.Contains("3.1") || modelId.Contains("3.8") || modelId.Contains("3.6"))
+        {
+            modelId = "gemini-2.5-flash";
+        }
 
         if (!string.IsNullOrWhiteSpace(apiKey) && apiKey != "YOUR_API_KEY_HERE")
         {
