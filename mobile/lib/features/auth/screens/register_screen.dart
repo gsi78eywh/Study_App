@@ -108,18 +108,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _handleGoogleSignUp() async {
-    if (!GoogleAuthService.isConfigured) {
-      setState(() => _errorMessage =
-          "Google Sign-In is not configured for this build. Please create your account with email and password above.");
-      return;
-    }
-
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
     try {
-      final result = await GoogleAuthService.instance.signIn();
+      final result = await GoogleAuthService.instance.signIn(dio: widget.apiClient.dio);
       if (!result.success) {
         if (result.errorMessage != null && !result.errorMessage!.contains("cancelled")) {
           setState(() => _errorMessage = result.errorMessage);

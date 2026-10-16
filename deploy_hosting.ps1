@@ -1,9 +1,17 @@
 # StudyApp - Firebase Hosting Build & Deploy
+param(
+    [string]$ApiBaseUrl = "https://study-app-b0xq.onrender.com",
+    [string]$GoogleClientId = $env:GOOGLE_CLIENT_ID,
+    [string]$ProjectId = "studyapp-51772"
+)
+
 $ErrorActionPreference = "Stop"
 
 Write-Host "========================================================" -ForegroundColor Cyan
 Write-Host "  StudyApp - Firebase Hosting Build & Deploy" -ForegroundColor Cyan
 Write-Host "========================================================" -ForegroundColor Cyan
+Write-Host "Target API: $ApiBaseUrl" -ForegroundColor Cyan
+Write-Host "Target Firebase Project: $ProjectId" -ForegroundColor Cyan
 Write-Host ""
 
 # 1. Check Firebase Auth
@@ -23,7 +31,15 @@ Write-Host ""
 Write-Host "[2/3] Building Flutter Web (Release)..." -ForegroundColor Yellow
 Push-Location "$PSScriptRoot\mobile"
 try {
-    & flutter build web --release
+    $buildArgs = @("build", "web", "--release", "--dart-define=API_BASE_URL=$($ApiBaseUrl.TrimEnd('/'))")
+    if (-not [string]::IsNullOrWhiteSpace($GoogleClientId)) {
+        Write-Host "Embedding Google Client ID: $GoogleClientId" -ForegroundColor Green
+        $buildArgs += "--dart-define=GOOGLE_CLIENT_ID=$GoogleClientId"
+    } else {
+        Write-Host "[NOTE] GoogleClientId not specified. Standard authentication will be used." -ForegroundColor Yellow
+    }
+
+    & flutter @buildArgs
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Flutter web build failed."
     }
@@ -34,8 +50,8 @@ Write-Host "[OK] Web build compiled into mobile/build/web." -ForegroundColor Gre
 Write-Host ""
 
 # 3. Deploy to Firebase Hosting
-Write-Host "[3/3] Deploying to Firebase Hosting (studyapp-51772)..." -ForegroundColor Yellow
-& firebase deploy --only hosting
+Write-Host "[3/3] Deploying to Firebase Hosting ($ProjectId)..." -ForegroundColor Yellow
+& firebase deploy --only hosting --project $ProjectId
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Firebase deployment failed."
 }
@@ -43,5 +59,5 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 Write-Host "========================================================" -ForegroundColor Green
 Write-Host "  Deployment Complete!" -ForegroundColor Green
-Write-Host "  Live URL: https://studyapp-51772.web.app" -ForegroundColor Cyan
+Write-Host "  Live URL: https://$ProjectId.web.app" -ForegroundColor Cyan
 Write-Host "========================================================" -ForegroundColor Green

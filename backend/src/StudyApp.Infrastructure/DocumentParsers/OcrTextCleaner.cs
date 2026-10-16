@@ -85,8 +85,8 @@ public static class OcrTextCleaner
         {
             var line = filteredLines[i];
 
-            // If line is a markdown header, list bullet, or numbered item, start a new paragraph
-            bool isListOrHeader = Regex.IsMatch(line, @"^(#{1,6}\s+|[-*•]\s+|\d+[\.\)]\s+)");
+            // If line is a markdown header, list bullet, or numbered/lettered item (1., A., (a), etc.), start a new paragraph
+            bool isListOrHeader = Regex.IsMatch(line, @"^(#{1,6}\s+|[-*•]\s+|(?:(?:\d+|[a-zA-Z])[\.\)]|\([a-zA-Z0-9]+\))\s+)");
 
             if (isListOrHeader)
             {

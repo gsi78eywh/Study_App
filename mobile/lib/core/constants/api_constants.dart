@@ -63,6 +63,7 @@ class ApiConstants {
 
   // Google OAuth & Account Management
   static const String googleAuth = "/api/v1/auth/google";
+  static const String googleConfig = "/api/v1/auth/google/config";
   static const String deleteAccount = "/api/v1/auth/account";
   static const String health = "/health";
 }

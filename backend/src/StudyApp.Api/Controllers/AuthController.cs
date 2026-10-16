@@ -182,6 +182,21 @@ public class AuthController : ControllerBase
         return Ok(new { message = "Password has been successfully updated. You may now sign in." });
     }
 
+    [HttpGet("google/config")]
+    [HttpGet("/auth/google/config")]
+    [AllowAnonymous]
+    public IActionResult GetGoogleAuthConfig()
+    {
+        var configuredClientId = _configuration["Authentication:Google:ClientId"]
+            ?? Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID");
+
+        return Ok(new
+        {
+            isConfigured = !string.IsNullOrWhiteSpace(configuredClientId),
+            clientId = configuredClientId ?? string.Empty
+        });
+    }
+
     [HttpPost("google")]
     [HttpPost("/auth/google")]
     [AllowAnonymous]
@@ -195,23 +210,16 @@ public class AuthController : ControllerBase
         var configuredClientId = _configuration["Authentication:Google:ClientId"]
             ?? Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID");
 
-#if DEBUG
         var tokenStr = request.IdToken.Trim();
-#endif
         GoogleJsonWebSignature.Payload payload;
 
-#if DEBUG
-        // SECURITY: The "dev-google:email|Full Name" format performs NO identity verification.
-        // It exists only so developers can exercise the Google flow locally without a
-        // GOOGLE_CLIENT_ID. It is rejected outright in every non-Development environment,
-        // otherwise anyone could sign in as any student just by typing their email.
         if (tokenStr.StartsWith(DevGoogleTokenPrefix, StringComparison.OrdinalIgnoreCase))
         {
             if (!_environment.IsDevelopment())
             {
-                return Unauthorized(new { message = "Invalid or expired Google authentication credentials." });
+                return Unauthorized(new { message = "Developer bypass tokens are only accepted in local development. In production, please sign in with real Google OAuth or your account password." });
             }
-
+#if DEBUG
             var raw = tokenStr.Substring(DevGoogleTokenPrefix.Length);
             var parts = raw.Split('|', 2, StringSplitOptions.TrimEntries);
             var devEmail = parts[0].ToLowerInvariant();
@@ -243,9 +251,11 @@ public class AuthController : ControllerBase
                 // must still be able to link its genuine subject later.
                 Subject = null
             };
+#else
+            return Unauthorized(new { message = "Developer bypass tokens are only accepted in local development." });
+#endif
         }
         else
-#endif
         {
             if (!_environment.IsDevelopment() && string.IsNullOrWhiteSpace(configuredClientId))
             {
@@ -257,7 +267,12 @@ public class AuthController : ControllerBase
                 var settings = new GoogleJsonWebSignature.ValidationSettings();
                 if (!string.IsNullOrWhiteSpace(configuredClientId))
                 {
-                    settings.Audience = new[] { configuredClientId };
+                    var audiences = configuredClientId
+                        .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    if (audiences.Length > 0)
+                    {
+                        settings.Audience = audiences;
+                    }
                 }
 
                 payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, settings);

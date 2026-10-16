@@ -109,22 +109,40 @@ static string ResolveDatabaseConnectionString(IConfiguration configuration, IHos
                 var port = uri.Port > 0 ? uri.Port : 5432;
                 var database = uri.AbsolutePath.TrimStart('/');
 
-                return $"Host={host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true;";
+                var csBuilder = new Npgsql.NpgsqlConnectionStringBuilder
+                {
+                    Host = host,
+                    Port = port,
+                    Database = database,
+                    Username = username,
+                    Password = password,
+                    SslMode = Npgsql.SslMode.Require,
+                    Pooling = true,
+                    KeepAlive = 30
+                };
+                return csBuilder.ConnectionString;
             }
-            catch
+            catch (Exception ex)
             {
+                Console.WriteLine($"[Database] Failed parsing DATABASE_URL URI: {ex.Message}. Using raw connection string.");
                 return envDatabaseUrl;
             }
         }
         return envDatabaseUrl;
     }
 
-    if (!environment.IsDevelopment())
+    var defaultConn = configuration.GetConnectionString("DefaultConnection");
+    if (!string.IsNullOrWhiteSpace(defaultConn))
     {
-        throw new InvalidOperationException("Production deployment requires DATABASE_URL or POSTGRESQL_URL PostgreSQL connection string.");
+        return defaultConn;
     }
 
-    return configuration.GetConnectionString("DefaultConnection") ?? "Data Source=studyapp.db";
+    if (!environment.IsDevelopment())
+    {
+        throw new InvalidOperationException("Production deployment requires DATABASE_URL, POSTGRESQL_URL, or ConnectionStrings:DefaultConnection PostgreSQL connection string.");
+    }
+
+    return "Data Source=studyapp.db";
 }
 
 static (string Host, int Port) ExtractHostAndPort(string npgsqlConnStr)
@@ -161,7 +179,16 @@ builder.Services.AddDataProtection()
 var port = Environment.GetEnvironmentVariable("PORT");
 if (!string.IsNullOrWhiteSpace(port))
 {
-    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+    if (port == "8080")
+    {
+        builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+    }
+    else
+    {
+        // Listen on both the cloud provider's assigned PORT and standard 8080
+        // so that Docker EXPOSE health checks and PORT routing both succeed without conflict.
+        builder.WebHost.UseUrls($"http://0.0.0.0:{port}", "http://0.0.0.0:8080");
+    }
 }
 else if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
 {
@@ -288,12 +315,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-// Configure Forwarded Headers for reverse proxies (Railway, Render, K8s)
+// Configure Forwarded Headers for reverse proxies (Render, Railway, Cloudflare, K8s)
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    // Trust forwarded client addresses only from explicitly configured proxy IPs.
-    // Clearing KnownProxies/KnownNetworks accepts spoofed X-Forwarded-For headers.
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+    // Clear default KnownNetworks and KnownProxies so that internal proxy IPs from Render/Railway/K8s
+    // are accepted. This prevents ERR_TOO_MANY_REDIRECTS and ensures real client IPs are used for rate limiting.
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+
     var trustedProxyIps = (Environment.GetEnvironmentVariable("TRUSTED_PROXY_IPS") ?? string.Empty)
         .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     foreach (var value in trustedProxyIps)
@@ -311,13 +341,18 @@ builder.Services.AddAuthorization(options =>
 });
 
 // 5. Configure Production CORS for Flutter Mobile & Web Clients
+var defaultAllowedOrigins = new[]
+{
+    "https://studyapp-51772.web.app",
+    "https://studyapp-51772.firebaseapp.com"
+};
 var configCors = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
 var envCors = Environment.GetEnvironmentVariable("CORS_ALLOWED_ORIGINS");
 var envCorsList = !string.IsNullOrWhiteSpace(envCors)
     ? envCors.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     : Array.Empty<string>();
 
-var allCorsOrigins = configCors.Concat(envCorsList).Distinct().ToArray();
+var allCorsOrigins = defaultAllowedOrigins.Concat(configCors).Concat(envCorsList).Distinct().ToArray();
 
 builder.Services.AddCors(options =>
 {
@@ -339,7 +374,7 @@ builder.Services.AddCors(options =>
         }
         else
         {
-            policy.WithOrigins("https://localhost");
+            policy.WithOrigins(defaultAllowedOrigins);
         }
     });
 });
@@ -430,197 +465,255 @@ builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 
-// Auto-migrate schema
+// Resilient database initialization with connection retries for cloud cold starts
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    db.Database.EnsureCreated();
-    if (db.Database.IsSqlite())
-    {
-        db.Database.ExecuteSqlRaw("""
-            CREATE TABLE IF NOT EXISTS "UserSettings" (
-                "Id" TEXT NOT NULL PRIMARY KEY,
-                "UserId" TEXT NOT NULL,
-                "DefaultQuestionCount" INTEGER NOT NULL,
-                "PreferredStudyMode" INTEGER NOT NULL,
-                "InstantFeedback" INTEGER NOT NULL,
-                "ShuffleOptions" INTEGER NOT NULL,
-                "DailyStudyGoalMinutes" INTEGER NOT NULL,
-                "DailyQuestionTarget" INTEGER NOT NULL,
-                "BlitzSecondsPerQuestion" INTEGER NOT NULL,
-                "PomodoroFocusMinutes" INTEGER NOT NULL,
-                "PomodoroShortBreakMinutes" INTEGER NOT NULL,
-                "PomodoroLongBreakMinutes" INTEGER NOT NULL,
-                "DefaultAiDifficulty" INTEGER NOT NULL,
-                "PreferredQuestionTypes" TEXT NOT NULL,
-                "SoundEffectsEnabled" INTEGER NOT NULL,
-                "HapticFeedbackEnabled" INTEGER NOT NULL,
-                "ThemePreference" TEXT NOT NULL,
-                "UpdatedAt" TEXT NOT NULL,
-                CONSTRAINT "FK_UserSettings_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
-            );
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_UserSettings_UserId" ON "UserSettings" ("UserId");
-        """);
+    var dbLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseInit");
 
-        string[] sqliteCourseGradeCols =
-        [
-            "ALTER TABLE \"Courses\" ADD COLUMN \"ExamDate\" TEXT NULL;",
-            "ALTER TABLE \"Courses\" ADD COLUMN \"ExamTitle\" TEXT NULL;",
-            "ALTER TABLE \"Courses\" ADD COLUMN \"Units\" REAL NOT NULL DEFAULT 3.0;",
-            "ALTER TABLE \"Courses\" ADD COLUMN \"TargetGrade\" REAL NOT NULL DEFAULT 1.5;",
-            "ALTER TABLE \"Courses\" ADD COLUMN \"PrelimGrade\" REAL NULL;",
-            "ALTER TABLE \"Courses\" ADD COLUMN \"MidtermGrade\" REAL NULL;",
-            "ALTER TABLE \"Courses\" ADD COLUMN \"SemiFinalGrade\" REAL NULL;",
-            "ALTER TABLE \"Courses\" ADD COLUMN \"FinalGrade\" REAL NULL;",
-            "ALTER TABLE \"Courses\" ADD COLUMN \"PrelimWeight\" REAL NOT NULL DEFAULT 0.20;",
-            "ALTER TABLE \"Courses\" ADD COLUMN \"MidtermWeight\" REAL NOT NULL DEFAULT 0.20;",
-            "ALTER TABLE \"Courses\" ADD COLUMN \"SemiFinalWeight\" REAL NOT NULL DEFAULT 0.20;",
-            "ALTER TABLE \"Courses\" ADD COLUMN \"FinalWeight\" REAL NOT NULL DEFAULT 0.40;",
-            "ALTER TABLE \"Courses\" ADD COLUMN \"GradingScale\" TEXT NOT NULL DEFAULT 'USJ-R';"
-        ];
-        foreach (var sql in sqliteCourseGradeCols)
-        {
-            try { db.Database.ExecuteSqlRaw(sql); } catch { }
-        }
+    var maxRetries = app.Environment.IsDevelopment() ? 2 : 5;
+    var retryDelay = TimeSpan.FromSeconds(3);
+    var dbInitialized = false;
 
-        try
-        {
-            db.Database.ExecuteSqlRaw("""
-                CREATE TABLE IF NOT EXISTS "AcademicTasks" (
-                    "Id" TEXT PRIMARY KEY,
-                    "UserId" TEXT NOT NULL,
-                    "CourseId" TEXT NULL,
-                    "Title" TEXT NOT NULL,
-                    "Type" TEXT NOT NULL,
-                    "DueDate" TEXT NOT NULL,
-                    "EstimatedDifficulty" TEXT NOT NULL,
-                    "IsCompleted" INTEGER NOT NULL,
-                    "ActionStepsJson" TEXT NOT NULL,
-                    "CreatedAt" TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS "IX_AcademicTasks_UserId" ON "AcademicTasks" ("UserId");
-            """);
-        }
-        catch { }
-
-        try
-        {
-            db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN \"GoogleSubject\" TEXT NULL;");
-        }
-        catch { }
-
-        try
-        {
-            db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN \"EmailVerified\" INTEGER NOT NULL DEFAULT 0;");
-        }
-        catch { }
-
-        try
-        {
-            db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN \"SecurityStamp\" TEXT NULL;");
-        }
-        catch { }
-
-        try
-        {
-            db.Database.ExecuteSqlRaw("ALTER TABLE \"UserSettings\" ADD COLUMN \"LowDataMode\" INTEGER DEFAULT 0;");
-        }
-        catch { }
-    }
-    else
+    for (int attempt = 1; attempt <= maxRetries; attempt++)
     {
         try
         {
-            db.Database.ExecuteSqlRaw("""
-                CREATE TABLE IF NOT EXISTS "AcademicTasks" (
-                    "Id" TEXT PRIMARY KEY,
-                    "UserId" TEXT NOT NULL,
-                    "CourseId" TEXT NULL,
-                    "Title" TEXT NOT NULL,
-                    "Type" TEXT NOT NULL,
-                    "DueDate" TEXT NOT NULL,
-                    "EstimatedDifficulty" TEXT NOT NULL,
-                    "IsCompleted" INTEGER NOT NULL,
-                    "ActionStepsJson" TEXT NOT NULL,
-                    "CreatedAt" TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS "IX_AcademicTasks_UserId" ON "AcademicTasks" ("UserId");
-            """);
+            db.Database.EnsureCreated();
+            dbInitialized = true;
+            break;
         }
-        catch { }
-        try
+        catch (Exception ex) when (attempt < maxRetries)
         {
-            db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"GoogleSubject\" TEXT NULL;");
+            dbLogger.LogWarning("Database connection attempt {Attempt}/{MaxRetries} failed: {Message}. Retrying in {Delay}s...",
+                attempt, maxRetries, ex.Message, retryDelay.TotalSeconds);
+            Thread.Sleep(retryDelay);
         }
-        catch { }
-
-        try
+        catch (Exception ex)
         {
-            db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"EmailVerified\" BOOLEAN NOT NULL DEFAULT FALSE;");
-        }
-        catch { }
-
-        try
-        {
-            db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"SecurityStamp\" TEXT NULL;");
-        }
-        catch { }
-
-        string[] pgCourseGradeCols =
-        [
-            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"ExamDate\" TIMESTAMPTZ NULL;",
-            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"ExamTitle\" TEXT NULL;",
-            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"Units\" DOUBLE PRECISION NOT NULL DEFAULT 3.0;",
-            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"TargetGrade\" DOUBLE PRECISION NOT NULL DEFAULT 1.5;",
-            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"PrelimGrade\" DOUBLE PRECISION NULL;",
-            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"MidtermGrade\" DOUBLE PRECISION NULL;",
-            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"SemiFinalGrade\" DOUBLE PRECISION NULL;",
-            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"FinalGrade\" DOUBLE PRECISION NULL;",
-            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"PrelimWeight\" DOUBLE PRECISION NOT NULL DEFAULT 0.20;",
-            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"MidtermWeight\" DOUBLE PRECISION NOT NULL DEFAULT 0.20;",
-            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"SemiFinalWeight\" DOUBLE PRECISION NOT NULL DEFAULT 0.20;",
-            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"FinalWeight\" DOUBLE PRECISION NOT NULL DEFAULT 0.40;",
-            "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"GradingScale\" TEXT NOT NULL DEFAULT 'USJ-R';",
-            "ALTER TABLE \"UserSettings\" ADD COLUMN IF NOT EXISTS \"LowDataMode\" BOOLEAN DEFAULT FALSE;"
-        ];
-        foreach (var sql in pgCourseGradeCols)
-        {
-            try { db.Database.ExecuteSqlRaw(sql); } catch { }
+            dbLogger.LogError(ex, "Database initialization could not complete after {MaxRetries} attempts. App will start to allow health probes.", maxRetries);
         }
     }
 
-    // Ensure this table exists even in databases initialized before the
-    // branding entity was added (EnsureCreated skips schema changes on existing DBs).
-    db.Database.ExecuteSqlRaw(db.Database.IsSqlite()
-        ? "CREATE TABLE IF NOT EXISTS \"AppBrandAssets\" (\"Key\" TEXT NOT NULL PRIMARY KEY, \"ContentType\" TEXT NOT NULL, \"Content\" TEXT NOT NULL, \"UpdatedAt\" TEXT NOT NULL);"
-        : "CREATE TABLE IF NOT EXISTS \"AppBrandAssets\" (\"Key\" TEXT NOT NULL PRIMARY KEY, \"ContentType\" TEXT NOT NULL, \"Content\" TEXT NOT NULL, \"UpdatedAt\" TIMESTAMPTZ NOT NULL);");
-
-    var logoPath = Path.Combine(app.Environment.ContentRootPath, "Assets", "studyapp_logo.svg");
-    if (!File.Exists(logoPath)) logoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "studyapp_logo.svg");
-    if (File.Exists(logoPath))
+    if (dbInitialized)
     {
-        var logoSvg = await File.ReadAllTextAsync(logoPath);
-        var savedLogo = await db.AppBrandAssets.FindAsync("studyapp-logo");
-        if (savedLogo == null)
+        if (db.Database.IsSqlite())
         {
-            db.AppBrandAssets.Add(new StudyApp.Domain.Entities.AppBrandAsset
+            db.Database.ExecuteSqlRaw("""
+                CREATE TABLE IF NOT EXISTS "UserSettings" (
+                    "Id" TEXT NOT NULL PRIMARY KEY,
+                    "UserId" TEXT NOT NULL,
+                    "DefaultQuestionCount" INTEGER NOT NULL,
+                    "PreferredStudyMode" INTEGER NOT NULL,
+                    "InstantFeedback" INTEGER NOT NULL,
+                    "ShuffleOptions" INTEGER NOT NULL,
+                    "DailyStudyGoalMinutes" INTEGER NOT NULL,
+                    "DailyQuestionTarget" INTEGER NOT NULL,
+                    "BlitzSecondsPerQuestion" INTEGER NOT NULL,
+                    "PomodoroFocusMinutes" INTEGER NOT NULL,
+                    "PomodoroShortBreakMinutes" INTEGER NOT NULL,
+                    "PomodoroLongBreakMinutes" INTEGER NOT NULL,
+                    "DefaultAiDifficulty" INTEGER NOT NULL,
+                    "PreferredQuestionTypes" TEXT NOT NULL,
+                    "SoundEffectsEnabled" INTEGER NOT NULL,
+                    "HapticFeedbackEnabled" INTEGER NOT NULL,
+                    "ThemePreference" TEXT NOT NULL,
+                    "UpdatedAt" TEXT NOT NULL,
+                    CONSTRAINT "FK_UserSettings_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_UserSettings_UserId" ON "UserSettings" ("UserId");
+            """);
+
+            string[] sqliteCourseGradeCols =
+            [
+                "ALTER TABLE \"Courses\" ADD COLUMN \"ExamDate\" TEXT NULL;",
+                "ALTER TABLE \"Courses\" ADD COLUMN \"ExamTitle\" TEXT NULL;",
+                "ALTER TABLE \"Courses\" ADD COLUMN \"Units\" REAL NOT NULL DEFAULT 3.0;",
+                "ALTER TABLE \"Courses\" ADD COLUMN \"TargetGrade\" REAL NOT NULL DEFAULT 1.5;",
+                "ALTER TABLE \"Courses\" ADD COLUMN \"PrelimGrade\" REAL NULL;",
+                "ALTER TABLE \"Courses\" ADD COLUMN \"MidtermGrade\" REAL NULL;",
+                "ALTER TABLE \"Courses\" ADD COLUMN \"SemiFinalGrade\" REAL NULL;",
+                "ALTER TABLE \"Courses\" ADD COLUMN \"FinalGrade\" REAL NULL;",
+                "ALTER TABLE \"Courses\" ADD COLUMN \"PrelimWeight\" REAL NOT NULL DEFAULT 0.20;",
+                "ALTER TABLE \"Courses\" ADD COLUMN \"MidtermWeight\" REAL NOT NULL DEFAULT 0.20;",
+                "ALTER TABLE \"Courses\" ADD COLUMN \"SemiFinalWeight\" REAL NOT NULL DEFAULT 0.20;",
+                "ALTER TABLE \"Courses\" ADD COLUMN \"FinalWeight\" REAL NOT NULL DEFAULT 0.40;",
+                "ALTER TABLE \"Courses\" ADD COLUMN \"GradingScale\" TEXT NOT NULL DEFAULT 'USJ-R';"
+            ];
+            foreach (var sql in sqliteCourseGradeCols)
             {
-                Key = "studyapp-logo",
-                ContentType = "image/svg+xml",
-                Content = logoSvg
-            });
-            await db.SaveChangesAsync();
-        }
-        else if (!string.Equals(savedLogo.Content, logoSvg, StringComparison.Ordinal))
-        {
-            savedLogo.Content = logoSvg;
-            savedLogo.ContentType = "image/svg+xml";
-            savedLogo.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
-        }
-    }
+                try { db.Database.ExecuteSqlRaw(sql); } catch { }
+            }
 
-    Console.WriteLine("[Database] Database schema verified and ready for student records.");
+            try
+            {
+                db.Database.ExecuteSqlRaw("""
+                    CREATE TABLE IF NOT EXISTS "AcademicTasks" (
+                        "Id" TEXT PRIMARY KEY,
+                        "UserId" TEXT NOT NULL,
+                        "CourseId" TEXT NULL,
+                        "Title" TEXT NOT NULL,
+                        "Type" TEXT NOT NULL,
+                        "DueDate" TEXT NOT NULL,
+                        "EstimatedDifficulty" TEXT NOT NULL,
+                        "IsCompleted" INTEGER NOT NULL,
+                        "ActionStepsJson" TEXT NOT NULL,
+                        "CreatedAt" TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS "IX_AcademicTasks_UserId" ON "AcademicTasks" ("UserId");
+                """);
+            }
+            catch { }
+
+            try
+            {
+                db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN \"GoogleSubject\" TEXT NULL;");
+            }
+            catch { }
+
+            try
+            {
+                db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN \"EmailVerified\" INTEGER NOT NULL DEFAULT 0;");
+            }
+            catch { }
+
+            try
+            {
+                db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN \"SecurityStamp\" TEXT NULL;");
+            }
+            catch { }
+
+            try
+            {
+                db.Database.ExecuteSqlRaw("ALTER TABLE \"UserSettings\" ADD COLUMN \"LowDataMode\" INTEGER DEFAULT 0;");
+            }
+            catch { }
+        }
+        else
+        {
+            try
+            {
+                db.Database.ExecuteSqlRaw("""
+                    CREATE TABLE IF NOT EXISTS "UserSettings" (
+                        "Id" UUID NOT NULL PRIMARY KEY,
+                        "UserId" UUID NOT NULL,
+                        "DefaultQuestionCount" INTEGER NOT NULL DEFAULT 5,
+                        "PreferredStudyMode" INTEGER NOT NULL DEFAULT 0,
+                        "InstantFeedback" BOOLEAN NOT NULL DEFAULT TRUE,
+                        "ShuffleOptions" BOOLEAN NOT NULL DEFAULT TRUE,
+                        "DailyStudyGoalMinutes" INTEGER NOT NULL DEFAULT 30,
+                        "DailyQuestionTarget" INTEGER NOT NULL DEFAULT 20,
+                        "BlitzSecondsPerQuestion" INTEGER NOT NULL DEFAULT 30,
+                        "PomodoroFocusMinutes" INTEGER NOT NULL DEFAULT 25,
+                        "PomodoroShortBreakMinutes" INTEGER NOT NULL DEFAULT 5,
+                        "PomodoroLongBreakMinutes" INTEGER NOT NULL DEFAULT 15,
+                        "DefaultAiDifficulty" INTEGER NOT NULL DEFAULT 1,
+                        "PreferredQuestionTypes" TEXT NOT NULL DEFAULT 'all',
+                        "SoundEffectsEnabled" BOOLEAN NOT NULL DEFAULT TRUE,
+                        "HapticFeedbackEnabled" BOOLEAN NOT NULL DEFAULT TRUE,
+                        "ThemePreference" TEXT NOT NULL DEFAULT 'system',
+                        "LowDataMode" BOOLEAN NOT NULL DEFAULT FALSE,
+                        "UpdatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        CONSTRAINT "FK_UserSettings_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS "IX_UserSettings_UserId" ON "UserSettings" ("UserId");
+                """);
+            }
+            catch { }
+
+            try
+            {
+                db.Database.ExecuteSqlRaw("""
+                    CREATE TABLE IF NOT EXISTS "AcademicTasks" (
+                        "Id" TEXT PRIMARY KEY,
+                        "UserId" TEXT NOT NULL,
+                        "CourseId" TEXT NULL,
+                        "Title" TEXT NOT NULL,
+                        "Type" TEXT NOT NULL,
+                        "DueDate" TEXT NOT NULL,
+                        "EstimatedDifficulty" TEXT NOT NULL,
+                        "IsCompleted" INTEGER NOT NULL,
+                        "ActionStepsJson" TEXT NOT NULL,
+                        "CreatedAt" TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS "IX_AcademicTasks_UserId" ON "AcademicTasks" ("UserId");
+                """);
+            }
+            catch { }
+            try
+            {
+                db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"GoogleSubject\" TEXT NULL;");
+            }
+            catch { }
+
+            try
+            {
+                db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"EmailVerified\" BOOLEAN NOT NULL DEFAULT FALSE;");
+            }
+            catch { }
+
+            try
+            {
+                db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"SecurityStamp\" TEXT NULL;");
+            }
+            catch { }
+
+            string[] pgCourseGradeCols =
+            [
+                "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"ExamDate\" TIMESTAMPTZ NULL;",
+                "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"ExamTitle\" TEXT NULL;",
+                "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"Units\" DOUBLE PRECISION NOT NULL DEFAULT 3.0;",
+                "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"TargetGrade\" DOUBLE PRECISION NOT NULL DEFAULT 1.5;",
+                "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"PrelimGrade\" DOUBLE PRECISION NULL;",
+                "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"MidtermGrade\" DOUBLE PRECISION NULL;",
+                "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"SemiFinalGrade\" DOUBLE PRECISION NULL;",
+                "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"FinalGrade\" DOUBLE PRECISION NULL;",
+                "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"PrelimWeight\" DOUBLE PRECISION NOT NULL DEFAULT 0.20;",
+                "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"MidtermWeight\" DOUBLE PRECISION NOT NULL DEFAULT 0.20;",
+                "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"SemiFinalWeight\" DOUBLE PRECISION NOT NULL DEFAULT 0.20;",
+                "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"FinalWeight\" DOUBLE PRECISION NOT NULL DEFAULT 0.40;",
+                "ALTER TABLE \"Courses\" ADD COLUMN IF NOT EXISTS \"GradingScale\" TEXT NOT NULL DEFAULT 'USJ-R';",
+                "ALTER TABLE \"UserSettings\" ADD COLUMN IF NOT EXISTS \"LowDataMode\" BOOLEAN DEFAULT FALSE;"
+            ];
+            foreach (var sql in pgCourseGradeCols)
+            {
+                try { db.Database.ExecuteSqlRaw(sql); } catch { }
+            }
+        }
+
+        // Ensure this table exists even in databases initialized before the
+        // branding entity was added (EnsureCreated skips schema changes on existing DBs).
+        db.Database.ExecuteSqlRaw(db.Database.IsSqlite()
+            ? "CREATE TABLE IF NOT EXISTS \"AppBrandAssets\" (\"Key\" TEXT NOT NULL PRIMARY KEY, \"ContentType\" TEXT NOT NULL, \"Content\" TEXT NOT NULL, \"UpdatedAt\" TEXT NOT NULL);"
+            : "CREATE TABLE IF NOT EXISTS \"AppBrandAssets\" (\"Key\" TEXT NOT NULL PRIMARY KEY, \"ContentType\" TEXT NOT NULL, \"Content\" TEXT NOT NULL, \"UpdatedAt\" TIMESTAMPTZ NOT NULL);");
+
+        var logoPath = Path.Combine(app.Environment.ContentRootPath, "Assets", "studyapp_logo.svg");
+        if (!File.Exists(logoPath)) logoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "studyapp_logo.svg");
+        if (File.Exists(logoPath))
+        {
+            var logoSvg = await File.ReadAllTextAsync(logoPath);
+            var savedLogo = await db.AppBrandAssets.FindAsync("studyapp-logo");
+            if (savedLogo == null)
+            {
+                db.AppBrandAssets.Add(new StudyApp.Domain.Entities.AppBrandAsset
+                {
+                    Key = "studyapp-logo",
+                    ContentType = "image/svg+xml",
+                    Content = logoSvg
+                });
+                await db.SaveChangesAsync();
+            }
+            else if (!string.Equals(savedLogo.Content, logoSvg, StringComparison.Ordinal))
+            {
+                savedLogo.Content = logoSvg;
+                savedLogo.ContentType = "image/svg+xml";
+                savedLogo.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            }
+        }
+
+        Console.WriteLine("[Database] Database schema verified and ready for student records.");
+    }
 }
 
 app.UseForwardedHeaders();
@@ -670,9 +763,9 @@ app.MapGet("/health", async (ApplicationDbContext db, IConfiguration config, Can
     return canConnect
         ? Results.Ok(new { ok = true, status = "healthy", version = version, gemini = hasGemini, timestamp = DateTime.UtcNow })
         : Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Database unavailable.");
-}).AllowAnonymous();
+}).AllowAnonymous().DisableRateLimiting();
 
-app.MapGet("/health/live", () => Results.Ok(new { status = "alive", timestamp = DateTime.UtcNow })).AllowAnonymous();
+app.MapGet("/health/live", () => Results.Ok(new { status = "alive", timestamp = DateTime.UtcNow })).AllowAnonymous().DisableRateLimiting();
 
 app.MapGet("/health/ready", async (ApplicationDbContext db, IConfiguration config, CancellationToken cancellationToken) =>
 {
@@ -683,10 +776,10 @@ app.MapGet("/health/ready", async (ApplicationDbContext db, IConfiguration confi
     return canConnect
         ? Results.Ok(new { ready = true, db = true, gemini = hasGemini, timestamp = DateTime.UtcNow })
         : Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Database unavailable.");
-}).AllowAnonymous();
+}).AllowAnonymous().DisableRateLimiting();
 
 // Minimal, secure root route
-app.MapGet("/", () => Results.Ok(new { status = "healthy", service = "StudyApp API" })).AllowAnonymous();
+app.MapGet("/", () => Results.Ok(new { status = "healthy", service = "StudyApp API" })).AllowAnonymous().DisableRateLimiting();
 
 app.MapControllers();
 

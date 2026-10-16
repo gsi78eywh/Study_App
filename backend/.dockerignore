@@ -1,8 +1,11 @@
-bin/
-obj/
+**/.git
+**/.vs
+**/.vscode
+**/.idea
+**/bin
+**/obj
+**/TestResults
+**/node_modules
 *.db
 *.db-shm
 *.db-wal
-.vs/
-.idea/
-.git/

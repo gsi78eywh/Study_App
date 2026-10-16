@@ -46,15 +46,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _serverUrlController;
 
   Future<void> _connectGoogleAccount() async {
-    if (!GoogleAuthService.isConfigured) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Google Sign-In is not configured for this build.")),
-      );
-      return;
-    }
-
     try {
-      final result = await GoogleAuthService.instance.signIn();
+      final result = await GoogleAuthService.instance.signIn(dio: widget.apiClient.dio);
       if (!result.success) {
         if (result.errorMessage != null && !result.errorMessage!.contains("cancelled") && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result.errorMessage!)));

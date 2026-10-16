@@ -164,119 +164,85 @@ public class DocumentExtractor : IDocumentExtractor
                         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
                         using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                        attemptCts.CancelAfter(TimeSpan.FromSeconds(6));
+                        attemptCts.CancelAfter(TimeSpan.FromSeconds(25));
                         using var response = await _httpClient.SendAsync(request, attemptCts.Token);
 
                         if (response.IsSuccessStatusCode)
-
                         {
-
                             var responseStr = await response.Content.ReadAsStringAsync(cancellationToken);
-
                             using var doc = JsonDocument.Parse(responseStr);
 
                             if (doc.RootElement.TryGetProperty("candidates", out var candidates) && candidates.GetArrayLength() > 0)
-
                             {
-
                                 var firstCandidate = candidates[0];
-
                                 if (firstCandidate.TryGetProperty("content", out var content) &&
-
                                     content.TryGetProperty("parts", out var parts) &&
-
                                     parts.GetArrayLength() > 0)
-
                                 {
-
                                     var text = parts[0].GetProperty("text").GetString();
-
                                     if (!string.IsNullOrWhiteSpace(text))
-
                                     {
-
                                         var cleaned = OcrTextCleaner.CleanAndReconstructText(text.Trim());
-
                                         return LimitText(!string.IsNullOrWhiteSpace(cleaned) ? cleaned : text.Trim());
-
                                     }
-
                                 }
-
                             }
-
                         }
-
                         else
-
                         {
-
                             _logger?.LogWarning("Gemini Vision OCR with model {Model} returned status {StatusCode}", model, response.StatusCode);
                             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized || response.StatusCode == System.Net.HttpStatusCode.Forbidden)
                             {
                                 break;
                             }
-
                         }
-
                     }
-
                     catch (Exception ex)
-
                     {
-
                         _logger?.LogWarning(ex, "Gemini Vision OCR attempt for model {Model} failed", model);
-
                     }
-
                 }
-
             }
-
             catch (Exception ex)
-
             {
-
                 _logger?.LogWarning(ex, "Gemini Vision OCR extraction failed, falling back to local OCR");
-
             }
-
         }
 
-        // 2. Native Offline Local OCR (Windows.Media.Ocr.OcrEngine via PowerShell)
-
+        // 2. Native Offline Local OCR (Windows OCR or Linux Tesseract)
         if (OperatingSystem.IsWindows())
-
         {
-
             try
-
             {
-
                 var localOcrText = await ExtractWithWindowsOcrAsync(bytes, mimeType, cancellationToken);
-
                 if (!string.IsNullOrWhiteSpace(localOcrText))
-
                 {
-
                     _logger?.LogInformation("Extracted {CharCount} characters using native offline Windows OCR", localOcrText.Length);
-
                     var cleaned = OcrTextCleaner.CleanAndReconstructText(localOcrText);
-
                     return LimitText(!string.IsNullOrWhiteSpace(cleaned) ? cleaned : localOcrText);
-
                 }
-
             }
-
             catch (Exception ex)
-
             {
-
                 _logger?.LogWarning(ex, "Native Windows OCR extraction failed, falling back to raw byte inspection");
-
             }
-
+        }
+        else
+        {
+            try
+            {
+                var tesseractText = await ExtractWithTesseractAsync(bytes, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(tesseractText))
+                {
+                    _logger?.LogInformation("Extracted {CharCount} characters using Tesseract OCR", tesseractText.Length);
+                    var cleaned = OcrTextCleaner.CleanAndReconstructText(tesseractText);
+                    return LimitText(!string.IsNullOrWhiteSpace(cleaned) ? cleaned : tesseractText);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "Linux Tesseract OCR extraction skipped or unavailable");
+            }
         }
 
         // 3. Local extraction fallback: scan image byte stream for readable text chunks (e.g. metadata, embedded notes)
@@ -294,7 +260,43 @@ public class DocumentExtractor : IDocumentExtractor
         }
 
         return string.Empty;
+    }
 
+    private static async Task<string?> ExtractWithTesseractAsync(byte[] bytes, CancellationToken ct)
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"ocr_{Guid.NewGuid():N}.png");
+        try
+        {
+            await File.WriteAllBytesAsync(tempFile, bytes, ct);
+            using var proc = new System.Diagnostics.Process
+            {
+                StartInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "tesseract",
+                    Arguments = $"\"{tempFile}\" stdout -l eng --oem 1 --psm 3",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            proc.Start();
+            var outputTask = proc.StandardOutput.ReadToEndAsync(ct);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(20));
+            await proc.WaitForExitAsync(cts.Token);
+            var result = await outputTask;
+            return !string.IsNullOrWhiteSpace(result) ? result.Trim() : null;
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
+        }
     }
 
     private static string ExtractTextFromRawImageBytes(byte[] bytes)

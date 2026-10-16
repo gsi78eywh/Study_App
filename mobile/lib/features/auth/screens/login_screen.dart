@@ -173,19 +173,13 @@ class _LoginScreenState extends State<LoginScreen> {
   // Google handles account selection and any required password/second-factor
   // challenge. Only its signed ID token is sent to StudyApp for verification.
   Future<void> _handleRealGoogleSignIn() async {
-    if (!GoogleAuthService.isConfigured) {
-      setState(() => _errorMessage =
-          "Google Sign-In is not configured for this build. Please sign in with your email and password, or tap 'Create Account' below.");
-      return;
-    }
-
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final result = await GoogleAuthService.instance.signIn();
+      final result = await GoogleAuthService.instance.signIn(dio: widget.apiClient.dio);
       if (!result.success) {
         if (result.errorMessage != null && !result.errorMessage!.contains("cancelled")) {
           setState(() => _errorMessage = result.errorMessage);

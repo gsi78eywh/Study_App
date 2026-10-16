@@ -523,7 +523,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
       final response = await widget.apiClient.dio.post(
         ApiConstants.scanUrl,
         data: {
-          "url": rawUrl,
+          "url": cleanUrl,
         },
       );
 

@@ -20,6 +20,7 @@ RUN dotnet publish "StudyApp.Api.csproj" -c Release -o /app/publish /p:UseAppHos
 # Stage 2: Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/publish .
 
 # Render provides PORT at runtime and DATABASE_URL from the managed PostgreSQL service.
