@@ -19,6 +19,12 @@ using StudyApp.Infrastructure.AiServices;
 using StudyApp.Infrastructure.Data;
 using StudyApp.Infrastructure.DocumentParsers;
 using StudyApp.Infrastructure.Services;
+using Microsoft.AspNetCore.ResponseCompression;
+using System.IO.Compression;
+
+// Prevent Npgsql from throwing System.ArgumentException when DateTimeKind.Unspecified
+// timestamps are compared or persisted against PostgreSQL TIMESTAMPTZ columns.
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
@@ -391,17 +397,17 @@ builder.Services.AddRateLimiter(options =>
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 AutoReplenishment = true,
-                PermitLimit = 150,
-                QueueLimit = 20,
+                PermitLimit = 300,
+                QueueLimit = 40,
                 Window = TimeSpan.FromMinutes(1)
             }));
 
     // Bound CPU/memory-heavy work per process. The work queues are intentionally
     // finite; excess requests get 429 + Retry-After instead of piling up until
     // the instance runs out of memory. Configure these values per instance size.
-    var aiConcurrency = ReadBoundedInt("AI_CONCURRENCY_LIMIT", 4, 1, 32);
-    var documentConcurrency = ReadBoundedInt("DOCUMENT_CONCURRENCY_LIMIT", 4, 1, 32);
-    var heavyQueueLimit = ReadBoundedInt("HEAVY_REQUEST_QUEUE_LIMIT", 24, 0, 256);
+    var aiConcurrency = ReadBoundedInt("AI_CONCURRENCY_LIMIT", 12, 1, 64);
+    var documentConcurrency = ReadBoundedInt("DOCUMENT_CONCURRENCY_LIMIT", 12, 1, 64);
+    var heavyQueueLimit = ReadBoundedInt("HEAVY_REQUEST_QUEUE_LIMIT", 48, 0, 256);
     var expensiveWorkLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
     {
         var path = httpContext.Request.Path;
@@ -428,7 +434,7 @@ builder.Services.AddRateLimiter(options =>
     options.GlobalLimiter = PartitionedRateLimiter.CreateChained(requestRateLimiter, expensiveWorkLimiter);
     options.OnRejected = (context, _) =>
     {
-        context.HttpContext.Response.Headers["Retry-After"] = "10";
+        context.HttpContext.Response.Headers["Retry-After"] = "5";
         return ValueTask.CompletedTask;
     };
 
@@ -436,9 +442,9 @@ builder.Services.AddRateLimiter(options =>
         httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = builder.Environment.IsDevelopment() ? 500 : 10,
+            PermitLimit = builder.Environment.IsDevelopment() ? 500 : 30,
             Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 0,
+            QueueLimit = 5,
             AutoReplenishment = true
         }));
 
@@ -449,11 +455,28 @@ builder.Services.AddRateLimiter(options =>
             ?? "unknown",
         _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = builder.Environment.IsDevelopment() ? 500 : 30,
+            PermitLimit = builder.Environment.IsDevelopment() ? 500 : 60,
             Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 5,
+            QueueLimit = 15,
             AutoReplenishment = true
         }));
+});
+
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
+        new[] { "image/svg+xml", "application/json" });
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+{
+    options.Level = CompressionLevel.Fastest;
+});
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+{
+    options.Level = CompressionLevel.Fastest;
 });
 
 builder.Services.AddControllers()
@@ -748,6 +771,7 @@ app.Use(async (context, next) =>
 });
 
 app.UseCors("AllowMobileClient");
+app.UseResponseCompression();
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();

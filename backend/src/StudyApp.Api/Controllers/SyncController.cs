@@ -21,8 +21,22 @@ public class SyncController : ControllerBase
         _context = context;
     }
 
+    private static DateTime NormalizeUtc(DateTime value)
+    {
+        if (value == default)
+        {
+            return DateTime.SpecifyKind(DateTime.UnixEpoch, DateTimeKind.Utc);
+        }
+        return value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
+    }
+
     [HttpPost]
-    public async Task<IActionResult> Sync([FromBody] SyncPushRequest request)
+    public async Task<IActionResult> Sync([FromBody] SyncPushRequest? request)
     {
         var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
@@ -30,16 +44,41 @@ public class SyncController : ControllerBase
             return Unauthorized();
         }
 
+        request ??= new SyncPushRequest(
+            DateTime.UtcNow.AddYears(-10),
+            new List<SyncCourseDto>(),
+            new List<SyncStudySetDto>(),
+            new List<SyncQuestionDto>(),
+            new List<SyncTestSessionDto>());
+
         var now = DateTime.UtcNow;
-        var courses = request.Courses ?? new List<SyncCourseDto>();
-        var studySets = request.StudySets ?? new List<SyncStudySetDto>();
-        var questions = request.Questions ?? new List<SyncQuestionDto>();
-        var testSessions = request.TestSessions ?? new List<SyncTestSessionDto>();
+        var lastSyncedAtUtc = NormalizeUtc(request.LastSyncedAt);
+        var courses = (request.Courses ?? new List<SyncCourseDto>())
+            .Where(c => c.Id != Guid.Empty)
+            .GroupBy(c => c.Id)
+            .Select(g => g.Last())
+            .ToList();
+        var studySets = (request.StudySets ?? new List<SyncStudySetDto>())
+            .Where(s => s.Id != Guid.Empty)
+            .GroupBy(s => s.Id)
+            .Select(g => g.Last())
+            .ToList();
+        var questions = (request.Questions ?? new List<SyncQuestionDto>())
+            .Where(q => q.Id != Guid.Empty)
+            .GroupBy(q => q.Id)
+            .Select(g => g.Last())
+            .ToList();
+        var testSessions = (request.TestSessions ?? new List<SyncTestSessionDto>())
+            .Where(ts => ts.Id != Guid.Empty)
+            .GroupBy(ts => ts.Id)
+            .Select(g => g.Last())
+            .ToList();
         var acceptedCourseIds = new HashSet<Guid>();
+        var acceptedStudySetIds = new HashSet<Guid>();
 
         // 1. Process incoming offline courses. Every update is constrained to the
         // authenticated owner; client generated IDs never grant access to a record.
-        foreach (var c in courses.Where(c => c.Id != Guid.Empty))
+        foreach (var c in courses)
         {
             if (string.IsNullOrWhiteSpace(c.Code) || c.Code.Trim().Length > 32 ||
                 string.IsNullOrWhiteSpace(c.Name) || c.Name.Trim().Length > 150 ||
@@ -50,6 +89,7 @@ public class SyncController : ControllerBase
             var courseCode = c.Code!.Trim();
             var courseName = c.Name!.Trim();
             var colorHex = c.ColorHex!.Trim().ToUpperInvariant();
+            var clientUpdatedAt = NormalizeUtc(c.UpdatedAt);
 
             var existing = await _context.Courses.FirstOrDefaultAsync(x => x.Id == c.Id);
             if (existing == null)
@@ -71,7 +111,7 @@ public class SyncController : ControllerBase
             {
                 // A stale cache cannot overwrite a change that the server has
                 // already observed after the client's advertised version.
-                if (!c.IsDeleted && existing.UpdatedAt.HasValue && c.UpdatedAt <= existing.UpdatedAt.Value)
+                if (!c.IsDeleted && existing.UpdatedAt.HasValue && clientUpdatedAt <= NormalizeUtc(existing.UpdatedAt.Value))
                 {
                     acceptedCourseIds.Add(c.Id);
                     continue;
@@ -96,7 +136,7 @@ public class SyncController : ControllerBase
         acceptedCourseIds.UnionWith(persistedCourseIds);
 
         // 2. Process incoming offline StudySets
-        foreach (var s in studySets.Where(s => s.Id != Guid.Empty && acceptedCourseIds.Contains(s.CourseId)))
+        foreach (var s in studySets.Where(s => acceptedCourseIds.Contains(s.CourseId)))
         {
             if (string.IsNullOrWhiteSpace(s.Title) || s.Title.Trim().Length > 160 || s.Description?.Length > 10_000)
             {
@@ -104,6 +144,7 @@ public class SyncController : ControllerBase
             }
             var studySetTitle = s.Title!.Trim();
             var studySetDescription = s.Description ?? string.Empty;
+            var clientUpdatedAt = NormalizeUtc(s.UpdatedAt);
 
             var existing = await _context.StudySets.FirstOrDefaultAsync(x => x.Id == s.Id);
             if (existing == null)
@@ -118,11 +159,13 @@ public class SyncController : ControllerBase
                     CreatedAt = now,
                     UpdatedAt = now
                 });
+                acceptedStudySetIds.Add(s.Id);
             }
             else if (await _context.Courses.AnyAsync(c => c.Id == existing.CourseId && c.UserId == userId))
             {
-                if (!s.IsDeleted && existing.UpdatedAt.HasValue && s.UpdatedAt <= existing.UpdatedAt.Value)
+                if (!s.IsDeleted && existing.UpdatedAt.HasValue && clientUpdatedAt <= NormalizeUtc(existing.UpdatedAt.Value))
                 {
+                    acceptedStudySetIds.Add(s.Id);
                     continue;
                 }
                 if (s.IsDeleted)
@@ -133,14 +176,20 @@ public class SyncController : ControllerBase
                 existing.Title = studySetTitle;
                 existing.Description = studySetDescription;
                 existing.UpdatedAt = now;
+                acceptedStudySetIds.Add(s.Id);
             }
         }
 
+        var persistedStudySetIds = await _context.StudySets
+            .Where(s => s.Course != null && s.Course.UserId == userId)
+            .Select(s => s.Id)
+            .ToListAsync();
+        acceptedStudySetIds.UnionWith(persistedStudySetIds);
+
         // 3. Process incoming offline Questions
-        foreach (var q in questions.Where(q => q.Id != Guid.Empty))
+        foreach (var q in questions)
         {
-            var ownsStudySet = await _context.StudySets.AnyAsync(s => s.Id == q.StudySetId && s.Course != null && s.Course.UserId == userId);
-            if (!ownsStudySet && !studySets.Any(s => s.Id == q.StudySetId && acceptedCourseIds.Contains(s.CourseId) && !s.IsDeleted)) continue;
+            if (!acceptedStudySetIds.Contains(q.StudySetId)) continue;
             var existing = await _context.Questions.FirstOrDefaultAsync(x => x.Id == q.Id);
             if (existing == null)
             {
@@ -149,28 +198,28 @@ public class SyncController : ControllerBase
                     Id = q.Id,
                     StudySetId = q.StudySetId,
                     Type = (QuestionType)q.Type,
-                    Prompt = q.Prompt,
-                    HintsJson = q.HintsJson,
-                    Explanation = q.Explanation,
+                    Prompt = q.Prompt ?? string.Empty,
+                    HintsJson = q.HintsJson ?? "[]",
+                    Explanation = q.Explanation ?? string.Empty,
                     Difficulty = q.Difficulty,
                     SortOrder = q.SortOrder
                 });
             }
-            else if (await _context.StudySets.AnyAsync(s => s.Id == existing.StudySetId && s.Course != null && s.Course.UserId == userId))
+            else if (acceptedStudySetIds.Contains(existing.StudySetId))
             {
-                existing.Prompt = q.Prompt;
-                existing.HintsJson = q.HintsJson;
-                existing.Explanation = q.Explanation;
+                existing.Prompt = q.Prompt ?? existing.Prompt;
+                existing.HintsJson = q.HintsJson ?? existing.HintsJson;
+                existing.Explanation = q.Explanation ?? existing.Explanation;
                 existing.Difficulty = q.Difficulty;
                 existing.SortOrder = q.SortOrder;
             }
         }
 
         // 4. Process incoming offline TestSessions (Score records)
-        foreach (var ts in testSessions.Where(session => session.Id != Guid.Empty))
+        foreach (var ts in testSessions)
         {
-            var ownsStudySet = await _context.StudySets.AnyAsync(s => s.Id == ts.StudySetId && s.Course != null && s.Course.UserId == userId);
-            if (!ownsStudySet && !studySets.Any(s => s.Id == ts.StudySetId && acceptedCourseIds.Contains(s.CourseId) && !s.IsDeleted)) continue;
+            if (!acceptedStudySetIds.Contains(ts.StudySetId)) continue;
+            var completedAtUtc = NormalizeUtc(ts.CompletedAt);
             var existing = await _context.TestSessions.FirstOrDefaultAsync(x => x.Id == ts.Id);
             if (existing == null)
             {
@@ -182,15 +231,15 @@ public class SyncController : ControllerBase
                     Score = ts.Score,
                     TotalQuestions = ts.TotalQuestions,
                     TimeSpentSeconds = ts.TimeSpentSeconds,
-                    CompletedAt = ts.CompletedAt
+                    CompletedAt = completedAtUtc
                 });
             }
-            else if (await _context.StudySets.AnyAsync(s => s.Id == existing.StudySetId && s.Course != null && s.Course.UserId == userId))
+            else if (acceptedStudySetIds.Contains(existing.StudySetId))
             {
                 existing.Score = ts.Score;
                 existing.TotalQuestions = ts.TotalQuestions;
                 existing.TimeSpentSeconds = ts.TimeSpentSeconds;
-                existing.CompletedAt = ts.CompletedAt;
+                existing.CompletedAt = completedAtUtc;
             }
         }
 
@@ -201,17 +250,25 @@ public class SyncController : ControllerBase
             user.LastSyncAt = now;
         }
 
-        await _context.SaveChangesAsync();
-
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Ignore transient duplicate/FK race conditions during rapid multi-tab sync
+        }
 
         // Gather updates on the server since client's LastSyncedAt
         var updatedCourses = await _context.Courses
-            .Where(c => c.UserId == userId && (c.UpdatedAt ?? c.CreatedAt) > request.LastSyncedAt)
+            .AsNoTracking()
+            .Where(c => c.UserId == userId && (c.UpdatedAt ?? c.CreatedAt) > lastSyncedAtUtc)
             .Select(c => new SyncCourseDto(c.Id, c.Code, c.Name, c.ColorHex, c.UpdatedAt ?? c.CreatedAt, false))
             .ToListAsync();
 
         var updatedStudySets = await _context.StudySets
-            .Where(s => s.Course != null && s.Course.UserId == userId && (s.UpdatedAt ?? s.CreatedAt) > request.LastSyncedAt)
+            .AsNoTracking()
+            .Where(s => s.Course != null && s.Course.UserId == userId && (s.UpdatedAt ?? s.CreatedAt) > lastSyncedAtUtc)
             .Select(s => new SyncStudySetDto(s.Id, s.CourseId, s.Title, s.Description, s.UpdatedAt ?? s.CreatedAt, false, s.Questions.Count))
             .ToListAsync();
 
@@ -221,6 +278,7 @@ public class SyncController : ControllerBase
         if (missingCourseIds.Count > 0)
         {
             var parentCourses = await _context.Courses
+                .AsNoTracking()
                 .Where(c => c.UserId == userId && missingCourseIds.Contains(c.Id))
                 .Select(c => new SyncCourseDto(c.Id, c.Code, c.Name, c.ColorHex, c.UpdatedAt ?? c.CreatedAt, false))
                 .ToListAsync();
@@ -228,8 +286,9 @@ public class SyncController : ControllerBase
         }
 
         var updatedQuestions = await _context.Questions
+            .AsNoTracking()
             .Where(q => q.StudySet != null && q.StudySet.Course != null && q.StudySet.Course.UserId == userId
-                     && (q.StudySet.UpdatedAt ?? q.StudySet.CreatedAt) > request.LastSyncedAt)
+                     && (q.StudySet.UpdatedAt ?? q.StudySet.CreatedAt) > lastSyncedAtUtc)
             .Select(q => new SyncQuestionDto(q.Id, q.StudySetId, (int)q.Type, q.Prompt, q.HintsJson, q.Explanation, q.Difficulty, q.SortOrder))
             .ToListAsync();
 

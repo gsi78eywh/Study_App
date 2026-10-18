@@ -19,6 +19,9 @@ import "../../quiz/screens/quiz_player_screen.dart";
 import "../../quiz/screens/rapid_fire_screen.dart";
 import "../../sync/services/sync_service.dart";
 import "../../ai_tutor/screens/ai_tutor_screen.dart";
+import "../../ai_tutor/services/seth_ai_engine.dart";
+import "../../ai_tutor/widgets/easy_writing_studio_modal.dart";
+import "../../../core/utils/url_launcher_helper.dart";
 import "../../settings/services/settings_service.dart";
 import "../../settings/screens/settings_screen.dart";
 import "../../settings/widgets/dswd_safety_modal.dart";
@@ -63,6 +66,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final int _studioDraftRevision = 0;
   String? _activeCourseId;
 
+  // Universal Search (Google Search + Seth AI + Local Courses/StudySets/Questions)
+  final TextEditingController _universalSearchController = TextEditingController();
+  bool _isSearchingUniversal = false;
+  String _universalSearchQuery = "";
+  SethAiSearchOverview? _universalSearchResult;
+
+  Future<void> _executeUniversalSearch([String? customQuery]) async {
+    final q = (customQuery ?? _universalSearchController.text).trim();
+    if (q.isEmpty) {
+      setState(() {
+        _universalSearchQuery = "";
+        _universalSearchResult = null;
+        _isSearchingUniversal = false;
+      });
+      return;
+    }
+    if (customQuery != null) {
+      _universalSearchController.text = customQuery;
+    }
+    setState(() {
+      _universalSearchQuery = q;
+      _isSearchingUniversal = true;
+    });
+    try {
+      final res = await SethAiEngine.searchUniversal(
+        q,
+        apiClient: widget.apiClient,
+        courseId: _activeCourseId,
+      );
+      if (mounted) {
+        setState(() {
+          _universalSearchResult = res;
+          _isSearchingUniversal = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isSearchingUniversal = false);
+      }
+    }
+  }
+
   String _cleanDescription(String? raw) {
     if (raw == null || raw.trim().isEmpty) {
       return "Active recall practice deck and exam questions generated from lecture notes.";
@@ -87,44 +132,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _openAddMaterial([String? targetCourseId]) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(
-            title: Text("Add Study Material", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
-            elevation: 0,
-          ),
-          body: IngestionScreen(
-            courses: _courses,
-            apiClient: widget.apiClient,
-            initialCourseId: targetCourseId ?? _activeCourseId,
-            settingsService: _settingsService,
-            onCourseSelected: (id) => setState(() => _activeCourseId = id),
-            draftTitle: _studioDraftTitle,
-            draftContent: _studioDraftContent,
-            draftRevision: _studioDraftRevision,
-            onStudySetCreated: (newSet) async {
-              await _fetchCoursesAndSync();
-              if (!mounted) return;
-              setState(() {
-                final course = _courses.firstWhere(
-                  (c) => c.id == newSet.courseId,
-                  orElse: () => _courses.isNotEmpty
-                      ? _courses.first
-                      : CourseModel(
-                          id: newSet.courseId,
-                          code: "GEN-101",
-                          name: "General Studies",
-                          colorHex: "#6366F1",
-                          createdAt: DateTime.now(),
-                          studySets: [newSet],
-                        ),
-                );
-                if (!course.studySets.any((s) => s.id == newSet.id)) {
-                  course.studySets.insert(0, newSet);
-                }
-              });
-              Navigator.of(context).pop();
-            },
-          ),
+        builder: (_) => IngestionScreen(
+          courses: _courses,
+          apiClient: widget.apiClient,
+          initialCourseId: targetCourseId ?? _activeCourseId,
+          settingsService: _settingsService,
+          onCourseSelected: (id) => setState(() => _activeCourseId = id),
+          draftTitle: _studioDraftTitle,
+          draftContent: _studioDraftContent,
+          draftRevision: _studioDraftRevision,
+          onStudySetCreated: (newSet) async {
+            await _fetchCoursesAndSync();
+            if (!mounted) return;
+            setState(() {
+              final course = _courses.firstWhere(
+                (c) => c.id == newSet.courseId,
+                orElse: () => _courses.isNotEmpty
+                    ? _courses.first
+                    : CourseModel(
+                        id: newSet.courseId,
+                        code: "GEN-101",
+                        name: "General Studies",
+                        colorHex: "#2E7D5B",
+                        createdAt: DateTime.now(),
+                        studySets: [newSet],
+                      ),
+              );
+              if (!course.studySets.any((s) => s.id == newSet.id)) {
+                course.studySets.insert(0, newSet);
+              }
+            });
+            Navigator.of(context).pop();
+          },
         ),
       ),
     );
@@ -232,6 +271,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void dispose() {
     _eyeBreakMonitoringTimer?.cancel();
     _staleDataRefreshTimer?.cancel();
+    _universalSearchController.dispose();
     super.dispose();
   }
 
@@ -2666,6 +2706,435 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildQuickFeatureChip({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+    required bool isDark,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: isDark ? 0.2 : 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.4)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: color),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUniversalSearchAndQuickHub(bool isDark) {
+    final qLower = _universalSearchQuery.toLowerCase();
+    final matchingLocalSets = <StudySetModel>[];
+    if (qLower.isNotEmpty) {
+      for (final c in _courses) {
+        for (final s in c.studySets) {
+          if (s.title.toLowerCase().contains(qLower) ||
+              (s.description?.toLowerCase().contains(qLower) ?? false) ||
+              c.name.toLowerCase().contains(qLower) ||
+              c.code.toLowerCase().contains(qLower)) {
+            matchingLocalSets.add(s);
+          }
+        }
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Google-Standard Universal Search Bar (Seth AI + Web + Local Workspace)
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: context.surfaceColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: const Color(0xFF2E7D5B).withValues(alpha: 0.45),
+              width: 1.4,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.travel_explore_rounded, color: Color(0xFF2E7D5B), size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _universalSearchController,
+                  onSubmitted: (_) => _executeUniversalSearch(),
+                  style: TextStyle(fontSize: 13.5, color: context.textPrimary),
+                  decoration: InputDecoration(
+                    hintText: "Search Google + Seth AI + all courses, study sets & flashcards...",
+                    hintStyle: TextStyle(fontSize: 12.5, color: context.textSecondary),
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    filled: false,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                ),
+              ),
+              if (_universalSearchController.text.isNotEmpty || _universalSearchQuery.isNotEmpty)
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(Icons.close_rounded, size: 18, color: context.textSecondary),
+                  tooltip: "Clear search",
+                  onPressed: () {
+                    _universalSearchController.clear();
+                    setState(() {
+                      _universalSearchQuery = "";
+                      _universalSearchResult = null;
+                      _isSearchingUniversal = false;
+                    });
+                  },
+                ),
+              const SizedBox(width: 4),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2E7D5B),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  minimumSize: const Size(0, 36),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+                ),
+                onPressed: _isSearchingUniversal ? null : () => _executeUniversalSearch(),
+                icon: _isSearchingUniversal
+                    ? const SizedBox(
+                        width: 13,
+                        height: 13,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.search_rounded, size: 16),
+                label: Text(
+                  _isSearchingUniversal ? "..." : "Search",
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // Quick Feature Action Pills (Mobile-Friendly Wrap)
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _buildQuickFeatureChip(
+              icon: Icons.auto_awesome_rounded,
+              label: "Seth AI Search",
+              color: const Color(0xFF2E7D5B),
+              isDark: isDark,
+              onTap: () => setState(() => _currentTabIndex = 3),
+            ),
+            _buildQuickFeatureChip(
+              icon: Icons.edit_note_rounded,
+              label: "Easy Maker & Corrector",
+              color: const Color(0xFF0D9488),
+              isDark: isDark,
+              onTap: () => EasyWritingStudioModal.show(
+                context,
+                apiClient: widget.apiClient,
+              ),
+            ),
+            _buildQuickFeatureChip(
+              icon: Icons.calendar_month_rounded,
+              label: "Study Planner",
+              color: const Color(0xFF3B82F6),
+              isDark: isDark,
+              onTap: _openAcademicPlannerModal,
+            ),
+            _buildQuickFeatureChip(
+              icon: Icons.document_scanner_rounded,
+              label: "Scan Screenshot / YouTube",
+              color: const Color(0xFFD97706),
+              isDark: isDark,
+              onTap: () => _openAddMaterial(),
+            ),
+            _buildQuickFeatureChip(
+              icon: Icons.android_rounded,
+              label: "Download Android APK",
+              color: const Color(0xFF16A34A),
+              isDark: isDark,
+              onTap: () => launchWebUrl("https://github.com/gsi78eywh/Study_App/raw/main/StudyApp-release.apk"),
+            ),
+          ],
+        ),
+
+        // Universal Search Results Panel (loads ALL local & web data like Google Search)
+        if (_universalSearchQuery.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: context.surfaceColor,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFF2E7D5B).withValues(alpha: 0.4)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.public_rounded, color: Color(0xFF2E7D5B), size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        "All Search Results for \"$_universalSearchQuery\"",
+                        style: GoogleFonts.outfit(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: context.textPrimary,
+                        ),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => setState(() => _currentTabIndex = 3),
+                      icon: const Icon(Icons.chat_bubble_outline_rounded, size: 14),
+                      label: const Text("Open in Seth AI", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+                const Divider(height: 18),
+
+                // 1. Local Matching Study Sets
+                if (matchingLocalSets.isNotEmpty) ...[
+                  Text(
+                    "📚 Matching Study Sets in Your Workspace (${matchingLocalSets.length})",
+                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF2E7D5B)),
+                  ),
+                  const SizedBox(height: 8),
+                  ...matchingLocalSets.take(5).map((set) => Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: context.secondaryBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: context.cardBorderColor),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.menu_book_rounded, size: 18, color: Color(0xFF2E7D5B)),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    set.title,
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: context.textPrimary),
+                                  ),
+                                  Text(
+                                    "${set.questionCount} questions • ${_cleanDescription(set.description)}",
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 11.5, color: context.textSecondary),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF2E7D5B),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                minimumSize: const Size(0, 32),
+                              ),
+                              onPressed: () => _startPracticeForSet(set),
+                              child: const Text("Practice", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                            ),
+                          ],
+                        ),
+                      )),
+                  const SizedBox(height: 10),
+                ],
+
+                // 2. Seth AI Google Search Overview
+                if (_isSearchingUniversal)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          CircularProgressIndicator(color: Color(0xFF2E7D5B)),
+                          SizedBox(height: 10),
+                          Text(
+                            "Seth AI is searching Google-standard web sources & your workspace...",
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else if (_universalSearchResult != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2E7D5B).withValues(alpha: isDark ? 0.16 : 0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFF2E7D5B).withValues(alpha: 0.35)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.auto_awesome_rounded, size: 16, color: Color(0xFF2E7D5B)),
+                            const SizedBox(width: 6),
+                            const Expanded(
+                              child: Text(
+                                "Seth AI • Google-Standard Direct Answer & Overview",
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Color(0xFF2E7D5B)),
+                              ),
+                            ),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.copy_rounded, size: 15, color: Color(0xFF2E7D5B)),
+                              tooltip: "Copy answer",
+                              onPressed: () {
+                                Clipboard.setData(ClipboardData(text: _universalSearchResult!.aiOverview));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text("Copied Seth AI overview to clipboard")),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        SelectableText(
+                          _universalSearchResult!.aiOverview,
+                          style: TextStyle(fontSize: 13, height: 1.5, color: context.textPrimary),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // 3. Verified Web & Encyclopedia Sources
+                  if (_universalSearchResult!.webSources.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Text(
+                      "🌐 Verified Web & Reference Sources (${_universalSearchResult!.webSources.length})",
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: context.textPrimary),
+                    ),
+                    const SizedBox(height: 8),
+                    ..._universalSearchResult!.webSources.map((src) => InkWell(
+                          onTap: () {
+                            if (src.url.isNotEmpty) {
+                              launchWebUrl(src.url);
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: context.secondaryBg,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: context.cardBorderColor),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.language_rounded, size: 15, color: Color(0xFF2E7D5B)),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        src.title,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                          color: Color(0xFF2E7D5B),
+                                        ),
+                                      ),
+                                    ),
+                                    const Icon(Icons.open_in_new_rounded, size: 14, color: Color(0xFF2E7D5B)),
+                                  ],
+                                ),
+                                if (src.snippet.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    src.snippet,
+                                    style: TextStyle(fontSize: 12, color: context.textSecondary, height: 1.4),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        )),
+                  ],
+
+                  // 4. Local Questions from Backend Search
+                  if (_universalSearchResult!.localQuestions.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      "🎯 Matching Flashcards & Questions (${_universalSearchResult!.localQuestions.length})",
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: context.textPrimary),
+                    ),
+                    const SizedBox(height: 6),
+                    ..._universalSearchResult!.localQuestions.take(5).map((q) => Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: context.secondaryBg,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: context.cardBorderColor),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                (q["prompt"] ?? "").toString(),
+                                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5, color: context.textPrimary),
+                              ),
+                              if ((q["explanation"] ?? "").toString().isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  "Answer: ${q["explanation"]}",
+                                  style: const TextStyle(fontSize: 11.5, color: Color(0xFF2E7D5B), fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ],
+                          ),
+                        )),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildHomeTab() {
     final isDark = context.isDarkMode;
     final totalSets = _courses.fold<int>(
@@ -2715,7 +3184,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final hasActiveStudyDays = activeStudyDays > 0;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1040),
@@ -2738,7 +3207,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             Text(
                               "Welcome back, $displayName 👋",
                               style: GoogleFonts.outfit(
-                                fontSize: 22,
+                                fontSize: 21,
                                 fontWeight: FontWeight.bold,
                                 color: context.textPrimary,
                               ),
@@ -2777,12 +3246,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         const SizedBox(height: 4),
                         Text(
                           _courses.isEmpty
-                              ? "Ready to organize your study workspace"
+                              ? "Powered by Seth AI (Google Search Mode) • Online & Offline Ready"
                               : (_courses.length == 1
-                                  ? "Targeting mastery across 1 course"
-                                  : "Targeting mastery across ${_courses.length} courses"),
+                                  ? "Targeting mastery across 1 course • Seth AI Active"
+                                  : "Targeting mastery across ${_courses.length} courses • Seth AI Active"),
                           style: GoogleFonts.inter(
-                            fontSize: 13,
+                            fontSize: 12.5,
                             color: context.textSecondary,
                           ),
                         ),
@@ -2806,7 +3275,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               label: Text("$unread", style: const TextStyle(fontSize: 10)),
                               child: const Icon(
                                 Icons.notifications_outlined,
-                                color: Color(0xFF6366F1),
+                                color: Color(0xFF2E7D5B),
                                 size: 22,
                               ),
                             ),
@@ -2822,7 +3291,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                         icon: CircleAvatar(
                           radius: 13,
-                          backgroundColor: const Color(0xFF4285F4),
+                          backgroundColor: const Color(0xFF2E7D5B),
                           child: Text(
                             displayName.isNotEmpty ? displayName[0].toUpperCase() : "S",
                             style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
@@ -2835,7 +3304,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
+
+              // Google-Style Universal Search Bar + Feature Hub
+              _buildUniversalSearchAndQuickHub(isDark),
+              const SizedBox(height: 14),
 
               // Child Safety & Learner Mode Bar
               _buildChildSafetyBanner(context),
@@ -4301,7 +4774,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       (Icons.home_rounded, cs.getFriendlyTabName(0, "Home"), 0),
       (Icons.fitness_center_rounded, "Practice", 1),
       (Icons.local_library_rounded, "Library", 2),
-      (Icons.auto_awesome_rounded, cs.getFriendlyTabName(3, "Tutor"), 3),
+      (Icons.auto_awesome_rounded, "Seth AI", 3),
       (Icons.person_rounded, "Profile", 4),
     ];
 
@@ -4336,7 +4809,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                       Text(
-                        "Study Workspace",
+                        "Seth AI • Study Workspace",
                         style: TextStyle(
                           fontSize: 11,
                           color: context.textSecondary,
@@ -4366,6 +4839,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 elevation: 0,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: OutlinedButton.icon(
+              onPressed: () => EasyWritingStudioModal.show(
+                context,
+                apiClient: widget.apiClient,
+              ),
+              icon: const Icon(Icons.edit_note_rounded, size: 18),
+              label: const Text(
+                "Easy Maker & Corrector",
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: BorderSide(color: AppColors.primary.withValues(alpha: 0.45)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ),
@@ -4475,7 +4970,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       onGradesUpdated: () { _fetchCoursesAndSync(fullFetch: true); _loadTodayStudyPlan(); },
                     ),
                     onOpenFlashcards: () => setState(() => _currentTabIndex = 1),
-                    onOpenAiTutor: () => setState(() => _currentTabIndex = 4),
+                    onOpenAiTutor: () => setState(() => _currentTabIndex = 3),
                   ),
                 ),
                 IconButton(
@@ -4490,7 +4985,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   visualDensity: VisualDensity.compact,
                   padding: const EdgeInsets.all(6),
                   constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
-                  icon: const Icon(Icons.settings_outlined, size: 19, color: Color(0xFF6366F1)),
+                  icon: const Icon(Icons.settings_outlined, size: 19, color: Color(0xFF2E7D5B)),
                   tooltip: "Study Configurations",
                   onPressed: () {
                     Navigator.of(context).push(
@@ -4551,7 +5046,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 // Tab 2: Library (Courses, Study Sets, Course Notebooks)
                 _lazy(2, () => _buildLibraryTab()),
-                // Tab 3: AI Tutor (Socratic & Feynman Modes)
+                // Tab 3: Seth AI (Google Search AI Mode + Easy Maker & Corrector)
                 _lazy(3, () => AiTutorScreen(apiClient: widget.apiClient, courses: _courses)),
                 // Tab 4: Profile (Grades, Settings, Privacy & NPC DPA Compliance, Account)
                 _lazy(4, () => _buildProfileTab()),
@@ -4597,9 +5092,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     icon: Icon(Icons.local_library_rounded),
                     label: "Library",
                   ),
-                  BottomNavigationBarItem(
-                    icon: const Icon(Icons.auto_awesome_rounded),
-                    label: ChildSafetyService.instance.getFriendlyTabName(3, "Tutor"),
+                  const BottomNavigationBarItem(
+                    icon: Icon(Icons.auto_awesome_rounded),
+                    label: "Seth AI",
                   ),
                   const BottomNavigationBarItem(
                     icon: Icon(Icons.person_rounded),

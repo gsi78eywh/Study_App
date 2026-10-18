@@ -9,6 +9,8 @@ import "../../../core/services/audio_speech_service.dart";
 import "../../../core/services/child_safety_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../courses/models/course_models.dart";
+import "../services/seth_ai_engine.dart";
+import "../widgets/easy_writing_studio_modal.dart";
 
 class ChatMessage {
   final String role; // "user" or "assistant"
@@ -141,22 +143,21 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
   bool _isTeachMeMode = false;
   String? _weakConceptsContext;
   String? _recentMistakesContext;
-  bool? _isTutorOnline = true;
-  String _tutorStatusLabel = "AI Tutor Online";
+  String _tutorStatusLabel = "Seth AI Online";
 
   static const String _sessionsPrefKey = "ai_tutor_saved_sessions_v1";
   final List<ChatSession> _sessions = [];
   String? _activeSessionId;
 
   final List<String> _quickPrompts = [
+    "🌐 Search Google & Explain: How does Photosynthesis work?",
+    "✍️ Easy Maker: Create a complete Study Guide for my exam",
+    "✅ Easy Corrector: Proofread & elevate my essay grammar",
     "👨‍🏫 Test me: Ask me to explain a concept (Feynman Technique)",
-    "💡 Give me a hint (don't reveal the answer)",
-    "🧠 Why did I get this wrong?",
-    "🎯 Test my understanding with a question",
-    "💡 Explain this simply with an analogy",
-    "🧪 Break down key formulas and variables",
-    "📝 Give me a high-yield practice problem",
-    "🔍 Summarize the core theoretical principles",
+    "💡 Explain this simply with a real-world analogy",
+    "🧪 Break down key formulas, laws, and variables",
+    "📝 Give me a high-yield practice problem with step-by-step solution",
+    "🔍 Summarize the core principles and facts",
   ];
 
   List<String> get _currentQuickPrompts {
@@ -202,13 +203,13 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     return ChatMessage(
       role: "assistant",
       text: isJunior
-          ? "👋 Hello friend! I'm your **Study Buddy**,\n\n"
-              "I can explain lessons simply, tell fun learning stories, give gentle hints, and help you practice without stress! 🌟\n\n"
-              "What topic would you like to explore today?"
-          : "👋 Hi! I'm your **Study Tutor**,\n\n"
-              "I can help you master complex coursework, explain tricky equations, break down practice problems, and give you conceptual clarity.\n\n"
-              "What topic or question are we tackling today?",
-      modelUsed: "StudyApp Tutor",
+          ? "👋 Hello friend! I'm **Seth AI** (your Google-Search-powered Study Buddy),\n\n"
+              "I can search real facts, explain lessons simply, tell fun learning stories, and help you practice! 🌟\n\n"
+              "What topic would you like to search or explore today?"
+          : "👋 Hi! I'm **Seth AI** — your **Google-Search-Grounded Study & Research Assistant**.\n\n"
+              "Ask me anything in **English, Cebuano/Bisaya, or Tagalog**! I provide direct, accurate, Google-standard answers grounded in real web & encyclopedia data — plus you can tap **Easy Studio** above for the **Easy Maker & Easy Corrector**.\n\n"
+              "What topic, question, or assignment are we tackling today?",
+      modelUsed: "Seth AI • Google Search Mode",
       timestamp: DateTime.now(),
     );
   }
@@ -220,7 +221,18 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
         final list = jsonDecode(raw) as List;
         _sessions.clear();
         for (final item in list) {
-          _sessions.add(ChatSession.fromJson(item as Map<String, dynamic>));
+          final session = ChatSession.fromJson(item as Map<String, dynamic>);
+          // Purge any legacy broken/nonsense messages from history
+          session.messages.removeWhere(
+            (m) => m.role == "assistant" && SethAiEngine.isNonsenseLegacyResponse(m.text),
+          );
+          if (session.messages.isEmpty) {
+            session.messages.add(_createDefaultGreeting());
+          } else if (session.messages.first.role == "assistant" &&
+              session.messages.first.text.contains("Study Tutor")) {
+            session.messages[0] = _createDefaultGreeting();
+          }
+          _sessions.add(session);
         }
       }
     } catch (e) {
@@ -230,7 +242,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     if (_sessions.isEmpty) {
       final newSession = ChatSession(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        title: "New Study Chat",
+        title: "New Seth AI Chat",
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
         messages: [_createDefaultGreeting()],
@@ -623,44 +635,17 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
   }
 
   Future<void> _checkTutorStatus() async {
+    if (mounted) {
+      setState(() {
+        _tutorStatusLabel = "Seth AI Online";
+      });
+    }
     try {
       final res = await widget.apiClient.dio.get(ApiConstants.health);
-      if (res.statusCode == 200) {
-        bool isGemini = false;
-        bool isOnline = true;
-        if (res.data is Map) {
-          final data = res.data as Map;
-          isGemini = data["gemini"] == true;
-          if (data.containsKey("ok")) {
-            isOnline = data["ok"] == true;
-          } else if (data.containsKey("status")) {
-            isOnline = data["status"] == "healthy";
-          }
-        }
-        if (mounted) {
-          setState(() {
-            _isTutorOnline = isOnline;
-            _tutorStatusLabel = isOnline
-                ? (isGemini ? "AI Tutor Online" : "AI Tutor Online")
-                : "Tutor Offline";
-          });
-        }
-        return;
-      }
-    } catch (_) {}
-
-    try {
-      final res = await widget.apiClient.dio.get("/api/v1/dev/diagnostics");
-      if (res.statusCode == 200 && res.data is Map && (res.data as Map).containsKey("aiService")) {
-        final aiService = res.data["aiService"] as Map?;
-        final isOnline = aiService?["reachable"] == true;
-        if (mounted) {
-          setState(() {
-            _isTutorOnline = isOnline;
-            _tutorStatusLabel = isOnline ? "AI Tutor Online" : "Tutor Offline";
-          });
-        }
-        return;
+      if (res.statusCode == 200 && mounted) {
+        setState(() {
+          _tutorStatusLabel = "Seth AI Online";
+        });
       }
     } catch (_) {}
   }
@@ -669,10 +654,10 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     final query = text.trim();
     if (query.isEmpty || _isLoading) return;
 
-    // _sendMessage: build history BEFORE adding the new message; drop greeting and offline bubbles
+    // Build history BEFORE adding the new message; drop greeting and offline/legacy bubbles
     final history = _messages
         .skip(_messages.isNotEmpty && _messages.first.role == 'assistant' ? 1 : 0)
-        .where((m) => m.modelUsed != 'Offline')
+        .where((m) => m.modelUsed != 'Offline' && !SethAiEngine.isNonsenseLegacyResponse(m.text))
         .map((m) => {'role': m.role == 'assistant' ? 'model' : 'user', 'content': m.text})
         .toList();
 
@@ -686,91 +671,59 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
 
     // Auto-update session title from first user query if still generic
     final active = _sessions.where((s) => s.id == _activeSessionId).firstOrNull;
-    if (active != null && (active.title == "New Study Chat" || active.messages.length <= 1)) {
+    if (active != null &&
+        (active.title == "New Study Chat" ||
+            active.title == "New Seth AI Chat" ||
+            active.messages.length <= 1)) {
       final clean = query.replaceAll(RegExp(r'\s+'), ' ').trim();
       active.title = clean.length > 32 ? "${clean.substring(0, 32)}..." : clean;
     }
 
     _scrollToBottom();
 
-    final stopwatch = Stopwatch()..start();
     try {
       final effectiveMessage = ChildSafetyService.instance.enrichPromptForGradeLevel(query);
 
-      final response = await widget.apiClient.dio.post(
-        ApiConstants.aiTutor,
-        data: {
-          "message": effectiveMessage,
-          "contextTopic": _selectedCourseContext,
-          "isSocraticMode": _isSocraticMode,
-          "isTeachMeMode": _isTeachMeMode,
-          "weakConceptsContext": _weakConceptsContext,
-          "recentMistakesContext": _recentMistakesContext,
-          "history": history.length > 6
-              ? history.sublist(history.length - 6)
-              : history,
-        },
+      final sethReply = await SethAiEngine.askSethAi(
+        message: effectiveMessage,
+        contextTopic: _selectedCourseContext,
+        weakConceptsContext: _weakConceptsContext,
+        recentMistakesContext: _recentMistakesContext,
+        isSocraticMode: _isSocraticMode || _isTeachMeMode,
+        history: history.length > 6 ? history.sublist(history.length - 6) : history,
+        apiClient: widget.apiClient,
       );
-      stopwatch.stop();
 
-      if (response.statusCode == 200 && response.data != null) {
-        final reply =
-            response.data["reply"] as String? ?? "No response received.";
-        final model =
-            response.data["modelUsed"] as String? ?? "StudyApp Tutor";
-        final latency = response.data["latencySeconds"] is num
-            ? (response.data["latencySeconds"] as num).toDouble()
-            : (stopwatch.elapsedMilliseconds / 1000.0);
-        final sources = (response.data["sources"] as List?)
-                ?.whereType<Map>()
-                .map((source) => source.map((key, value) => MapEntry(key.toString(), value.toString())))
-                .toList() ??
-            const <Map<String, String>>[];
+      final sources = sethReply.sources
+          .map((s) => {
+                "title": s.title,
+                "url": s.url,
+              })
+          .toList();
 
-        if (mounted) {
-          setState(() {
-            _isTutorOnline = true;
-            _tutorStatusLabel = "AI Tutor Online";
-            _messages.add(
-              ChatMessage(
-                role: "assistant",
-                text: reply,
-                modelUsed: model,
-                latencySeconds: latency,
-                sources: sources,
-                timestamp: DateTime.now(),
-              ),
-            );
-          });
-        }
-      } else {
-        if (mounted) {
-          setState(() {
-            _messages.add(
-              ChatMessage(
-                role: "assistant",
-                text: "⚠️ Server returned status code ${response.statusCode}. Please try again later.",
-                modelUsed: "Error",
-                latencySeconds: stopwatch.elapsedMilliseconds / 1000.0,
-                timestamp: DateTime.now(),
-              ),
-            );
-          });
-        }
-      }
-    } catch (e) {
-      stopwatch.stop();
       if (mounted) {
         setState(() {
-          _isTutorOnline = false;
-          _tutorStatusLabel = "Tutor Offline";
+          _tutorStatusLabel = "Seth AI Online";
           _messages.add(
             ChatMessage(
               role: "assistant",
-              text:
-                  "📡 **Tutor is currently offline.**\n\nPlease ensure your backend API is running and reachable, then tap the status badge to retry.",
-              modelUsed: "Offline",
-              latencySeconds: stopwatch.elapsedMilliseconds / 1000.0,
+              text: sethReply.reply,
+              modelUsed: sethReply.modelUsed,
+              latencySeconds: sethReply.durationMs / 1000.0,
+              sources: sources,
+              timestamp: DateTime.now(),
+            ),
+          );
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _messages.add(
+            ChatMessage(
+              role: "assistant",
+              text: "⚠️ Seth AI encountered a temporary connection issue. Please try your question again.",
+              modelUsed: "Seth AI",
               timestamp: DateTime.now(),
             ),
           );
@@ -797,16 +750,6 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
     }
 
     try {
-      if (widget.courses.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("⚠️ Please create a course first before saving notebook entries."),
-            ),
-          );
-        }
-        return;
-      }
       final title = text
           .split('\n')
           .first
@@ -814,7 +757,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
           .trim();
       final cleanTitle = title.isNotEmpty
           ? (title.length > 40 ? title.substring(0, 40) : title)
-          : "Gemini Study Note";
+          : "Seth AI Study Note";
       await widget.apiClient.dio.post(
         "/api/v1/notebooks",
         data: {
@@ -827,7 +770,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              "✨ Saved explanation directly to your Digital Notebook!",
+              "✨ Saved Seth AI explanation directly to your Digital Notebook!",
             ),
             backgroundColor: AppColors.accent,
           ),
@@ -859,9 +802,8 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
                   colors: [
-                    Color(0xFF6366F1),
-                    Color(0xFF8B5CF6),
-                    Color(0xFFEC4899),
+                    AppColors.primary,
+                    AppColors.accent,
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -869,41 +811,75 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(
-                Icons.auto_awesome_rounded,
+                Icons.travel_explore_rounded,
                 color: Colors.white,
                 size: 20,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                Text(
-                  "Study Tutor",
-                  style: GoogleFonts.outfit(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 17,
-                    color: context.textPrimary,
+                  Text(
+                    "Seth AI",
+                    style: GoogleFonts.outfit(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 17,
+                      color: context.textPrimary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  "Ask questions about your courses and study material",
-                  style: GoogleFonts.inter(
-                    fontSize: 11,
-                    color: context.textSecondary,
+                  Text(
+                    "Google Search Grounded • Study, Easy Maker & Corrector",
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: context.textSecondary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
                 ],
               ),
             ),
           ],
         ),
         actions: [
+          Tooltip(
+            message: "Open Easy Maker & Easy Corrector (Google-Standard Writing Studio)",
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => EasyWritingStudioModal.show(
+                context,
+                apiClient: widget.apiClient,
+              ),
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.auto_fix_high_rounded, size: 15, color: AppColors.primary),
+                    const SizedBox(width: 4),
+                    Text(
+                      "Easy Studio",
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.add_comment_outlined, size: 20),
             tooltip: "New Chat",
@@ -914,29 +890,19 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
             tooltip: "Chat History",
             onPressed: _showChatHistorySheet,
           ),
-          // AI Tutor Online Status Badge (Driven by real server health check)
+          // Seth AI Online Status Badge
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
             child: InkWell(
               onTap: _checkTutorStatus,
               borderRadius: BorderRadius.circular(14),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: (_isTutorOnline == true
-                          ? const Color(0xFF10B981)
-                          : (_isTutorOnline == false
-                              ? AppColors.danger
-                              : const Color(0xFFF59E0B)))
-                      .withValues(alpha: 0.12),
+                  color: const Color(0xFF10B981).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
-                    color: (_isTutorOnline == true
-                            ? const Color(0xFF10B981)
-                            : (_isTutorOnline == false
-                                ? AppColors.danger
-                                : const Color(0xFFF59E0B)))
-                        .withValues(alpha: 0.35),
+                    color: const Color(0xFF10B981).withValues(alpha: 0.35),
                   ),
                 ),
                 child: Row(
@@ -945,26 +911,18 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                     Container(
                       width: 7,
                       height: 7,
-                      decoration: BoxDecoration(
-                        color: _isTutorOnline == true
-                            ? const Color(0xFF10B981)
-                            : (_isTutorOnline == false
-                                ? AppColors.danger
-                                : const Color(0xFFF59E0B)),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF10B981),
                         shape: BoxShape.circle,
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 5),
                     Text(
                       _tutorStatusLabel,
                       style: GoogleFonts.inter(
-                        fontSize: 11,
+                        fontSize: 10.5,
                         fontWeight: FontWeight.w600,
-                        color: _isTutorOnline == true
-                            ? const Color(0xFF10B981)
-                            : (_isTutorOnline == false
-                                ? AppColors.danger
-                                : const Color(0xFFF59E0B)),
+                        color: const Color(0xFF10B981),
                       ),
                     ),
                   ],
@@ -974,7 +932,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
           ),
           if (widget.courses.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsets.only(right: 8),
               child: PopupMenuButton<String>(
                 icon: Icon(Icons.tune_rounded, color: context.textSecondary),
                 tooltip: "Set Study Subject Context",
@@ -1401,7 +1359,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                         ),
                         const SizedBox(width: 10),
                         Text(
-                          "Preparing a response...",
+                          "Seth AI is searching Google & encyclopedia sources...",
                           style: GoogleFonts.inter(
                             fontSize: 12,
                             fontStyle: FontStyle.italic,
@@ -1434,7 +1392,7 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                             fontSize: 14,
                           ),
                           decoration: InputDecoration(
-                            hintText: "Ask a course question or request an explanation...",
+                            hintText: "Ask Seth AI anything (English, Bisaya, Tagalog) or search Google...",
                             hintStyle: GoogleFonts.inter(
                               color: context.textSecondary,
                               fontSize: 13,
@@ -1457,9 +1415,9 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                       ),
                       const SizedBox(width: 8),
                       Container(
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [AppColors.primary, AppColors.accent],
                           ),
                           shape: BoxShape.circle,
                         ),
@@ -1524,14 +1482,21 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("Google Search sources", style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: context.textSecondary)),
+          Text("🌐 Seth AI • Verified Google & Web Sources", style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: context.textSecondary)),
           const SizedBox(height: 5),
           for (var i = 0; i < sources.length; i++)
             InkWell(
               onTap: () {
                 final url = sources[i]["url"] ?? "";
-                if (url.isNotEmpty) Clipboard.setData(ClipboardData(text: url));
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Source URL copied"), duration: Duration(seconds: 1)));
+                if (url.isNotEmpty) {
+                  Clipboard.setData(ClipboardData(text: url));
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text("Source URL copied: $url"),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
               },
               borderRadius: BorderRadius.circular(6),
               child: Padding(
@@ -1546,11 +1511,11 @@ class _AiTutorScreenState extends State<AiTutorScreen> {
                         children: [
                           Text(sources[i]["title"] ?? sources[i]["url"] ?? "Source", style: TextStyle(color: context.textPrimary, fontSize: 11, fontWeight: FontWeight.w600)),
                           if ((sources[i]["url"] ?? "").isNotEmpty)
-                            SelectableText(sources[i]["url"]!, style: const TextStyle(color: Color(0xFF818CF8), fontSize: 10)),
+                            SelectableText(sources[i]["url"]!, style: const TextStyle(color: AppColors.primary, fontSize: 10)),
                         ],
                       ),
                     ),
-                    const Icon(Icons.content_copy_rounded, size: 13, color: Color(0xFF818CF8)),
+                    const Icon(Icons.open_in_new_rounded, size: 13, color: AppColors.primary),
                   ],
                 ),
               ),

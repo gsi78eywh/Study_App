@@ -223,6 +223,201 @@
 
     // 3. Safety timeout guarantee (max 10s)
     setTimeout(dismissSplash, 10000);
+
+    // 4. Global Clipboard Screenshot Paste Listener & Fast Client-Side OCR (Seth AI Vision)
+    window._studyAppLastPastedImage = null;
+
+    window.addEventListener('paste', function(event) {
+      try {
+        var items = (event.clipboardData || (event.originalEvent && event.originalEvent.clipboardData) || {}).items;
+        if (!items) return;
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].type && items[i].type.indexOf('image/') === 0) {
+            var blob = items[i].getAsFile();
+            if (!blob) continue;
+            var reader = new FileReader();
+            reader.onload = function(e) {
+              var dataUrl = e.target.result || '';
+              var commaIdx = dataUrl.indexOf(',');
+              var base64 = commaIdx >= 0 ? dataUrl.substring(commaIdx + 1) : dataUrl;
+              window._studyAppLastPastedImage = JSON.stringify({
+                base64: base64,
+                mimeType: blob.type || 'image/png',
+                name: 'pasted_screenshot_' + Date.now() + '.png',
+                timestamp: Date.now()
+              });
+            };
+            reader.readAsDataURL(blob);
+            break;
+          }
+        }
+      } catch (err) {
+        console.warn('Clipboard paste capture warning:', err);
+      }
+    });
+
+    window.studyAppConsumePastedImage = function() {
+      var val = window._studyAppLastPastedImage;
+      window._studyAppLastPastedImage = null;
+      return val || '';
+    };
+
+    window.studyAppReadClipboardImage = async function() {
+      try {
+        if (window._studyAppLastPastedImage) {
+          var cached = window._studyAppLastPastedImage;
+          window._studyAppLastPastedImage = null;
+          return cached;
+        }
+        if (navigator.clipboard && navigator.clipboard.read) {
+          var items = await navigator.clipboard.read();
+          for (var i = 0; i < items.length; i++) {
+            var types = items[i].types || [];
+            for (var j = 0; j < types.length; j++) {
+              if (types[j].indexOf('image/') === 0) {
+                var blob = await items[i].getType(types[j]);
+                return await new Promise(function(resolve) {
+                  var reader = new FileReader();
+                  reader.onload = function(e) {
+                    var dataUrl = e.target.result || '';
+                    var commaIdx = dataUrl.indexOf(',');
+                    var base64 = commaIdx >= 0 ? dataUrl.substring(commaIdx + 1) : dataUrl;
+                    resolve(JSON.stringify({
+                      base64: base64,
+                      mimeType: types[j],
+                      name: 'clipboard_screenshot.png',
+                      timestamp: Date.now()
+                    }));
+                  };
+                  reader.onerror = function() { resolve(''); };
+                  reader.readAsDataURL(blob);
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Clipboard read image fallback:', e);
+      }
+      return '';
+    };
+
+    // Preprocess screenshot/camera image for high-clarity OCR (handles dark-mode screenshots & low contrast)
+    async function preprocessImageForOcr(dataUrl) {
+      return new Promise(function(resolve) {
+        var img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = function() {
+          try {
+            var scale = (img.width < 1000 && img.height < 1000) ? 2.0 : 1.0;
+            var canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(img.width * scale));
+            canvas.height = Math.max(1, Math.round(img.height * scale));
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            var d = imgData.data;
+            var totalLum = 0;
+            var pixelCount = d.length / 4;
+            for (var i = 0; i < d.length; i += 4) {
+              var lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+              totalLum += lum;
+            }
+            var avgLum = totalLum / Math.max(1, pixelCount);
+            var isDarkBg = avgLum < 118;
+
+            // Convert to high-contrast grayscale (and invert if dark-mode screenshot)
+            for (var j = 0; j < d.length; j += 4) {
+              var g = 0.299 * d[j] + 0.587 * d[j + 1] + 0.114 * d[j + 2];
+              if (isDarkBg) g = 255 - g;
+              // Contrast stretch
+              var stretched = (g - 128) * 1.45 + 128;
+              var finalVal = Math.max(0, Math.min(255, Math.round(stretched)));
+              d[j] = finalVal;
+              d[j + 1] = finalVal;
+              d[j + 2] = finalVal;
+            }
+            ctx.putImageData(imgData, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
+          } catch (err) {
+            resolve(dataUrl);
+          }
+        };
+        img.onerror = function() { resolve(dataUrl); };
+        img.src = dataUrl;
+      });
+    }
+
+    async function ensureTesseractLoaded() {
+      if (window.Tesseract) return true;
+      return new Promise(function(resolve) {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+        s.async = true;
+        s.onload = function() { resolve(!!window.Tesseract); };
+        s.onerror = function() { resolve(false); };
+        document.head.appendChild(s);
+      });
+    }
+
+    window.studyAppExtractTextFromImage = async function(base64Data, mimeType) {
+      try {
+        var cleanMime = (mimeType && mimeType.indexOf('image/') === 0) ? mimeType : 'image/png';
+        var rawDataUrl = base64Data.indexOf('data:') === 0
+          ? base64Data
+          : ('data:' + cleanMime + ';base64,' + base64Data);
+
+        var processedDataUrl = await preprocessImageForOcr(rawDataUrl);
+
+        // Race OCR.space Engine 2 (ultra-fast 1.5s cloud OCR for screenshots) and Tesseract.js v5 (offline/browser OCR)
+        var ocrSpacePromise = (async function() {
+          try {
+            var form = new FormData();
+            form.append('apikey', 'helloworld');
+            form.append('base64Image', rawDataUrl);
+            form.append('language', 'eng');
+            form.append('scale', 'true');
+            form.append('isTable', 'true');
+            form.append('OCREngine', '2');
+            var resp = await fetch('https://api.ocr.space/parse/image', {
+              method: 'POST',
+              body: form
+            });
+            if (!resp.ok) return '';
+            var json = await resp.json();
+            if (json && Array.isArray(json.ParsedResults) && json.ParsedResults.length > 0) {
+              var text = json.ParsedResults.map(function(r) { return (r.ParsedText || '').trim(); }).join('\n').trim();
+              if (text.length >= 8) return text;
+            }
+          } catch (_) {}
+          return '';
+        })();
+
+        var fastCloudText = await Promise.race([
+          ocrSpacePromise,
+          new Promise(function(r) { setTimeout(function() { r(''); }, 4500); })
+        ]);
+        if (fastCloudText && fastCloudText.length >= 10) {
+          return fastCloudText;
+        }
+
+        var loaded = await ensureTesseractLoaded();
+        if (loaded && window.Tesseract) {
+          var res = await window.Tesseract.recognize(processedDataUrl, 'eng');
+          var tesseractText = (res && res.data && res.data.text) ? res.data.text.trim() : '';
+          if (tesseractText.length >= 5) {
+            return tesseractText;
+          }
+        }
+
+        var fallbackCloud = await ocrSpacePromise;
+        return fallbackCloud || '';
+      } catch (err) {
+        console.warn('studyAppExtractTextFromImage error:', err);
+        return '';
+      }
+    };
   </script>
 
   <script src="flutter_bootstrap.js" async></script>

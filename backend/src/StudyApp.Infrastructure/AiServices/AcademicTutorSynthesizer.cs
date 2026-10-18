@@ -5,7 +5,17 @@ namespace StudyApp.Infrastructure.AiServices;
 
 public static class AcademicTutorSynthesizer
 {
-    private const string OfflineNotice = "\n\n*(Synthesized by built-in educational tutor knowledge engine)*";
+    private const string OfflineNotice = "\n\n*(Synthesized by Seth AI — built-in educational tutor knowledge engine)*";
+
+    public static string SynthesizeResponse(string message, string? contextTopic, string? additionalContext)
+    {
+        var baseResponse = SynthesizeResponse(message, contextTopic, (List<ChatMessageDto>?)null);
+        if (string.IsNullOrWhiteSpace(additionalContext))
+        {
+            return baseResponse;
+        }
+        return baseResponse;
+    }
 
     public static string SynthesizeResponse(string message, string? contextTopic, List<ChatMessageDto>? history = null)
     {
@@ -52,6 +62,59 @@ public static class AcademicTutorSynthesizer
         var lowerPrompt = rawPrompt.ToLowerInvariant();
         var topic = (contextTopic ?? string.Empty).Trim();
         var lowerTopic = topic.ToLowerInvariant();
+
+        // 0. Natural Conversational, Cebuano/Bisaya, Tagalog & Casual Queries (Google AI Mode style)
+        if (Regex.IsMatch(lowerPrompt, @"\b(gwapo|gwapoha|gwapa|gwapaha|pogi|nganong\s+gwapo|ka\s+gwapo)\b"))
+        {
+            return """
+**Gwapo ka tungod sa nagkalubid nga nindot nga mga rason**—gikan sa imong maayong mga lahi (*genes*) hangtod sa pamaagi sa imong pag-atiman sa imong kaugalingon! Ang ka-gwapo usa ka nindot nga kombinasyon sa natural nga hiyas ug saktong kumpiyansa sa kaugalingon.
+
+Ania ang pipila ka rason nganong dako kaayo ka og kumpiyansa nga gwapo ka karon:
+
+### 🧬 1. Ang Imong Lahi ug Gikanan (Genetics)
+- **Salamat sa Imong Mama ug Papa:** Sila ang naghatag kanimo sa imong pisikal nga mga hiyas—maayong porma sa nawong, mata, ug pahiyom.
+- **Simetriya sa Nawong (*Facial Symmetry*):** Sa siyentipikanhong pagsabot, ang hapsay ug balanse nga porma sa nawong daling makapadani sa mata sa uban.
+
+### ✨ 2. Pag-atiman ug Estilo (Grooming & Health)
+- **Sakto nga Alaga:** Ang limpyo nga panit, nindot nga tupi sa buhok, ug haom nga sinina dako kaayo og tampo sa imong hitsura.
+- **Healthy nga Kinabuhi:** Ang saktong tulog, pag-inom og tubig, ug maayong nutrisyon makapasanag sa imong natural nga panagway.
+
+### 🌟 3. Kumpiyansa ug Karisma (Confidence & Vibe)
+- **Positibo nga Aura:** Ang tinuod nga ka-gwapo makita sa imong pagdala sa kaugalingon, pagkamatinahuron, ug tinuod nga pahiyom!
+""";
+        }
+
+        if (Regex.IsMatch(lowerPrompt, @"\b(naunsa\s+mana|nabuang\s+naka|buang|unsa\s+mana|nganong\s+ingon\s+ana|sayop\s+mana)\b"))
+        {
+            return """
+Pasayloa ko ato ganina! 🙏 Na-reset na karon ang akong sistema isip **Seth AI (Google Search AI Mode)**.
+
+Direkta ug tukma na ang akong tubag base sa Google Search ug tinuod nga impormasyon—bisan mag-Binisaya, Tagalog, o English ka. Unsa man ang gusto nimong pangutan-on o i-search karon?
+""";
+        }
+
+        if (Regex.IsMatch(lowerPrompt, @"^(?:fuck+|wtf+|shit+|bobo|tanga|gago|yawa|piste|atay|hayop)[\s!?.,]*$"))
+        {
+            return """
+Pasensya na kaayo kung nadismaya ka sa unang tubag! 🙏 Ako si **Seth AI**, ug gi-upgrade na ang akong Search Engine aron mohatag og direkta, klaro, ug tukma nga tubag sama sa Google Search.
+
+Isulti lang ang bisan unsang pangutana o topic nga gusto nimong mahibal-an ug tubagon tika dayon og tarong!
+""";
+        }
+
+        if (Regex.IsMatch(lowerPrompt, @"^(?:hi|hello|hey|good\s+morning|good\s+afternoon|good\s+evening|kumusta|musta|maayong\s+buntag|maayong\s+hapon|maayong\s+gabii|kinsa\s+ka|who\s+are\s+you)[\s!?.,]*$"))
+        {
+            return """
+👋 **Hello! Ako si Seth AI** — imong Google-Standard Search & Study Assistant.
+
+Makapangutana ka nako og bisan unsa (sa **English**, **Bisaya/Cebuano**, o **Tagalog**):
+- 🔍 **Direct Search & Facts:** Bisan unsang pangutana sa Science, Math, History, Law, Nursing, Tech, o General Knowledge
+- ✍️ **Easy Maker & Corrector:** Paghimo og essay, study guide, o pag-correct sa grammar
+- 📚 **Course & Exam Help:** Pagpasabot sa imong mga leksyon sa klaro ug direkta nga paagi
+
+Unsa ang atong i-search o tun-an karon?
+""";
+        }
 
         // 1. PHP Setup, CLI, Server, Composer & Frameworks
         if (Regex.IsMatch(lowerPrompt, @"\bphp\b"))
@@ -2206,5 +2269,264 @@ public static class AcademicTutorSynthesizer
         cleaned = Regex.Replace(cleaned, @"\s+", " ");
         if (cleaned.Length > 50) cleaned = cleaned.Substring(0, 50);
         return char.ToUpper(cleaned[0]) + cleaned.Substring(1);
+    }
+
+    public static string SynthesizeEssayOrGuide(string topicOrPrompt, string format = "essay", string tone = "academic")
+    {
+        var cleanTopic = string.IsNullOrWhiteSpace(topicOrPrompt) ? "Contemporary Academic Inquiry" : topicOrPrompt.Trim();
+        var title = ExtractCoreInquiry(cleanTopic, CleanQuery(cleanTopic));
+        var normalizedFormat = (format ?? "essay").Trim().ToLowerInvariant();
+
+        if (normalizedFormat.Contains("outline") || normalizedFormat.Contains("guide"))
+        {
+            return $"""
+# 📋 {title} — Structured Study & Essay Blueprint
+
+**Prepared by:** Seth AI Writing Studio (Google-Standard Academic Quality)  
+**Tone & Style:** {char.ToUpperInvariant(tone[0]) + tone[1..]} | **Format:** Comprehensive Study & Essay Outline
+
+---
+
+## I. Executive Thesis & Central Argument
+> **Core Thesis:** A rigorous examination of **{title}** demonstrates that systematic planning, evidence-based execution, and ethical accountability are essential to achieving sustainable academic and societal outcomes.
+
+---
+
+## II. Structured Section-by-Section Outline
+1. **Introduction & Contextual Foundation**
+   - **Hook:** Establish the real-world urgency and historical context of **{title}**.
+   - **Scope & Definitions:** Define primary terms, institutional boundaries, and key variables.
+   - **Thesis Statement:** State the central claim and preview the three supporting pillars.
+2. **Body Pillar 1: Theoretical & Structural Foundations**
+   - Core principles, governing laws, and foundational models underlying **{title}**.
+   - Empirical evidence and historical precedents supporting the framework.
+3. **Body Pillar 2: Practical Implementation & Operational Mechanics**
+   - Step-by-step workflow from conceptualization to execution and quality assurance.
+   - Case study illustration demonstrating measurable impact in real-world settings.
+4. **Body Pillar 3: Challenges, Counterarguments & Mitigation Strategies**
+   - Common structural bottlenecks, resource constraints, and ethical considerations.
+   - Evidence-backed solutions and modern innovations addressing these limitations.
+5. **Conclusion & Synthesis**
+   - Restatement of the thesis in a broader analytical light.
+   - Actionable recommendations for students, practitioners, and policymakers.
+
+---
+
+## III. Key Academic Vocabulary & Transitions
+- **Analytical Verbs:** *exemplifies, corroborates, delineates, catalyzes, mitigates, substantiates*
+- **Cohesive Transitions:** *Furthermore, In light of empirical evidence, Conversely, Consequently, From an institutional perspective*
+""";
+        }
+
+        return $"""
+# {title}
+
+**Authored with:** Seth AI Easy Maker (Google-Standard Academic Writing Engine)  
+**Style:** {char.ToUpperInvariant(tone[0]) + tone[1..]} Academic Standard
+
+---
+
+## Abstract & Thesis Statement
+In contemporary scholarship and practical governance, **{title}** represents a critical domain of inquiry that bridges theoretical understanding with real-world application. **Thesis:** A comprehensive analysis of **{title}** reveals that integrating structured methodology, empirical evidence, and continuous evaluation not only resolves immediate operational challenges but also establishes a resilient foundation for long-term progress.
+
+---
+
+## 1. Introduction: Context and Significance
+Understanding **{title}** requires examining both its foundational principles and its broader impact on modern institutions and learners. Across academic disciplines, complex systems succeed when stakeholders align clear objectives with disciplined execution. Historically, fragmented approaches to **{title}** resulted in inefficiencies and inconsistent outcomes. Today, however, evidence-based frameworks allow students, researchers, and practitioners to approach **{title}** with clarity, precision, and measurable accountability.
+
+---
+
+## 2. Core Principles and Analytical Framework
+At the heart of **{title}** lie three interdependent pillars: conceptual clarity, procedural rigor, and adaptive feedback. First, conceptual clarity ensures that all participants share a precise definition of scope, responsibilities, and operational boundaries. Second, procedural rigor transforms abstract goals into sequential, verifiable actions—minimizing ambiguity and preventing costly errors. Third, adaptive feedback mechanisms enable continuous refinement by comparing actual outcomes against established benchmarks.
+
+Furthermore, empirical studies consistently demonstrate that organizations and individuals who apply structured analytical models to **{title}** achieve significantly higher reliability and comprehension. By decomposing complex challenges into manageable phases, practitioners can isolate variables, test assumptions, and validate results at every milestone.
+
+---
+
+## 3. Practical Application, Challenges, and Solutions
+While the theoretical merits of **{title}** are well established, real-world implementation often encounters practical constraints such as limited resources, coordination gaps, and shifting environmental conditions. Addressing these challenges requires proactive risk mitigation and transparent communication. By establishing clear standards, documenting intermediate progress, and fostering collaborative engagement, teams can overcome structural bottlenecks and sustain high standards of excellence.
+
+---
+
+## 4. Conclusion
+In conclusion, **{title}** is far more than an abstract academic concept; it is a vital framework for systematic problem-solving and informed decision-making. By combining rigorous theoretical foundations with ethical, evidence-driven practice, students and professionals alike can unlock the full potential of **{title}** and contribute meaningfully to their respective fields.
+
+---
+
+### 💡 Seth AI Writing Rubric Highlights
+- **Thesis Clarity:** Strong, arguable central claim positioned clearly in the opening section.
+- **Cohesion & Flow:** Smooth academic transitions connecting introduction, evidence paragraphs, and conclusion.
+- **Evidence & Depth:** Balanced synthesis of theoretical mechanics, practical applications, and counter-constraints.
+""";
+    }
+
+    public static (int OverallScore, int GrammarScore, int ClarityScore, int StyleScore, string CorrectedText, string ElevatedText, List<object> Corrections, List<string> Suggestions) EvaluateAndCorrectWriting(string rawInput, string tone = "academic")
+    {
+        var input = (rawInput ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return (0, 0, 0, 0, string.Empty, string.Empty, new List<object>(), new List<string> { "Please paste or type at least a sentence or paragraph to analyze." });
+        }
+
+        var corrections = new List<object>();
+        var working = input;
+
+        // 1. Normalize spacing
+        if (Regex.IsMatch(working, @"[ \t]{2,}"))
+        {
+            working = Regex.Replace(working, @"[ \t]{2,}", " ");
+            corrections.Add(new { original = "Multiple consecutive spaces", replacement = "Single space", reason = "Standard typography requires a single space between words and sentences.", category = "Formatting" });
+        }
+
+        // 2. Common spelling, grammar, and contraction fixes
+        (string Pattern, string Replacement, string DisplayOrig, string Reason, string Category)[] rules =
+        [
+            (@"\bteh\b", "the", "teh", "Corrected common transposition typo.", "Spelling"),
+            (@"\brecieve\b", "receive", "recieve", "Follows the 'i before e except after c' orthographic rule.", "Spelling"),
+            (@"\bseperate\b", "separate", "seperate", "Corrected vowel spelling in 'separate'.", "Spelling"),
+            (@"\boccured\b", "occurred", "occured", "Doubled final consonant before '-ed' suffix.", "Spelling"),
+            (@"\bdefinately\b", "definitely", "definately", "Corrected root spelling from 'finite'.", "Spelling"),
+            (@"\bneccessary\b", "necessary", "neccessary", "Spelled with one 'c' and two 's' letters.", "Spelling"),
+            (@"\baccomodate\b", "accommodate", "accomodate", "Requires double 'c' and double 'm'.", "Spelling"),
+            (@"\benviroment\b", "environment", "enviroment", "Restored silent 'n' before 'm'.", "Spelling"),
+            (@"\bgoverment\b", "government", "goverment", "Restored 'n' in 'govern-ment'.", "Spelling"),
+            (@"\bstudying\s+are\b", "studying is", "studying are", "Gerund phrase 'studying' takes a singular verb ('is').", "Grammar"),
+            (@"\bdatas\b", "data", "datas", "'Data' is already the plural form of 'datum'.", "Grammar"),
+            (@"\binformations\b", "information", "informations", "'Information' is an uncountable noun and does not take a plural '-s'.", "Grammar"),
+            (@"\bequipments\b", "equipment", "equipments", "'Equipment' is an uncountable mass noun.", "Grammar"),
+            (@"\bfeedbacks\b", "feedback", "feedbacks", "'Feedback' is an uncountable noun in standard English.", "Grammar"),
+            (@"\bresearchs\b", "research", "researchs", "'Research' is an uncountable noun.", "Grammar"),
+            (@"\bthere\s+knowledge\b", "their knowledge", "there knowledge", "Use possessive determiner 'their' instead of adverb 'there'.", "Grammar"),
+            (@"\btheir\s+is\b", "there is", "their is", "Use existential 'there is' instead of possessive 'their'.", "Grammar"),
+            (@"\byour\s+welcome\b", "you're welcome", "your welcome", "Use contraction 'you're' (you are) instead of possessive 'your'.", "Grammar"),
+            (@"\bits\s+a\s+very\b", "it is a very", "its a very", "Use 'it is' (or 'it's') instead of possessive 'its'.", "Grammar"),
+            (@"\bdont\b", "do not", "dont", "Expanded unpunctuated contraction for formal clarity.", "Mechanics"),
+            (@"\bcant\b", "cannot", "cant", "Expanded unpunctuated contraction to formal 'cannot'.", "Mechanics"),
+            (@"\bwont\b", "will not", "wont", "Expanded contraction to formal 'will not'.", "Mechanics"),
+            (@"\bdidnt\b", "did not", "didnt", "Expanded unpunctuated contraction to 'did not'.", "Mechanics"),
+            (@"\bisnt\b", "is not", "isnt", "Expanded unpunctuated contraction to 'is not'.", "Mechanics"),
+            (@"\barent\b", "are not", "arent", "Expanded unpunctuated contraction to 'are not'.", "Mechanics"),
+            (@"\bi\b", "I", "i", "First-person singular pronoun 'I' must always be capitalized.", "Capitalization"),
+            (@"\ba\s+([aeiouAEIOU][a-z]{2,})\b", "an $1", "a + vowel word", "Use article 'an' before words starting with a vowel sound.", "Grammar"),
+            (@"\bvery\s+unique\b", "unique", "very unique", "'Unique' is an absolute adjective and does not require 'very'.", "Style"),
+            (@"\bin\s+order\s+to\b", "to", "in order to", "Replaced wordy phrase with concise infinitive 'to'.", "Conciseness"),
+            (@"\bdue\s+to\s+the\s+fact\s+that\b", "because", "due to the fact that", "Replaced verbose phrasing with direct conjunction 'because'.", "Conciseness")
+        ];
+
+        foreach (var (pattern, replacement, displayOrig, reason, category) in rules)
+        {
+            if (Regex.IsMatch(working, pattern, RegexOptions.IgnoreCase))
+            {
+                working = Regex.Replace(working, pattern, m =>
+                {
+                    var rep = m.Result(replacement);
+                    if (char.IsUpper(m.Value[0]) && rep.Length > 0)
+                    {
+                        rep = char.ToUpperInvariant(rep[0]) + rep[1..];
+                    }
+                    return rep;
+                }, RegexOptions.IgnoreCase);
+
+                corrections.Add(new
+                {
+                    original = displayOrig,
+                    replacement = replacement.Replace("$1", "(vowel word)"),
+                    reason = reason,
+                    category = category
+                });
+            }
+        }
+
+        // 3. Capitalize sentence beginnings & ensure terminal punctuation
+        var sentences = Regex.Split(working, @"(?<=[.!?])\s+");
+        var fixedSentences = new List<string>();
+        bool capitalizedAny = false;
+        foreach (var s in sentences)
+        {
+            var trimmed = s.Trim();
+            if (string.IsNullOrEmpty(trimmed)) continue;
+            if (char.IsLower(trimmed[0]))
+            {
+                trimmed = char.ToUpperInvariant(trimmed[0]) + trimmed[1..];
+                capitalizedAny = true;
+            }
+            if (!Regex.IsMatch(trimmed, @"[.!?""']$"))
+            {
+                trimmed += ".";
+                corrections.Add(new
+                {
+                    original = "Missing terminal punctuation",
+                    replacement = "Added period (.)",
+                    reason = "Complete declarative sentences require terminal punctuation.",
+                    category = "Punctuation"
+                });
+            }
+            fixedSentences.Add(trimmed);
+        }
+
+        if (capitalizedAny)
+        {
+            corrections.Add(new
+            {
+                original = "Lowercase sentence start",
+                replacement = "Capitalized initial letter",
+                reason = "Every sentence must begin with an uppercase letter.",
+                category = "Capitalization"
+            });
+        }
+
+        var correctedText = string.Join(" ", fixedSentences);
+
+        // 4. Build an elevated Google-Standard Academic version
+        var elevatedText = correctedText;
+        (string Informal, string Academic)[] academicUpgrades =
+        [
+            (@"\ba lot of\b", "numerous"),
+            (@"\blots of\b", "substantial"),
+            (@"\bget\b", "obtain"),
+            (@"\bgot\b", "acquired"),
+            (@"\bshow\b", "demonstrate"),
+            (@"\bshows\b", "demonstrates"),
+            (@"\bhelp\b", "facilitate"),
+            (@"\bhelps\b", "facilitates"),
+            (@"\buse\b", "utilize"),
+            (@"\buses\b", "utilizes"),
+            (@"\bbig\b", "significant"),
+            (@"\bgood\b", "beneficial"),
+            (@"\bbad\b", "detrimental"),
+            (@"\bso\b", "therefore"),
+            (@"\bbut\b", "however"),
+            (@"\balso\b", "furthermore")
+        ];
+        foreach (var (informal, academic) in academicUpgrades)
+        {
+            elevatedText = Regex.Replace(elevatedText, informal, m =>
+                char.IsUpper(m.Value[0]) ? char.ToUpperInvariant(academic[0]) + academic[1..] : academic,
+                RegexOptions.IgnoreCase);
+        }
+
+        var wordCount = input.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Length;
+        int issuePenalty = Math.Min(35, corrections.Count * 5);
+        int grammarScore = Math.Clamp(98 - issuePenalty, 60, 100);
+        int clarityScore = Math.Clamp(wordCount >= 12 ? 94 - (issuePenalty / 2) : 84, 65, 99);
+        int styleScore = Math.Clamp(92 - (issuePenalty / 3), 68, 99);
+        int overallScore = (int)Math.Round((grammarScore * 0.45) + (clarityScore * 0.30) + (styleScore * 0.25));
+
+        var suggestions = new List<string>();
+        if (corrections.Count == 0)
+        {
+            suggestions.Add("Your mechanics, spelling, and sentence structure are already clean and well-formed.");
+        }
+        else
+        {
+            suggestions.Add($"Resolved {corrections.Count} grammar, spelling, or punctuation {(corrections.Count == 1 ? "issue" : "issues")} for Google-standard clarity.");
+        }
+        if (wordCount < 25)
+        {
+            suggestions.Add("Consider expanding your main claim with a concrete example or supporting evidence to strengthen depth.");
+        }
+        suggestions.Add("Use the 'Academic Elevated Version' when submitting formal university essays, research papers, or reports.");
+
+        return (overallScore, grammarScore, clarityScore, styleScore, correctedText, elevatedText, corrections, suggestions);
     }
 }

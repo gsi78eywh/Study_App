@@ -80,6 +80,7 @@ class CourseModel {
         "examTitle": examTitle,
         "createdAt": createdAt.toIso8601String(),
         "updatedAt": updatedAt?.toIso8601String(),
+        "studySets": studySets.map((s) => s.toJson()).toList(),
       };
 }
 
@@ -129,6 +130,8 @@ class StudySetModel {
         "courseId": courseId,
         "title": title,
         "description": description,
+        "questionCount": questionCount,
+        "highYieldBulletPoints": bulletPoints,
         "createdAt": createdAt.toIso8601String(),
         "attemptsCount": attemptsCount,
         "masteryScore": masteryScore,

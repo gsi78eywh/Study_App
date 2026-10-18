@@ -1,13 +1,14 @@
 import "dart:async";
 import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
-import "package:dio/dio.dart";
 import "package:google_fonts/google_fonts.dart";
 import "package:image_picker/image_picker.dart";
 import "../../../core/constants/api_constants.dart";
 import "../../../core/network/api_client.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../courses/models/course_models.dart";
+import "../services/clipboard_image_reader.dart";
+import "../services/fast_ocr_service.dart";
 
 enum ScannerMode {
   handwritten("Handwritten Notes", Icons.edit_note_rounded, "Optimized for handwritten lecture notes and diagrams"),
@@ -218,25 +219,36 @@ Key Concepts:
 
   Future<void> _captureFromCamera() async {
     try {
-      final XFile? photo = await _picker.pickImage(
-        source: ImageSource.camera,
-        maxWidth: 2048,
-        maxHeight: 2048,
-        imageQuality: 92,
-      );
+      XFile? photo;
+      try {
+        photo = await _picker.pickImage(
+          source: ImageSource.camera,
+          maxWidth: 2048,
+          maxHeight: 2048,
+          imageQuality: 92,
+        );
+      } catch (_) {
+        // Fallback to gallery/file picker on web/devices without direct camera API
+        photo = await _picker.pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 2048,
+          maxHeight: 2048,
+          imageQuality: 95,
+        );
+      }
 
       if (photo != null) {
         final bytes = await photo.readAsBytes();
         setState(() {
           _capturedImageBytes = bytes;
-          _capturedImageName = photo.name;
+          _capturedImageName = photo!.name.isNotEmpty ? photo.name : "camera_scan.png";
           _errorMessage = null;
         });
-        await _performOcrScan(bytes, photo.name);
+        await _performOcrScan(bytes, _capturedImageName!);
       }
     } catch (e) {
       setState(() {
-        _errorMessage = "Camera access error: $e. You can also pick an image from gallery or try a sample note.";
+        _errorMessage = "Could not open camera ($e). Try 'Pick Image' or 'Paste Screenshot' instead.";
       });
     }
   }
@@ -254,10 +266,10 @@ Key Concepts:
         final bytes = await photo.readAsBytes();
         setState(() {
           _capturedImageBytes = bytes;
-          _capturedImageName = photo.name;
+          _capturedImageName = photo.name.isNotEmpty ? photo.name : "screenshot_scan.png";
           _errorMessage = null;
         });
-        await _performOcrScan(bytes, photo.name);
+        await _performOcrScan(bytes, _capturedImageName!);
       }
     } catch (e) {
       setState(() {
@@ -266,6 +278,24 @@ Key Concepts:
     }
   }
 
+  Future<void> _pasteScreenshotFromClipboard() async {
+    setState(() {
+      _errorMessage = null;
+    });
+
+    final payload = await readClipboardScreenshot();
+    if (payload != null && payload.bytes.isNotEmpty) {
+      setState(() {
+        _capturedImageBytes = payload.bytes;
+        _capturedImageName = payload.name;
+      });
+      await _performOcrScan(payload.bytes, payload.name);
+      return;
+    }
+
+    // If no image in clipboard, prompt image picker so user is never stuck
+    await _pickFromGallery();
+  }
 
   Future<void> _performOcrScan(Uint8List imageBytes, String filename) async {
     setState(() {
@@ -274,45 +304,34 @@ Key Concepts:
     });
 
     try {
-      final multipartFile = MultipartFile.fromBytes(imageBytes, filename: filename);
-      final formDataMap = <String, dynamic>{
-        "file": multipartFile,
-      };
-
-      final response = await widget.apiClient.dio.post(
-        ApiConstants.scanContent,
-        data: FormData.fromMap(formDataMap),
+      final result = await FastOcrService.extractTextFromImage(
+        imageBytes: imageBytes,
+        filename: filename,
+        apiClient: widget.apiClient,
       );
 
-      if (response.statusCode == 200 && response.data is Map) {
-        final data = Map<String, dynamic>.from(response.data as Map);
-        final cleanText = (data["extractedText"] ?? "") as String;
-        final rawTitle = (data["suggestedTitle"] ?? "") as String;
-        final defaultTitle = rawTitle.isNotEmpty ? rawTitle : filename.split('.').first;
+      if (!mounted) return;
+      setState(() {
+        _extractedText = result.extractedText;
+        _titleController.text = result.suggestedTitle;
+        _textController.text = result.extractedText;
+        _charCount = result.charCount;
+        _wordCount = result.wordCount;
+        _ocrEngine = result.ocrEngine;
+      });
 
+      if (result.extractedText.trim().isEmpty) {
         setState(() {
-          _extractedText = cleanText;
-          _titleController.text = defaultTitle;
-          _textController.text = cleanText;
-          _charCount = data["charCount"] ?? cleanText.length;
-          _wordCount = data["wordCount"] ?? (cleanText.isEmpty ? 0 : cleanText.split(RegExp(r"\s+")).length);
-          _ocrEngine = data["ocrEngine"] ?? "Gemini Vision OCR";
+          _errorMessage =
+              "No clear text detected in this image. Please ensure the screenshot or camera photo is sharp and well-lit, or type/paste text directly below.";
         });
-
-        if (cleanText.trim().isEmpty) {
-          setState(() {
-            _errorMessage = "No readable text recognized. Ensure lighting is clear and focused, or paste/type notes directly.";
-          });
-        }
       }
-    } on DioException catch (e) {
-      setState(() {
-        _errorMessage = e.error?.toString() ?? e.message ?? "Scan failed. Ensure backend is running.";
-      });
     } catch (e) {
-      setState(() {
-        _errorMessage = "OCR Scan error: $e";
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = "OCR Scan error: $e";
+        });
+      }
     } finally {
       if (mounted) {
         setState(() => _isScanning = false);
@@ -872,7 +891,7 @@ Key Concepts:
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      "Transcribing text via Gemini Vision OCR...",
+                      "Extracting text via Seth AI Vision OCR...",
                       style: GoogleFonts.outfit(
                         color: Colors.white,
                         fontSize: 13,
@@ -883,61 +902,77 @@ Key Concepts:
                 ),
               )
             else if (_capturedImageBytes == null)
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF06B6D4).withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.3)),
-                    ),
-                    child: const Icon(
-                      Icons.camera_alt_outlined,
-                      color: Color(0xFF06B6D4),
-                      size: 28,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    "Align physical note or textbook page in frame",
-                    style: GoogleFonts.outfit(
-                      color: Colors.white70,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF06B6D4),
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        icon: const Icon(Icons.camera_alt_rounded, size: 16),
-                        label: const Text("Take Photo", style: TextStyle(fontWeight: FontWeight.bold)),
-                        onPressed: _captureFromCamera,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF06B6D4).withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.3)),
                       ),
-                      const SizedBox(width: 10),
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          side: const BorderSide(color: Colors.white38),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        icon: const Icon(Icons.photo_library_outlined, size: 16),
-                        label: const Text("Pick Image"),
-                        onPressed: _pickFromGallery,
+                      child: const Icon(
+                        Icons.camera_alt_outlined,
+                        color: Color(0xFF06B6D4),
+                        size: 26,
                       ),
-                    ],
-                  ),
-                ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "Scan camera photo, pick screenshot, or paste clipboard image",
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.outfit(
+                        color: Colors.white70,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF06B6D4),
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          icon: const Icon(Icons.camera_alt_rounded, size: 15),
+                          label: const Text("Take Photo", style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                          onPressed: _captureFromCamera,
+                        ),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white38),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          icon: const Icon(Icons.photo_library_outlined, size: 15),
+                          label: const Text("Pick Image", style: TextStyle(fontSize: 12.5)),
+                          onPressed: _pickFromGallery,
+                        ),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF67E8F9),
+                            side: const BorderSide(color: Color(0xFF06B6D4)),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          icon: const Icon(Icons.content_paste_rounded, size: 15),
+                          label: const Text("Paste Screenshot", style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                          onPressed: _pasteScreenshotFromClipboard,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               )
             else
               Positioned(

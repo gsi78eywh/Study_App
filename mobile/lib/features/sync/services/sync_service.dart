@@ -1,3 +1,4 @@
+import "dart:convert";
 import "package:dio/dio.dart";
 
 import "../../../core/constants/api_constants.dart";
@@ -29,6 +30,7 @@ class SyncService {
   final ApiClient apiClient;
   final SessionService sessionService;
 
+  static const String _offlineCoursesKey = "offline_cached_courses_v2";
   static List<CourseModel> _cachedCourses = [];
   static List<CourseModel> get cachedCourses => List.unmodifiable(_cachedCourses);
 
@@ -37,7 +39,30 @@ class SyncService {
     _cachedCourses = [];
   }
 
-  SyncService({required this.apiClient, required this.sessionService});
+  SyncService({required this.apiClient, required this.sessionService}) {
+    _restoreOfflineCache();
+  }
+
+  void _restoreOfflineCache() {
+    if (_cachedCourses.isNotEmpty) return;
+    try {
+      final raw = sessionService.prefs.getString(_offlineCoursesKey);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw) as List<dynamic>;
+        _cachedCourses = decoded
+            .map((e) => CourseModel.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> saveOfflineCache(List<CourseModel> courses) async {
+    _cachedCourses = List.from(courses);
+    try {
+      final jsonStr = jsonEncode(courses.map((c) => c.toJson()).toList());
+      await sessionService.prefs.setString(_offlineCoursesKey, jsonStr);
+    } catch (_) {}
+  }
 
   bool isDataStale({int staleMinutes = 5}) {
     final lastSync = sessionService.lastSyncAt;
@@ -59,15 +84,12 @@ class SyncService {
   }) async {
     try {
       final lastSync = fullFetch
-          ? DateTime.fromMillisecondsSinceEpoch(0)
-          : (sessionService.lastSyncAt ??
-                DateTime.fromMillisecondsSinceEpoch(0));
+          ? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true)
+          : (sessionService.lastSyncAt?.toUtc() ??
+                DateTime.fromMillisecondsSinceEpoch(0, isUtc: true));
 
       final payload = {
-        "lastSyncedAt": lastSync.toIso8601String(),
-        // Courses, study sets, questions, and scored sessions are server-owned.
-        // Sending cached UI state here previously allowed an older device to
-        // overwrite newer server data and allowed client-calculated scores.
+        "lastSyncedAt": lastSync.toUtc().toIso8601String(),
         "courses": [],
         "studySets": [],
         "questions": [],
@@ -81,7 +103,7 @@ class SyncService {
       if (response.statusCode == 200 && response.data != null) {
         final data = response.data as Map<String, dynamic>;
         final serverTime =
-            DateTime.tryParse(data["serverTimestamp"] ?? "") ?? DateTime.now();
+            DateTime.tryParse(data["serverTimestamp"] ?? "")?.toUtc() ?? DateTime.now().toUtc();
         await sessionService.setLastSync(serverTime);
 
         final rawCourses = data["updatedCourses"] as List? ?? [];
@@ -117,7 +139,7 @@ class SyncService {
                   id: id,
                   code: raw["code"] ?? "COURSE",
                   name: raw["name"] ?? "Untitled Course",
-                  colorHex: raw["colorHex"] ?? "#6366F1",
+                  colorHex: raw["colorHex"] ?? "#2E7D5B",
                   createdAt:
                       DateTime.tryParse(raw["updatedAt"] ?? "") ?? DateTime.now(),
                   updatedAt:
@@ -168,7 +190,7 @@ class SyncService {
         }
 
         final syncedList = courseMap.values.toList();
-        _cachedCourses = List.from(syncedList);
+        await saveOfflineCache(syncedList);
 
         return SyncResult(
           success: true,

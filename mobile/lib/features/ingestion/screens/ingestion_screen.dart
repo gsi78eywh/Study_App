@@ -10,6 +10,9 @@ import "../../../core/theme/app_theme.dart";
 import "../../courses/models/course_models.dart";
 import "../../quiz/models/quiz_models.dart";
 import "../../settings/services/settings_service.dart";
+import "../../ai_tutor/services/seth_ai_engine.dart";
+import "../services/clipboard_image_reader.dart";
+import "../services/fast_ocr_service.dart";
 import "../widgets/camera_scanner_modal.dart";
 import "../widgets/progressive_exam_studio.dart";
 import "../../../core/utils/url_launcher_helper.dart";
@@ -266,6 +269,42 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     });
 
     try {
+      // Fast path for screenshots & photos using Seth AI Vision OCR
+      if (_isImageFile(file.name)) {
+        final ocrRes = await FastOcrService.extractTextFromImage(
+          imageBytes: bytes,
+          filename: file.name,
+          apiClient: widget.apiClient,
+        );
+        if (ocrRes.extractedText.trim().isNotEmpty) {
+          final data = <String, dynamic>{
+            "extractedText": ocrRes.extractedText,
+            "suggestedTitle": ocrRes.suggestedTitle,
+            "charCount": ocrRes.charCount,
+            "wordCount": ocrRes.wordCount,
+            "ocrEngine": ocrRes.ocrEngine,
+          };
+          setState(() {
+            _scannedResult = data;
+            _textController.text = ocrRes.extractedText.trim();
+            if (!_isCustomTitle || _titleController.text.trim().isEmpty) {
+              _titleController.text = ocrRes.suggestedTitle;
+            }
+            _tabController.animateTo(0);
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("✨ Extracted ${ocrRes.charCount} characters from '${file.name}' via ${ocrRes.ocrEngine}!"),
+                backgroundColor: const Color(0xFF10B981),
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+          return;
+        }
+      }
+
       final multipartFile = MultipartFile.fromBytes(
         bytes,
         filename: file.name,
@@ -293,7 +332,6 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
             if (!_isCustomTitle || _titleController.text.trim().isEmpty) {
               _titleController.text = candidateTitle.isNotEmpty ? candidateTitle : file.name.split('.').first;
             }
-            // Switch to Note Editor tab so the user immediately sees all extracted text & bullet points!
             _tabController.animateTo(0);
           }
         });
@@ -333,7 +371,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
   String? _extractYouTubeVideoId(String rawUrl) {
     if (rawUrl.trim().isEmpty) return null;
-    final match = RegExp(r'(?:v=|\/embed\/|\/v\/|youtu\.be\/|\/shorts\/)([0-9A-Za-z_-]{11})').firstMatch(rawUrl);
+    final match = RegExp(r'(?:v=|\/embed\/|\/v\/|youtu\.be\/|\/shorts\/|\/live\/)([0-9A-Za-z_-]{11})').firstMatch(rawUrl);
     return match?.group(1);
   }
 
@@ -366,17 +404,33 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           _detectedVideoInfo = {
             'videoId': videoId,
             'thumbnailUrl': 'https://i.ytimg.com/vi/$videoId/hqdefault.jpg',
-            'title': 'Loading video details...',
+            'title': 'Extracting YouTube video & voice/transcript info...',
             'loading': true,
             'isYouTube': true,
           };
         });
       }
 
-      _urlScanDebounce = Timer(const Duration(milliseconds: 500), () {
+      _urlScanDebounce = Timer(const Duration(milliseconds: 450), () {
         _autoInspectUrl(clean);
       });
     }
+  }
+
+  Future<Map<String, String>> _fetchInstantYouTubeOEmbed(String url) async {
+    try {
+      final dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 6), receiveTimeout: const Duration(seconds: 6)));
+      final res = await dio.get("https://noembed.com/embed?url=${Uri.encodeComponent(url)}");
+      if (res.statusCode == 200 && res.data is Map) {
+        final m = res.data as Map;
+        return {
+          "title": m["title"]?.toString() ?? "",
+          "author": m["author_name"]?.toString() ?? "",
+          "thumbnailUrl": m["thumbnail_url"]?.toString() ?? "",
+        };
+      }
+    } catch (_) {}
+    return const {};
   }
 
   Future<void> _autoInspectUrl(String rawUrl) async {
@@ -397,80 +451,140 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
       });
     }
 
+    String oembedTitle = "";
+    String oembedAuthor = "";
+    String oembedThumb = videoId != null ? "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" : "";
+
+    if (isYt) {
+      final meta = await _fetchInstantYouTubeOEmbed(cleanUrl);
+      oembedTitle = meta["title"] ?? "";
+      oembedAuthor = meta["author"] ?? "";
+      if ((meta["thumbnailUrl"] ?? "").isNotEmpty) {
+        oembedThumb = meta["thumbnailUrl"]!;
+      }
+      if (mounted && oembedTitle.isNotEmpty) {
+        setState(() {
+          _detectedVideoInfo = {
+            ...(_detectedVideoInfo ?? {}),
+            'videoId': videoId,
+            'title': oembedTitle,
+            'author': oembedAuthor,
+            'thumbnailUrl': oembedThumb,
+            'loading': true,
+            'isYouTube': true,
+          };
+          if (!_isCustomTitle || _titleController.text.trim().isEmpty) {
+            _titleController.text = oembedTitle;
+          }
+        });
+      }
+    }
+
+    String title = oembedTitle;
+    String author = oembedAuthor;
+    String duration = "";
+    String extractedText = "";
+    String thumb = oembedThumb;
+    bool isReallyVideo = isYt && videoId != null;
+
     try {
       final response = await widget.apiClient.dio.post(
         ApiConstants.scanUrl,
         data: {"url": cleanUrl},
+        options: Options(
+          sendTimeout: const Duration(seconds: 12),
+          receiveTimeout: const Duration(seconds: 15),
+        ),
       );
 
       if (response.statusCode == 200 && response.data is Map) {
         final data = Map<String, dynamic>.from(response.data as Map);
-        final title = (data["title"] ?? data["suggestedTitle"] ?? "") as String;
-        final author = (data["author"] ?? "") as String;
-        final duration = (data["duration"] ?? "") as String;
-        final extractedText = (data["extractedText"] ?? "") as String;
-        final thumb = (data["thumbnailUrl"] ?? (videoId != null ? "https://i.ytimg.com/vi/$videoId/hqdefault.jpg" : "")) as String;
+        final backendTitle = (data["title"] ?? data["suggestedTitle"] ?? "") as String;
+        if (backendTitle.isNotEmpty && backendTitle != "YouTube Video") title = backendTitle;
+        final backendAuthor = (data["author"] ?? "") as String;
+        if (backendAuthor.isNotEmpty) author = backendAuthor;
+        duration = (data["duration"] ?? "") as String;
+        extractedText = (data["extractedText"] ?? "") as String;
+        final backendThumb = (data["thumbnailUrl"] ?? "") as String;
+        if (backendThumb.isNotEmpty) thumb = backendThumb;
+        isReallyVideo = (data["isVideo"] == true) || isReallyVideo;
+      }
+    } catch (_) {}
 
-        if (mounted) {
-          final isReallyVideo = (data["isVideo"] == true) || (isYt && videoId != null);
-          final charCount = extractedText.length;
-          final wordCount = extractedText.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+    // If YouTube video is voice-only (no closed captions) or backend extraction was partial,
+    // use Seth AI to extract & synthesize ALL of what the video tutorial is about!
+    if ((isReallyVideo || isYt) && extractedText.trim().length < 400) {
+      try {
+        final effectiveVideoTitle = title.isNotEmpty ? title : "YouTube Tutorial ($cleanUrl)";
+        final sethTutorial = await SethAiEngine.askSethAi(
+          message:
+              "Extract and explain ALL information about this YouTube video tutorial (including spoken/voice lecture concepts and transcription breakdown):\n"
+              "Video Title: \"$effectiveVideoTitle\"\n"
+              "Channel / Instructor: \"${author.isNotEmpty ? author : 'YouTube Creator'}\"\n"
+              "URL: $cleanUrl\n\n"
+              "Provide a comprehensive, detailed study & lecture document covering:\n"
+              "1. 🎯 What This Video Tutorial Is All About (Complete Overview)\n"
+              "2. 🎙️ Voice & Spoken Lecture Breakdown (Step-by-Step Concepts Taught)\n"
+              "3. 📚 Core Definitions, Principles, Formulas, or Code Covered\n"
+              "4. 💡 Key High-Yield Takeaways & Practical Examples for Students",
+          contextTopic: effectiveVideoTitle,
+          apiClient: widget.apiClient,
+        );
+        if (sethTutorial.reply.trim().isNotEmpty) {
+          extractedText = extractedText.trim().isNotEmpty
+              ? "$extractedText\n\n---\n\n${sethTutorial.reply.trim()}"
+              : "# $effectiveVideoTitle\n"
+                  "${author.isNotEmpty ? 'Channel: $author\n' : ''}"
+                  "Source: $cleanUrl\n\n"
+                  "${sethTutorial.reply.trim()}";
+        }
+      } catch (_) {}
+    }
 
-          setState(() {
-            _isAutoScanningVideo = false;
-            _detectedVideoInfo = {
-              'videoId': isReallyVideo ? (videoId ?? data["videoId"]) : null,
-              'title': title.isNotEmpty ? title : (isReallyVideo ? "YouTube Video" : uri.host),
-              'author': author,
-              'duration': duration,
-              'thumbnailUrl': isReallyVideo ? thumb : "",
-              'extractedText': extractedText,
-              'charCount': charCount,
-              'wordCount': wordCount,
-              'loading': false,
-              'isYouTube': isReallyVideo,
-              'isSong': data['isSong'] == true ||
-                  title.toLowerCase().contains("lyrics") ||
-                  title.toLowerCase().contains("song") ||
-                  title.toLowerCase().contains("audio") ||
-                  title.toLowerCase().contains("kabet"),
-              'url': cleanUrl,
-            };
+    if (mounted) {
+      final charCount = extractedText.length;
+      final wordCount = extractedText.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
 
-            // Auto-fill Study Set Title if empty or not customized
-            if (!_isCustomTitle || _titleController.text.trim().isEmpty) {
-              if (title.isNotEmpty) {
-                _titleController.text = title;
-              }
-            }
+      setState(() {
+        _isAutoScanningVideo = false;
+        _detectedVideoInfo = {
+          'videoId': isReallyVideo ? videoId : null,
+          'title': title.isNotEmpty ? title : (isReallyVideo ? "YouTube Tutorial" : uri.host),
+          'author': author,
+          'duration': duration,
+          'thumbnailUrl': isReallyVideo ? thumb : "",
+          'extractedText': extractedText,
+          'charCount': charCount,
+          'wordCount': wordCount,
+          'loading': false,
+          'isYouTube': isReallyVideo,
+          'isSong': title.toLowerCase().contains("lyrics") ||
+              title.toLowerCase().contains("song") ||
+              title.toLowerCase().contains("audio"),
+          'url': cleanUrl,
+        };
 
-            // Always load extracted whole content into the Note Editor
-            if (extractedText.isNotEmpty) {
-              _textController.text = extractedText;
-            }
-
-            _errorMessage = null;
-          });
-
-          if (extractedText.isNotEmpty) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text("✨ Successfully loaded whole info ($charCount characters, $wordCount words) into the app!"),
-                backgroundColor: const Color(0xFF10B981),
-                duration: const Duration(seconds: 4),
-              ),
-            );
+        if (!_isCustomTitle || _titleController.text.trim().isEmpty) {
+          if (title.isNotEmpty) {
+            _titleController.text = title;
           }
         }
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _isAutoScanningVideo = false;
-          if (_detectedVideoInfo != null) {
-            _detectedVideoInfo!['loading'] = false;
-          }
-        });
+
+        if (extractedText.isNotEmpty) {
+          _textController.text = extractedText;
+        }
+
+        _errorMessage = null;
+      });
+
+      if (extractedText.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("✨ Extracted complete video tutorial info ($charCount chars, $wordCount words) into Note Editor!"),
+            backgroundColor: const Color(0xFF10B981),
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
     }
   }
@@ -478,39 +592,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
   Future<void> _scrapeAndLoadUrlToEditor() async {
     final rawUrl = _urlController.text.trim();
     if (rawUrl.isEmpty) {
-      setState(() => _errorMessage = "Please provide an article or documentation URL to scrape.");
-      return;
-    }
-
-    if (_detectedVideoInfo != null &&
-        (_detectedVideoInfo!['extractedText'] as String? ?? '').trim().isNotEmpty) {
-      final cleanText = (_detectedVideoInfo!['extractedText'] as String).trim();
-      final title = (_detectedVideoInfo!['title'] as String? ?? '').trim();
-      setState(() {
-        _textController.text = cleanText;
-        if (!_isCustomTitle || _titleController.text.trim().isEmpty) {
-          if (title.isNotEmpty) _titleController.text = title;
-        }
-        _tabController.animateTo(0);
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("🎬 Video outline & notes loaded into Note Editor! Review and tap Generate Study Set."),
-          backgroundColor: Color(0xFF10B981),
-          duration: Duration(seconds: 4),
-        ),
-      );
-      return;
-    }
-
-    String cleanUrl = rawUrl;
-    if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
-      cleanUrl = "https://$cleanUrl";
-    }
-
-    final uri = Uri.tryParse(cleanUrl);
-    if (uri == null || (uri.scheme != "http" && uri.scheme != "https")) {
-      setState(() => _errorMessage = "Please enter a valid HTTP(S) URL (e.g. https://...).");
+      setState(() => _errorMessage = "Please provide an article or YouTube URL to extract.");
       return;
     }
 
@@ -520,60 +602,12 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     });
 
     try {
-      final response = await widget.apiClient.dio.post(
-        ApiConstants.scanUrl,
-        data: {
-          "url": cleanUrl,
-        },
-      );
-
-      if (response.statusCode == 200 && response.data is Map) {
-        final data = Map<String, dynamic>.from(response.data as Map);
-        final cleanText = (data["extractedText"] ?? "") as String;
-        final suggestedTitle = (data["suggestedTitle"] ?? data["title"] ?? "") as String;
-        final charCount = data["charCount"] ?? data["fullTextLength"] ?? cleanText.length;
-
-        if (cleanText.trim().isEmpty) {
-          setState(() {
-            _errorMessage = "No readable instructional text could be found at that URL.";
-          });
-          return;
-        }
-
+      await _autoInspectUrl(rawUrl);
+      if (mounted && _textController.text.trim().isNotEmpty) {
         setState(() {
-          _textController.text = cleanText.trim();
-          if (!_isCustomTitle || _titleController.text.trim().isEmpty) {
-            _titleController.text = suggestedTitle.isNotEmpty ? suggestedTitle : (uri.host);
-          }
-          // Navigate to Note Editor so user can verify, edit, and synthesize
           _tabController.animateTo(0);
         });
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("🌐 Scraped and loaded $charCount characters from '$rawUrl' into Note Editor!"),
-              backgroundColor: const Color(0xFF10B981),
-              duration: const Duration(seconds: 4),
-            ),
-          );
-        }
       }
-    } on DioException catch (e) {
-      String msg = "Couldn't generate, try again.";
-      if (e.response?.data is Map) {
-        final data = e.response!.data as Map;
-        msg = data["message"]?.toString() ?? data["title"]?.toString() ?? msg;
-      } else if (e.message != null && e.message!.isNotEmpty) {
-        msg = e.message!;
-      }
-      setState(() {
-        _errorMessage = msg;
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = "Scraping error: $e";
-      });
     } finally {
       if (mounted) {
         setState(() => _isScrapingUrl = false);
@@ -665,6 +699,32 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     });
 
     try {
+      if (_isImageFile(_selectedFile!.name)) {
+        final ocrResult = await FastOcrService.extractTextFromImage(
+          apiClient: widget.apiClient,
+          bytes: _selectedFileBytes!,
+          filename: _selectedFile!.name,
+        );
+        final cleanText = ocrResult.text.trim();
+        final data = <String, dynamic>{
+          "fileName": _selectedFile!.name,
+          "extractedText": cleanText,
+          "charCount": cleanText.length,
+          "wordCount": cleanText.isEmpty ? 0 : cleanText.split(RegExp(r"\s+")).length,
+          "ocrEngine": ocrResult.engine,
+        };
+        setState(() {
+          _scannedResult = data;
+          if (cleanText.isNotEmpty) {
+            _textController.text = cleanText;
+          }
+        });
+        if (mounted) {
+          _showScannedContentSheet(data);
+        }
+        return;
+      }
+
       final multipartFile = MultipartFile.fromBytes(
         _selectedFileBytes!,
         filename: _selectedFile!.name,
@@ -704,6 +764,76 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     }
   }
 
+  Future<void> _pasteScreenshotToEditor() async {
+    setState(() {
+      _isExtractingTextToEditor = true;
+      _errorMessage = null;
+    });
+    try {
+      final clip = await readClipboardImage();
+      if (clip != null && clip.bytes.isNotEmpty) {
+        final ocrResult = await FastOcrService.extractTextFromImage(
+          apiClient: widget.apiClient,
+          bytes: clip.bytes,
+          filename: clip.filename,
+        );
+        final cleanText = ocrResult.text.trim();
+        if (cleanText.isNotEmpty) {
+          setState(() {
+            _textController.text = _textController.text.trim().isEmpty
+                ? cleanText
+                : "${_textController.text.trim()}\n\n$cleanText";
+            if (_titleController.text.trim().isEmpty) {
+              _titleController.text = "Pasted Screenshot Study Set";
+            }
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("✨ Pasted screenshot & extracted ${cleanText.length} characters via ${ocrResult.engine}!"),
+                backgroundColor: const Color(0xFF10B981),
+              ),
+            );
+          }
+          return;
+        }
+      }
+
+      // Check text clipboard fallback
+      final textData = await Clipboard.getData(Clipboard.kTextPlain);
+      if (textData?.text != null && textData!.text!.trim().isNotEmpty) {
+        setState(() {
+          _textController.text = _textController.text.trim().isEmpty
+              ? textData.text!.trim()
+              : "${_textController.text.trim()}\n\n${textData.text!.trim()}";
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("📋 Pasted text from clipboard into editor."),
+              backgroundColor: Color(0xFF10B981),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Tip: Take a screenshot (Win+Shift+S or PrtScn) and press Ctrl+V anywhere, or pick an image file."),
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() => _errorMessage = "Paste error: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _isExtractingTextToEditor = false);
+      }
+    }
+  }
+
   Future<void> _extractCleanTextFromImageOrFile() async {
     try {
       final files = await FilePicker.pickFiles(
@@ -723,6 +853,37 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         _isExtractingTextToEditor = true;
         _errorMessage = null;
       });
+
+      if (_isImageFile(file.name)) {
+        final ocrResult = await FastOcrService.extractTextFromImage(
+          apiClient: widget.apiClient,
+          bytes: bytes,
+          filename: file.name,
+        );
+        final cleanText = ocrResult.text.trim();
+        if (cleanText.isEmpty) {
+          setState(() {
+            _errorMessage = "No readable text could be recognized from '${file.name}'. Please ensure the screenshot or photo is clear.";
+          });
+          return;
+        }
+        setState(() {
+          _textController.text = cleanText;
+          if (_titleController.text.trim().isEmpty) {
+            _titleController.text = file.name.split('.').first;
+          }
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("✨ Extracted ${cleanText.length} characters of clean text via ${ocrResult.engine} in ${(ocrResult.elapsedMs / 1000).toStringAsFixed(1)}s!"),
+              backgroundColor: const Color(0xFF10B981),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
 
       final multipartFile = MultipartFile.fromBytes(bytes, filename: file.name);
       final formDataMap = <String, dynamic>{
@@ -1734,52 +1895,104 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           return;
         }
 
-        final multipartFile = MultipartFile.fromBytes(
-          fileBytes,
-          filename: _selectedFile!.name,
-        );
+        // Fast & Clean Image OCR path: use already-extracted text or FastOcrService so we never upload raw PNG binary garbage
+        if (_isImageFile(_selectedFile!.name)) {
+          String cleanImageText = _textController.text.trim();
+          if (cleanImageText.length < 15) {
+            final ocr = await FastOcrService.extractTextFromImage(
+              apiClient: widget.apiClient,
+              bytes: fileBytes,
+              filename: _selectedFile!.name,
+            );
+            cleanImageText = ocr.text.trim();
+          }
+          if (cleanImageText.length >= 15) {
+            response = await widget.apiClient.dio.post(
+              ApiConstants.ingestText,
+              data: {
+                if (_validGuidOrNull(_selectedCourseId) != null) "courseId": _validGuidOrNull(_selectedCourseId)!,
+                "title": _titleController.text.trim().isEmpty
+                    ? _selectedFile!.name.split(".").first
+                    : _titleController.text.trim(),
+                "content": cleanImageText,
+                "targetCount": _targetCount,
+                "setIndex": _selectedSetIndex == 999
+                    ? (DateTime.now().millisecondsSinceEpoch % 1000) + 10
+                    : _selectedSetIndex,
+                "variant": _questionSetVariants.firstWhere(
+                    (v) => v["index"] == _selectedSetIndex,
+                    orElse: () => _questionSetVariants.first,
+                )["id"] as String,
+                "questionTypes": _selectedModes.map((m) {
+                  return switch (m) {
+                    "Multiple Choice" => "multiple_choice",
+                    "Identification" => "identification",
+                    "Enumeration" => "enumeration",
+                    "Cloze / Fill-in" => "cloze",
+                    "True / False" => "true_false",
+                    "Matching Type" => "matching",
+                    "Short Answer" => "short_answer",
+                    "Scenario Drills" => "scenario",
+                    "Flashcards" => "flashcards",
+                    "Summary" => "summary",
+                    _ => m.toLowerCase().replaceAll(" ", "_").replaceAll("/", "").replaceAll("  ", "_")
+                  };
+                }).toList(),
+                "fastMode": _fastMode,
+              },
+            );
+          } else {
+            setState(() => _errorMessage = "Could not detect clear text from '${_selectedFile!.name}'. Please use a clearer screenshot or photo.");
+            return;
+          }
+        } else {
+          final multipartFile = MultipartFile.fromBytes(
+            fileBytes,
+            filename: _selectedFile!.name,
+          );
 
-        final formDataMap = <String, dynamic>{
-          "file": multipartFile,
-          if (_validGuidOrNull(_selectedCourseId) != null) "courseId": _validGuidOrNull(_selectedCourseId)!,
-          "title": _titleController.text.trim(),
-          "questionTypes": _selectedModes.map((m) {
-              return switch (m) {
-                "Multiple Choice" => "multiple_choice",
-                "Identification" => "identification",
-                "Enumeration" => "enumeration",
-                "Cloze / Fill-in" => "cloze",
-                "True / False" => "true_false",
-                "Matching Type" => "matching",
-                "Short Answer" => "short_answer",
-                "Scenario Drills" => "scenario",
-                "Flashcards" => "flashcards",
-                "Summary" => "summary",
-                _ => m.toLowerCase().replaceAll(" ", "_").replaceAll("/", "").replaceAll("  ", "_")
-              };
-            }).join(","),
-          "targetCount": _targetCount,
-          "fastMode": _fastMode.toString(),
-          "setIndex": (_selectedSetIndex == 999
-              ? (DateTime.now().millisecondsSinceEpoch % 1000) + 10
-              : _selectedSetIndex).toString(),
-          "variant": _questionSetVariants.firstWhere(
-              (v) => v["index"] == _selectedSetIndex,
-              orElse: () => _questionSetVariants.first,
-          )["id"] as String,
-        };
+          final formDataMap = <String, dynamic>{
+            "file": multipartFile,
+            if (_validGuidOrNull(_selectedCourseId) != null) "courseId": _validGuidOrNull(_selectedCourseId)!,
+            "title": _titleController.text.trim(),
+            "questionTypes": _selectedModes.map((m) {
+                return switch (m) {
+                  "Multiple Choice" => "multiple_choice",
+                  "Identification" => "identification",
+                  "Enumeration" => "enumeration",
+                  "Cloze / Fill-in" => "cloze",
+                  "True / False" => "true_false",
+                  "Matching Type" => "matching",
+                  "Short Answer" => "short_answer",
+                  "Scenario Drills" => "scenario",
+                  "Flashcards" => "flashcards",
+                  "Summary" => "summary",
+                  _ => m.toLowerCase().replaceAll(" ", "_").replaceAll("/", "").replaceAll("  ", "_")
+                };
+              }).join(","),
+            "targetCount": _targetCount,
+            "fastMode": _fastMode.toString(),
+            "setIndex": (_selectedSetIndex == 999
+                ? (DateTime.now().millisecondsSinceEpoch % 1000) + 10
+                : _selectedSetIndex).toString(),
+            "variant": _questionSetVariants.firstWhere(
+                (v) => v["index"] == _selectedSetIndex,
+                orElse: () => _questionSetVariants.first,
+            )["id"] as String,
+          };
 
-        final formData = FormData.fromMap(formDataMap);
+          final formData = FormData.fromMap(formDataMap);
 
-        response = await widget.apiClient.dio.post(
-          ApiConstants.ingestFile,
-          data: formData,
-        );
+          response = await widget.apiClient.dio.post(
+            ApiConstants.ingestFile,
+            data: formData,
+          );
+        }
       } else {
-        // URL Ingestion
+        // URL Ingestion (including YouTube voice-only or captioned tutorials)
         final rawUrl = _urlController.text.trim();
         if (rawUrl.isEmpty) {
-          setState(() => _errorMessage = "Please provide an article or documentation URL.");
+          setState(() => _errorMessage = "Please provide a YouTube video tutorial or article URL.");
           return;
         }
 
@@ -1788,23 +2001,85 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           targetUrl = "https://$targetUrl";
         }
 
-        response = await widget.apiClient.dio.post(
-          ApiConstants.ingestUrl,
-          data: {
-            "courseId": _validGuidOrNull(_selectedCourseId),
-            "title": _titleController.text.trim(),
-            "url": targetUrl,
-            "targetCount": _targetCount,
-            "fastMode": _fastMode,
-            "setIndex": _selectedSetIndex == 999
-                ? (DateTime.now().millisecondsSinceEpoch % 1000) + 10
-                : _selectedSetIndex,
-            "variant": _questionSetVariants.firstWhere(
-                (v) => v["index"] == _selectedSetIndex,
-                orElse: () => _questionSetVariants.first,
-            )["id"] as String,
-          },
-        );
+        // If we already extracted the YouTube tutorial or webpage content into _textController, use it directly for instant, zero-error study set creation
+        if (_textController.text.trim().length >= 120) {
+          response = await widget.apiClient.dio.post(
+            ApiConstants.ingestText,
+            data: {
+              if (_validGuidOrNull(_selectedCourseId) != null) "courseId": _validGuidOrNull(_selectedCourseId)!,
+              "title": _titleController.text.trim().isEmpty ? "YouTube Video Study Set" : _titleController.text.trim(),
+              "content": _textController.text.trim(),
+              "targetCount": _targetCount,
+              "setIndex": _selectedSetIndex == 999
+                  ? (DateTime.now().millisecondsSinceEpoch % 1000) + 10
+                  : _selectedSetIndex,
+              "variant": _questionSetVariants.firstWhere(
+                  (v) => v["index"] == _selectedSetIndex,
+                  orElse: () => _questionSetVariants.first,
+              )["id"] as String,
+              "questionTypes": _selectedModes.map((m) {
+                return switch (m) {
+                  "Multiple Choice" => "multiple_choice",
+                  "Identification" => "identification",
+                  "Enumeration" => "enumeration",
+                  "Cloze / Fill-in" => "cloze",
+                  "True / False" => "true_false",
+                  "Matching Type" => "matching",
+                  "Short Answer" => "short_answer",
+                  "Scenario Drills" => "scenario",
+                  "Flashcards" => "flashcards",
+                  "Summary" => "summary",
+                  _ => m.toLowerCase().replaceAll(" ", "_").replaceAll("/", "").replaceAll("  ", "_")
+                };
+              }).toList(),
+              "fastMode": _fastMode,
+            },
+          );
+        } else {
+          try {
+            response = await widget.apiClient.dio.post(
+              ApiConstants.ingestUrl,
+              data: {
+                "courseId": _validGuidOrNull(_selectedCourseId),
+                "title": _titleController.text.trim(),
+                "url": targetUrl,
+                "targetCount": _targetCount,
+                "fastMode": _fastMode,
+                "setIndex": _selectedSetIndex == 999
+                    ? (DateTime.now().millisecondsSinceEpoch % 1000) + 10
+                    : _selectedSetIndex,
+                "variant": _questionSetVariants.firstWhere(
+                    (v) => v["index"] == _selectedSetIndex,
+                    orElse: () => _questionSetVariants.first,
+                )["id"] as String,
+              },
+            );
+          } catch (_) {
+            // Fallback: inspect URL (which uses Seth AI for voice-only YouTube tutorials) and ingest the synthesized tutorial notes
+            await _autoInspectUrl(targetUrl);
+            if (_textController.text.trim().length >= 80) {
+              response = await widget.apiClient.dio.post(
+                ApiConstants.ingestText,
+                data: {
+                  if (_validGuidOrNull(_selectedCourseId) != null) "courseId": _validGuidOrNull(_selectedCourseId)!,
+                  "title": _titleController.text.trim().isEmpty ? "YouTube Tutorial Study Set" : _titleController.text.trim(),
+                  "content": _textController.text.trim(),
+                  "targetCount": _targetCount,
+                  "setIndex": _selectedSetIndex == 999
+                      ? (DateTime.now().millisecondsSinceEpoch % 1000) + 10
+                      : _selectedSetIndex,
+                  "variant": _questionSetVariants.firstWhere(
+                      (v) => v["index"] == _selectedSetIndex,
+                      orElse: () => _questionSetVariants.first,
+                  )["id"] as String,
+                  "fastMode": _fastMode,
+                },
+              );
+            } else {
+              rethrow;
+            }
+          }
+        }
       }
 
       if (response.statusCode == 200 && response.data != null) {
@@ -2983,6 +3258,29 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                   ],
                                 ),
                                 InkWell(
+                                  onTap: _isExtractingTextToEditor ? null : _pasteScreenshotToEditor,
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF2E7D5B).withValues(alpha: isDark ? 0.25 : 0.12),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: const Color(0xFF2E7D5B).withValues(alpha: 0.45)),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.content_paste_go_rounded, size: 14, color: Color(0xFF2E7D5B)),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          "📋 Paste Screenshot",
+                                          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF2E7D5B)),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                InkWell(
                                   onTap: _isExtractingTextToEditor ? null : _extractCleanTextFromImageOrFile,
                                   borderRadius: BorderRadius.circular(8),
                                   child: Container(
@@ -3006,7 +3304,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                         ] else ...[
                                           const Icon(Icons.document_scanner_rounded, size: 14, color: Color(0xFF6366F1)),
                                           const SizedBox(width: 6),
-                                          const Text("📷 Extract Clean Text from Image / File", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF6366F1))),
+                                          const Text("📷 Scan Image / File", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF6366F1))),
                                         ],
                                       ],
                                     ),

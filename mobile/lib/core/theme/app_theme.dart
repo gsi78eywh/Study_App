@@ -2,27 +2,27 @@ import "package:flutter/material.dart";
 import "package:google_fonts/google_fonts.dart";
 
 class AppColors {
-  // Brand Primary & Accents
-  static const Color primary = Color(0xFF6366F1); // Indigo
-  static const Color primaryDark = Color(0xFF4F46E5);
-  static const Color primaryLight = Color(0xFF818CF8);
-  static const Color accent = Color(0xFF10B981); // Emerald
-  static const Color warning = Color(0xFFF59E0B); // Amber
-  static const Color danger = Color(0xFFEF4444); // Rose/Red
+  // Natural, Eye-Friendly Botanical & Paper Palette (Reduced Blue-Light Glare)
+  static const Color primary = Color(0xFF2E7D5B); // Natural Sage Emerald
+  static const Color primaryDark = Color(0xFF216346); // Deep Botanical Green
+  static const Color primaryLight = Color(0xFF52A37E); // Soft Mint Sage
+  static const Color accent = Color(0xFF0D9488); // Calm Teal
+  static const Color warning = Color(0xFFD97706); // Warm Ochre Amber
+  static const Color danger = Color(0xFFDC2626); // Soft Crimson
 
-  // Dark Theme Backgrounds & Surfaces
-  static const Color darkBg = Color(0xFF0B1120); // Deep Slate 950
-  static const Color darkCard = Color(0xFF1E293B); // Slate 800
-  static const Color darkCardBorder = Color(0xFF334155); // Slate 700
-  static const Color darkTextPrimary = Color(0xFFF8FAFC);
-  static const Color darkTextSecondary = Color(0xFF94A3B8);
+  // Dark Theme Backgrounds & Surfaces (Comfort Forest-Slate)
+  static const Color darkBg = Color(0xFF111916); // Deep Botanical Slate
+  static const Color darkCard = Color(0xFF182420); // Elevated Moss Slate
+  static const Color darkCardBorder = Color(0xFF2A3D36); // Muted Sage Border
+  static const Color darkTextPrimary = Color(0xFFECF3EE); // Soft Warm White
+  static const Color darkTextSecondary = Color(0xFF9BB0A5); // Muted Sage Grey
 
-  // Light Theme Backgrounds & Surfaces
-  static const Color lightBg = Color(0xFFF8FAFC); // Slate 50
-  static const Color lightCard = Color(0xFFFFFFFF); // Pure White
-  static const Color lightCardBorder = Color(0xFFE2E8F0); // Slate 200
-  static const Color lightTextPrimary = Color(0xFF0F172A); // Slate 900
-  static const Color lightTextSecondary = Color(0xFF64748B); // Slate 500
+  // Light Theme Backgrounds & Surfaces (Warm Eye-Care Alabaster Paper)
+  static const Color lightBg = Color(0xFFF3F6F2); // Soft Sage Alabaster
+  static const Color lightCard = Color(0xFFFAFAF7); // Warm Book Paper (No harsh white glare)
+  static const Color lightCardBorder = Color(0xFFD8E2DC); // Subtle Botanical Border
+  static const Color lightTextPrimary = Color(0xFF182620); // Deep Charcoal Forest
+  static const Color lightTextSecondary = Color(0xFF52665B); // Earthy Slate
 }
 
 extension ThemeHelper on BuildContext {
@@ -31,7 +31,7 @@ extension ThemeHelper on BuildContext {
   Color get cardBorderColor => isDarkMode ? AppColors.darkCardBorder : AppColors.lightCardBorder;
   Color get textPrimary => isDarkMode ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
   Color get textSecondary => isDarkMode ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
-  Color get secondaryBg => isDarkMode ? const Color(0xFF131D31) : const Color(0xFFF1F5F9);
+  Color get secondaryBg => isDarkMode ? const Color(0xFF15201C) : const Color(0xFFE9EFEA);
   Color get scaffoldBg => isDarkMode ? AppColors.darkBg : AppColors.lightBg;
 }
 

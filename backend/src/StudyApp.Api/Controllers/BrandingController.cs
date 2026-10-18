@@ -15,15 +15,26 @@ public sealed class BrandingController : ControllerBase
     public BrandingController(ApplicationDbContext context) => _context = context;
 
     [HttpGet("logo")]
-    [Produces("image/svg+xml")]
+    [ResponseCache(Duration = 86400, Location = ResponseCacheLocation.Any)]
     public async Task<IActionResult> GetLogo(CancellationToken cancellationToken)
     {
         var logo = await _context.AppBrandAssets
             .AsNoTracking()
             .FirstOrDefaultAsync(asset => asset.Key == "studyapp-logo", cancellationToken);
 
-        return logo == null
-            ? NotFound(new { message = "The StudyApp logo has not been seeded into the database." })
-            : Content(logo.Content, logo.ContentType, System.Text.Encoding.UTF8);
+        if (logo == null)
+        {
+            return NotFound(new { message = "The StudyApp logo has not been seeded into the database." });
+        }
+
+        var accept = Request.Headers.Accept.ToString();
+        if (accept.Contains("application/json", StringComparison.OrdinalIgnoreCase) &&
+            !accept.Contains("image/svg+xml", StringComparison.OrdinalIgnoreCase) &&
+            !accept.Contains("*/*", StringComparison.OrdinalIgnoreCase))
+        {
+            return Ok(new { key = logo.Key, contentType = logo.ContentType, content = logo.Content });
+        }
+
+        return Content(logo.Content, logo.ContentType ?? "image/svg+xml", System.Text.Encoding.UTF8);
     }
 }
