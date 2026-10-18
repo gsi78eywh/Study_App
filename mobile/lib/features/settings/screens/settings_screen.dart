@@ -68,7 +68,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       final response = await widget.apiClient.dio.post(
         ApiConstants.googleAuth,
-        data: {"idToken": result.idToken},
+        data: {
+          "idToken": result.idToken,
+          if (result.accessToken != null) "accessToken": result.accessToken,
+        },
       );
       final auth = AuthResponse.fromJson(response.data);
       if (auth.userId.toString() != widget.sessionService.userId) {

@@ -189,7 +189,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final response = await widget.apiClient.dio.post(
         ApiConstants.googleAuth,
-        data: {"idToken": result.idToken},
+        data: {
+          "idToken": result.idToken,
+          if (result.accessToken != null) "accessToken": result.accessToken,
+        },
       );
 
       if (response.statusCode == 200 && response.data != null) {

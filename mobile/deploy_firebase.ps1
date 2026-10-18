@@ -1,6 +1,6 @@
 param(
     [string]$ApiBaseUrl = "https://study-app-b0xq.onrender.com",
-    [string]$GoogleClientId = $env:GOOGLE_CLIENT_ID,
+    [string]$GoogleClientId = $(if ($env:GOOGLE_CLIENT_ID) { $env:GOOGLE_CLIENT_ID } else { "717073834269-9tegppvpc37rd197rmjpkabc108rb9uj.apps.googleusercontent.com" }),
     [string]$ProjectId = "studyapp-51772"
 )
 
@@ -31,7 +31,15 @@ try {
     }
 
     Write-Host "Deploying to Firebase Hosting..." -ForegroundColor Yellow
-    firebase deploy --only hosting --project $ProjectId
+    if (Get-Command firebase -ErrorAction SilentlyContinue) {
+        firebase deploy --only hosting --project $ProjectId
+    } elseif (Get-Command npx -ErrorAction SilentlyContinue) {
+        npx firebase-tools deploy --only hosting --project $ProjectId
+    } elseif (Test-Path "$env:USERPROFILE\npx.ps1") {
+        & "$env:USERPROFILE\npx.ps1" firebase-tools deploy --only hosting --project $ProjectId
+    } else {
+        throw "Firebase CLI ('firebase' or 'npx firebase-tools') was not found."
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Firebase deploy failed with exit code $LASTEXITCODE."
     }

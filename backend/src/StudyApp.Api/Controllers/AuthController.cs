@@ -1,7 +1,9 @@
 using Google.Apis.Auth;
+using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -13,13 +15,15 @@ using StudyApp.Api.Security;
 
 namespace StudyApp.Api.Controllers;
 
-public record GoogleLoginRequest(string IdToken);
+public record GoogleLoginRequest(string IdToken, string? AccessToken = null);
 
 [ApiController]
 [Route("api/v1/auth")]
 [EnableRateLimiting("auth")]
 public class AuthController : ControllerBase
 {
+    private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(15) };
+
     /// <summary>Unverified local-only Google sign-in format. Accepted in Development only.</summary>
     public const string DevGoogleTokenPrefix = "dev-google:";
     private readonly IApplicationDbContext _context;
@@ -204,15 +208,19 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> GoogleLogin([FromBody] GoogleLoginRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request?.IdToken))
+        var primaryToken = !string.IsNullOrWhiteSpace(request?.IdToken)
+            ? request.IdToken.Trim()
+            : request?.AccessToken?.Trim();
+
+        if (string.IsNullOrWhiteSpace(primaryToken))
         {
-            return BadRequest(new { message = "Google ID token is required." });
+            return BadRequest(new { message = "Google authentication token is required." });
         }
 
         var configuredClientId = _configuration["Authentication:Google:ClientId"]
             ?? Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID");
 
-        var tokenStr = request.IdToken.Trim();
+        var tokenStr = primaryToken;
         GoogleJsonWebSignature.Payload payload;
 
         if (tokenStr.StartsWith(DevGoogleTokenPrefix, StringComparison.OrdinalIgnoreCase))
@@ -264,20 +272,32 @@ public class AuthController : ControllerBase
                 return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Google Sign-In is not configured on this server." });
             }
 
+            var audiences = (configuredClientId ?? string.Empty)
+                .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
             try
             {
-                var settings = new GoogleJsonWebSignature.ValidationSettings();
-                if (!string.IsNullOrWhiteSpace(configuredClientId))
+                if (tokenStr.Count(c => c == '.') == 2)
                 {
-                    var audiences = configuredClientId
-                        .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    var settings = new GoogleJsonWebSignature.ValidationSettings();
                     if (audiences.Length > 0)
                     {
                         settings.Audience = audiences;
                     }
-                }
 
-                payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, settings);
+                    try
+                    {
+                        payload = await GoogleJsonWebSignature.ValidateAsync(tokenStr, settings);
+                    }
+                    catch when (!string.IsNullOrWhiteSpace(request?.AccessToken))
+                    {
+                        payload = await ValidateGoogleAccessTokenAsync(request.AccessToken.Trim(), audiences);
+                    }
+                }
+                else
+                {
+                    payload = await ValidateGoogleAccessTokenAsync(tokenStr, audiences);
+                }
             }
             catch (Exception)
             {
@@ -499,5 +519,100 @@ public class AuthController : ControllerBase
         {
             return false;
         }
+    }
+
+    private static async Task<GoogleJsonWebSignature.Payload> ValidateGoogleAccessTokenAsync(
+        string accessToken,
+        string[] expectedAudiences)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            throw new UnauthorizedAccessException("Google access token is empty.");
+        }
+
+        // 1. Verify token authenticity and audience with Google's OAuth2 tokeninfo endpoint
+        using var tokenInfoResponse = await SharedHttpClient.GetAsync(
+            $"https://oauth2.googleapis.com/tokeninfo?access_token={Uri.EscapeDataString(accessToken)}");
+        if (!tokenInfoResponse.IsSuccessStatusCode)
+        {
+            throw new UnauthorizedAccessException("Invalid or expired Google access token.");
+        }
+
+        var tokenInfoJson = await tokenInfoResponse.Content.ReadAsStringAsync();
+        using var tokenInfoDoc = JsonDocument.Parse(tokenInfoJson);
+        var root = tokenInfoDoc.RootElement;
+
+        var aud = root.TryGetProperty("aud", out var audProp) ? audProp.GetString() : null;
+        var azp = root.TryGetProperty("azp", out var azpProp) ? azpProp.GetString() : null;
+
+        if (expectedAudiences.Length > 0)
+        {
+            var matchesAudience =
+                (!string.IsNullOrWhiteSpace(aud) && expectedAudiences.Contains(aud, StringComparer.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(azp) && expectedAudiences.Contains(azp, StringComparer.OrdinalIgnoreCase));
+
+            if (!matchesAudience)
+            {
+                throw new UnauthorizedAccessException("Google token audience does not match configured client ID.");
+            }
+        }
+
+        string? sub = root.TryGetProperty("sub", out var subProp) ? subProp.GetString() : null;
+        string? email = root.TryGetProperty("email", out var emailProp) ? emailProp.GetString() : null;
+        bool emailVerified = false;
+        if (root.TryGetProperty("email_verified", out var verifiedProp))
+        {
+            emailVerified = verifiedProp.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.String => string.Equals(verifiedProp.GetString(), "true", StringComparison.OrdinalIgnoreCase),
+                _ => false
+            };
+        }
+
+        string? name = null;
+        string? givenName = null;
+
+        // 2. Fetch profile details (Name / GivenName) from Google's OAuth2 userinfo endpoint
+        try
+        {
+            using var userInfoReq = new HttpRequestMessage(HttpMethod.Get, "https://www.googleapis.com/oauth2/v3/userinfo");
+            userInfoReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            using var userInfoResponse = await SharedHttpClient.SendAsync(userInfoReq);
+            if (userInfoResponse.IsSuccessStatusCode)
+            {
+                var userInfoJson = await userInfoResponse.Content.ReadAsStringAsync();
+                using var userInfoDoc = JsonDocument.Parse(userInfoJson);
+                var uRoot = userInfoDoc.RootElement;
+
+                sub ??= uRoot.TryGetProperty("sub", out var uSub) ? uSub.GetString() : null;
+                email ??= uRoot.TryGetProperty("email", out var uEmail) ? uEmail.GetString() : null;
+                name = uRoot.TryGetProperty("name", out var uName) ? uName.GetString() : null;
+                givenName = uRoot.TryGetProperty("given_name", out var uGiven) ? uGiven.GetString() : null;
+
+                if (!emailVerified && uRoot.TryGetProperty("email_verified", out var uVerified))
+                {
+                    emailVerified = uVerified.ValueKind switch
+                    {
+                        JsonValueKind.True => true,
+                        JsonValueKind.String => string.Equals(uVerified.GetString(), "true", StringComparison.OrdinalIgnoreCase),
+                        _ => false
+                    };
+                }
+            }
+        }
+        catch
+        {
+            // Profile enrichment is optional if tokeninfo already provided verified email and sub
+        }
+
+        return new GoogleJsonWebSignature.Payload
+        {
+            Subject = sub,
+            Email = email,
+            EmailVerified = emailVerified,
+            Name = name,
+            GivenName = givenName
+        };
     }
 }

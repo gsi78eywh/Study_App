@@ -7,6 +7,7 @@ import "../constants/api_constants.dart";
 class GoogleAuthResult {
   final bool success;
   final String? idToken;
+  final String? accessToken;
   final String? email;
   final String? displayName;
   final String? errorMessage;
@@ -14,6 +15,7 @@ class GoogleAuthResult {
   GoogleAuthResult({
     required this.success,
     this.idToken,
+    this.accessToken,
     this.email,
     this.displayName,
     this.errorMessage,
@@ -24,7 +26,12 @@ class GoogleAuthService {
   static final GoogleAuthService instance = GoogleAuthService._();
   GoogleAuthService._();
 
-  static const String configuredClientId = String.fromEnvironment("GOOGLE_CLIENT_ID");
+  static const String defaultWebClientId =
+      "717073834269-9tegppvpc37rd197rmjpkabc108rb9uj.apps.googleusercontent.com";
+  static const String configuredClientId = String.fromEnvironment(
+    "GOOGLE_CLIENT_ID",
+    defaultValue: defaultWebClientId,
+  );
   static const String configuredIosClientId = String.fromEnvironment("GOOGLE_IOS_CLIENT_ID");
 
   static String? _dynamicClientId;
@@ -56,12 +63,12 @@ class GoogleAuthService {
       // the native client ID identifies this app while serverClientId requests
       // the same web-audience token for backend verification.
       clientId: kIsWeb
-          ? (effectiveClientId.isNotEmpty ? effectiveClientId : null)
-          : defaultTargetPlatform == TargetPlatform.iOS && configuredIosClientId.isNotEmpty
+          ? (_isValidClientId(effectiveClientId) ? effectiveClientId : null)
+          : defaultTargetPlatform == TargetPlatform.iOS && _isValidClientId(configuredIosClientId)
               ? configuredIosClientId
               : null,
-      serverClientId: !kIsWeb && effectiveClientId.isNotEmpty ? effectiveClientId : null,
-      scopes: ["email", "profile"],
+      serverClientId: !kIsWeb && _isValidClientId(effectiveClientId) ? effectiveClientId : null,
+      scopes: ["email", "profile", "openid"],
     );
   }
 
@@ -93,7 +100,7 @@ class GoogleAuthService {
   }
 
   Future<GoogleAuthResult> signIn({Dio? dio}) async {
-    if (!isConfigured && dio != null) {
+    if ((!_isValidClientId(effectiveClientId) || _dynamicClientId == null) && dio != null) {
       await tryAutoConfigureFromBackend(dio);
     }
 
@@ -123,17 +130,22 @@ class GoogleAuthService {
 
       final auth = await account.authentication;
       final idToken = auth.idToken;
+      final accessToken = auth.accessToken;
+      final primaryToken = (idToken != null && idToken.isNotEmpty)
+          ? idToken
+          : accessToken;
 
-      if (idToken == null || idToken.isEmpty) {
+      if (primaryToken == null || primaryToken.isEmpty) {
         return GoogleAuthResult(
           success: false,
-          errorMessage: "Google did not provide an ID token. Ensure OAuth client ID is configured for your platform.",
+          errorMessage: "Google did not provide an authentication token. Ensure OAuth client ID is configured for your platform.",
         );
       }
 
       return GoogleAuthResult(
         success: true,
-        idToken: idToken,
+        idToken: primaryToken,
+        accessToken: accessToken,
         email: account.email,
         displayName: account.displayName,
       );

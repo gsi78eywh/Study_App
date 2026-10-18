@@ -123,7 +123,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       final response = await widget.apiClient.dio.post(
         ApiConstants.googleAuth,
-        data: {"idToken": result.idToken},
+        data: {
+          "idToken": result.idToken,
+          if (result.accessToken != null) "accessToken": result.accessToken,
+        },
       );
       if (response.statusCode == 200 && response.data != null) {
         final auth = AuthResponse.fromJson(response.data);
