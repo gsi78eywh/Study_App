@@ -1,0 +1,33 @@
+name: Beta feedback
+description: Report an issue from the StudyApp tester pilot.
+title: "[Beta feedback]: "
+labels: [beta-feedback]
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      placeholder: e.g. Samsung A54, Android 14
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: What happened?
+      description: Include the screen/action, approximate time, and a screenshot if safe to share. Never include passwords or API keys.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Impact
+      options:
+        - Blocks me from using the app
+        - Makes a feature difficult to use
+        - Minor visual or wording issue
+    validations:
+      required: true

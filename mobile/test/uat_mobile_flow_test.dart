@@ -120,6 +120,7 @@ void main() {
         "user_id": "test-user-guid-1234",
         "user_full_name": "Dr. Marie Curie",
         "user_email": "curie@sorbonne.fr",
+        "onboarding_complete_test-user-guid-1234": true,
       });
 
       final sessionService = await SessionService.init();

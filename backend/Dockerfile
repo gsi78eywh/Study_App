@@ -25,6 +25,8 @@ COPY --from=build /app/publish .
 
 # Render provides PORT at runtime and DATABASE_URL from the managed PostgreSQL service.
 ENV ASPNETCORE_URLS=http://+:8080
+ENV ConnectionStrings__DefaultConnection="Data Source=/app/data/studyapp.db"
+ENV DATA_PROTECTION_KEY_PATH=/app/data/data-protection-keys
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "StudyApp.Api.dll"]
