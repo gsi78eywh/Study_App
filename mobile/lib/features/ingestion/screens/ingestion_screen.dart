@@ -1,4 +1,4 @@
-import "dart:async";
+﻿import "dart:async";
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:dio/dio.dart";
@@ -16,6 +16,7 @@ import "../services/fast_ocr_service.dart";
 import "../widgets/camera_scanner_modal.dart";
 import "../widgets/progressive_exam_studio.dart";
 import "../../../core/utils/url_launcher_helper.dart";
+import "../../../core/widgets/pdf_study_guide_viewer_modal.dart";
 
 class IngestionScreen extends StatefulWidget {
   final List<CourseModel> courses;
@@ -1716,6 +1717,32 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                     alignment: WrapAlignment.end,
                     children: [
                       if (hasContent) ...[
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF6366F1),
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(Icons.picture_as_pdf_rounded, size: 16),
+                          label: const Text("View Actual PDF Layout & Print"),
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            PdfStudyGuideViewerModal.show(
+                              context,
+                              title: fileName,
+                              content: extractedText,
+                              sourceType: fileName.toLowerCase().endsWith(".pdf")
+                                  ? "PDF Document (Actual Page Layout)"
+                                  : "Scanned Study Guide",
+                              onUseInEditor: (editedTitle, editedText) {
+                                setState(() {
+                                  _titleController.text = editedTitle;
+                                  _textController.text = editedText;
+                                });
+                                _tabController.animateTo(0);
+                              },
+                            );
+                          },
+                        ),
                         OutlinedButton.icon(
                           icon: const Icon(Icons.copy_rounded, size: 16),
                           label: const Text("Copy Scanned Text"),
@@ -2714,6 +2741,36 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                 ),
               ),
               const SizedBox(width: 8),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF6366F1),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  side: const BorderSide(color: Color(0xFF6366F1)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.picture_as_pdf_rounded, size: 15),
+                label: const Text("PDF Layout & Print", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                onPressed: () {
+                  PdfStudyGuideViewerModal.show(
+                    context,
+                    title: title,
+                    content: extractedText,
+                    sourceType: (_detectedVideoInfo?['isYouTube'] == true)
+                        ? "YouTube Spoken Summary & Study Guide"
+                        : "Web Study Guide",
+                    authorOrChannel: _detectedVideoInfo?['author']?.toString(),
+                    duration: _detectedVideoInfo?['duration']?.toString(),
+                    onUseInEditor: (editedTitle, editedText) {
+                      setState(() {
+                        _titleController.text = editedTitle;
+                        _textController.text = editedText;
+                      });
+                      _tabController.animateTo(0);
+                    },
+                  );
+                },
+              ),
+              const SizedBox(width: 6),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
                   foregroundColor: context.textPrimary,

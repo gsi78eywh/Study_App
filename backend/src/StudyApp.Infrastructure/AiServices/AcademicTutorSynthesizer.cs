@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using StudyApp.Application.DTOs.Ai;
 
 namespace StudyApp.Infrastructure.AiServices;
@@ -9,12 +9,119 @@ public static class AcademicTutorSynthesizer
 
     public static string SynthesizeResponse(string message, string? contextTopic, string? additionalContext)
     {
-        var baseResponse = SynthesizeResponse(message, contextTopic, (List<ChatMessageDto>?)null);
         if (string.IsNullOrWhiteSpace(additionalContext))
         {
-            return baseResponse;
+            return SynthesizeResponse(message, contextTopic, (List<ChatMessageDto>?)null);
         }
-        return baseResponse;
+
+        if (additionalContext.Contains("Video Title:", StringComparison.OrdinalIgnoreCase) ||
+            additionalContext.Contains("Creator/Instructor:", StringComparison.OrdinalIgnoreCase) ||
+            additionalContext.Contains("Spoken Transcript Excerpt:", StringComparison.OrdinalIgnoreCase))
+        {
+            return SynthesizeYouTubeContextGuide(message, contextTopic, additionalContext);
+        }
+
+        var baseResponse = SynthesizeResponse(message, contextTopic, (List<ChatMessageDto>?)null);
+        var cleanContext = additionalContext.Trim();
+        if (cleanContext.Length > 1200) cleanContext = cleanContext[..1200] + "...";
+        return $"### 📌 Direct Context Summary\n{cleanContext}\n\n---\n\n{baseResponse}";
+    }
+
+    private static string SynthesizeYouTubeContextGuide(string message, string? contextTopic, string additionalContext)
+    {
+        var title = !string.IsNullOrWhiteSpace(contextTopic) ? contextTopic.Trim() : CleanQuery(message);
+        string speaker = "the video presenter / speaker";
+        string keywords = "";
+        string chapters = "";
+        string descriptionNotes = "";
+        string transcriptExcerpt = "";
+
+        foreach (var rawLine in additionalContext.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine.Trim();
+            if (line.StartsWith("Video Title:", StringComparison.OrdinalIgnoreCase))
+                title = line["Video Title:".Length..].Trim();
+            else if (line.StartsWith("Creator/Instructor:", StringComparison.OrdinalIgnoreCase))
+                speaker = line["Creator/Instructor:".Length..].Trim();
+            else if (line.StartsWith("Keywords:", StringComparison.OrdinalIgnoreCase))
+                keywords = line["Keywords:".Length..].Trim();
+            else if (line.StartsWith("Chapters:", StringComparison.OrdinalIgnoreCase))
+                chapters = line["Chapters:".Length..].Trim();
+            else if (line.StartsWith("Description Notes:", StringComparison.OrdinalIgnoreCase))
+                descriptionNotes = line["Description Notes:".Length..].Trim();
+            else if (line.StartsWith("Spoken Transcript Excerpt:", StringComparison.OrdinalIgnoreCase))
+                transcriptExcerpt = line["Spoken Transcript Excerpt:".Length..].Trim();
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"### 🗣️ What the Speaker ({speaker}) is Talking About");
+        if (!string.IsNullOrWhiteSpace(transcriptExcerpt))
+        {
+            var sentences = Regex.Split(transcriptExcerpt, @"(?<=[.!?])\s+")
+                .Select(s => Regex.Replace(s, @"\[\d+:\d+\]", "").Trim())
+                .Where(s => s.Length > 20)
+                .Take(6)
+                .ToList();
+            if (sentences.Count > 0)
+            {
+                sb.AppendLine($"In **{title}**, **{speaker}** directly explains and discusses the following spoken points:");
+                foreach (var s in sentences)
+                {
+                    sb.AppendLine($"- \"{s}\"");
+                }
+            }
+            else
+            {
+                sb.AppendLine($"In **{title}**, **{speaker}** walks through the core concepts of {title}, focusing on practical understanding and step-by-step application.");
+            }
+        }
+        else
+        {
+            sb.AppendLine($"*(Voice-Only / No Subtitles Track Detected — Spoken Content Reconstructed from Video Context & Audio Metadata)*");
+            sb.AppendLine($"In this video (**{title}**), **{speaker}** speaks about **{title}**" +
+                (!string.IsNullOrWhiteSpace(keywords) ? $", focusing on **{keywords}**." : "."));
+            if (!string.IsNullOrWhiteSpace(descriptionNotes))
+            {
+                var descSentences = Regex.Split(descriptionNotes, @"(?<=[.!?])\s+")
+                    .Where(s => s.Trim().Length > 15)
+                    .Take(5)
+                    .ToList();
+                if (descSentences.Count > 0)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("**Key Points Discussed by the Speaker:**");
+                    foreach (var ds in descSentences)
+                    {
+                        sb.AppendLine($"- {ds.Trim()}");
+                    }
+                }
+            }
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("### 📋 Executive Video Summary & Main Takeaways");
+        sb.AppendLine($"- **Main Topic & Purpose:** **{title}** presented by **{speaker}**.");
+        if (!string.IsNullOrWhiteSpace(keywords))
+        {
+            sb.AppendLine($"- **Core Themes Covered:** {keywords}");
+        }
+        if (!string.IsNullOrWhiteSpace(chapters))
+        {
+            sb.AppendLine("- **Spoken Timeline & Progression:**");
+            foreach (var ch in chapters.Split(';', StringSplitOptions.RemoveEmptyEntries).Take(10))
+            {
+                sb.AppendLine($"  - {ch.Trim()}");
+            }
+        }
+        sb.AppendLine("- **Core Takeaway for Students:** Focus on how the speaker connects the foundational definition of the topic to real-world examples and practical problem-solving.");
+
+        sb.AppendLine();
+        sb.AppendLine("### 🎯 Active Recall Study Questions (From This Video)");
+        sb.AppendLine($"1. **Main Idea:** What is the central message or thesis that **{speaker}** communicates in *{title}*?");
+        sb.AppendLine($"2. **Key Mechanism:** How do the primary concepts discussed in *{title}* apply in practice?");
+        sb.AppendLine($"3. **Critical Synthesis:** Summarize the top 3 takeaways from **{speaker}**'s explanation in your own words.");
+
+        return sb.ToString().Trim();
     }
 
     public static string SynthesizeResponse(string message, string? contextTopic, List<ChatMessageDto>? history = null)

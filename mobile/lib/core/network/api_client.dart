@@ -14,9 +14,9 @@ class ApiClient {
       BaseOptions(
         baseUrl: sessionService.baseUrl ?? ApiConstants.defaultBaseUrl,
         connectTimeout: const Duration(seconds: 5),
-        // AI synthesis and OCR can legitimately take longer than a normal API
-        // call. This must outlive the backend's 90-second AI provider timeout.
-        receiveTimeout: const Duration(seconds: 120),
+        // Responsive 20-second default timeout so slow cold starts never freeze UI.
+        // Specific heavy uploads override receiveTimeout per-request when needed.
+        receiveTimeout: const Duration(seconds: 20),
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
@@ -62,26 +62,27 @@ class ApiClient {
           }
 
           // Fast candidate host discovery (1.5s health probe instead of blocking 20s fetches)
-          if (kDebugMode &&
-              isGet &&
-              e.type == DioExceptionType.connectionError &&
-              defaultTargetPlatform == TargetPlatform.android &&
+          if (isGet &&
+              (e.type == DioExceptionType.connectionError ||
+                  e.type == DioExceptionType.connectionTimeout) &&
               e.requestOptions.extra["tried_alternate_host"] != true) {
             e.requestOptions.extra["tried_alternate_host"] = true;
             final currentUrl = dio.options.baseUrl;
-            final candidates = [
-              "http://127.0.0.1:5000",
-              "http://192.168.1.11:5000",
-              "http://10.0.2.2:5000",
-            ];
+            final candidates = kDebugMode && defaultTargetPlatform == TargetPlatform.android
+                ? <String>[
+                    "http://127.0.0.1:5000",
+                    "http://10.0.2.2:5000",
+                    ...ApiConstants.productionEndpoints,
+                  ]
+                : ApiConstants.productionEndpoints;
 
             for (final candidate in candidates) {
               if (candidate == currentUrl) continue;
               try {
                 final probeDio = Dio(BaseOptions(
                   baseUrl: candidate,
-                  connectTimeout: const Duration(milliseconds: 1500),
-                  receiveTimeout: const Duration(milliseconds: 1500),
+                  connectTimeout: const Duration(milliseconds: 1800),
+                  receiveTimeout: const Duration(milliseconds: 1800),
                 ));
                 final healthResp = await probeDio.get("/health");
                 if (healthResp.statusCode == 200) {

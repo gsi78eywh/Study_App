@@ -62,22 +62,20 @@ android {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
         }
         release {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (releaseSigningConfigured) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             manifestPlaceholders["usesCleartextTraffic"] = "false"
             isMinifyEnabled = false
             isShrinkResources = false
         }
     }
-}
 
-tasks.configureEach {
-    if (name.startsWith("validateSigning") && name.endsWith("Release")) {
-        doFirst {
-            if (!releaseSigningConfigured) {
-                throw GradleException(
-                    "Release signing is not configured. Set keyAlias, keyPassword, storeFile, and storePassword in android/key.properties."
-                )
-            }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 }

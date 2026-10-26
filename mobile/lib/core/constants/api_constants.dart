@@ -1,29 +1,41 @@
 import "package:flutter/foundation.dart";
 
 class ApiConstants {
-  // Preset URLs for different runtime environments
+  // Preset URLs for different runtime environments (Google Cloud Run + Render failover)
+  static const String cloudRunProductionUrl = "https://studyapp-api-51772-as.a.run.app";
   static const String renderProductionUrl = "https://study-app-b0xq.onrender.com";
   static const String androidEmulatorUrl = "http://10.0.2.2:5000";
   static const String localWifiUrl = "http://172.23.249.209:5000";
   static const String localhostUrl = "http://localhost:5000";
 
   // Configurable base URL:
-  // Override for production with --dart-define=API_BASE_URL=https://study-app-b0xq.onrender.com.
+  // Override for production with --dart-define=API_BASE_URL=https://studyapp-api-51772-as.a.run.app
   static const String _configuredBaseUrl = String.fromEnvironment("API_BASE_URL");
+  static const String _cloudRunUrlEnv = String.fromEnvironment("CLOUD_RUN_URL");
+
+  static String get primaryCloudUrl =>
+      _cloudRunUrlEnv.isNotEmpty ? _cloudRunUrlEnv : renderProductionUrl;
+
+  static List<String> get productionEndpoints => [
+        if (_configuredBaseUrl.isNotEmpty) _configuredBaseUrl,
+        if (_cloudRunUrlEnv.isNotEmpty) _cloudRunUrlEnv,
+        cloudRunProductionUrl,
+        renderProductionUrl,
+      ];
 
   static String get defaultBaseUrl {
     if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
     if (kIsWeb) {
       if (Uri.base.host.isNotEmpty && Uri.base.host != "localhost" && Uri.base.host != "127.0.0.1") {
         if (Uri.base.scheme == "https") {
-          return renderProductionUrl;
+          return primaryCloudUrl;
         }
         return "http://${Uri.base.host}:5000";
       }
       return localhostUrl;
     }
-    // In mobile release builds, Android blocks plain http:// by default, so use HTTPS Render as default
-    if (kReleaseMode) return renderProductionUrl;
+    // In mobile release builds, Android blocks plain http:// by default, so use HTTPS Cloud endpoint
+    if (kReleaseMode) return primaryCloudUrl;
     return defaultTargetPlatform == TargetPlatform.android
         ? androidEmulatorUrl
         : localhostUrl;

@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 
 using System.Text.Json;
 
@@ -689,29 +689,65 @@ public class DocumentExtractor : IDocumentExtractor
                 var words = page.GetWords()?.ToList();
 
                 if (words != null && words.Count > 0)
-
                 {
-
-                    // Group words into lines based on Y-coordinate proximity (top to bottom)
-
-                    var lines = words
-
-                        .GroupBy(w => Math.Round(w.BoundingBox.Bottom / 3.0) * 3.0)
-
+                    // Spatial layout reconstruction: preserve vertical paragraph breaks, table columns, and headings
+                    var lineGroups = words
+                        .GroupBy(w => Math.Round(w.BoundingBox.Bottom / 3.5) * 3.5)
                         .OrderByDescending(g => g.Key)
+                        .ToList();
 
-                        .Select(g => string.Join(" ", g.OrderBy(w => w.BoundingBox.Left).Select(w => w.Text.Trim())))
+                    double? prevY = null;
+                    double medianHeight = words.Select(w => w.BoundingBox.Height).OrderBy(h => h).ElementAtOrDefault(words.Count / 2);
+                    if (medianHeight <= 0) medianHeight = 10.0;
 
-                        .Where(line => !string.IsNullOrWhiteSpace(line));
-
-                    foreach (var line in lines)
-
+                    foreach (var group in lineGroups)
                     {
+                        var sortedWords = group.OrderBy(w => w.BoundingBox.Left).ToList();
+                        if (sortedWords.Count == 0) continue;
 
-                        pageSb.AppendLine(line);
+                        double currentY = group.Key;
+                        double lineMaxHeight = sortedWords.Max(w => w.BoundingBox.Height);
 
+                        if (prevY.HasValue && (prevY.Value - currentY) > Math.Max(14.0, medianHeight * 1.65))
+                        {
+                            pageSb.AppendLine();
+                        }
+                        prevY = currentY;
+
+                        var lineBuilder = new StringBuilder();
+                        double? prevRight = null;
+                        foreach (var w in sortedWords)
+                        {
+                            var text = w.Text.Trim();
+                            if (string.IsNullOrEmpty(text)) continue;
+                            if (prevRight.HasValue)
+                            {
+                                double gap = w.BoundingBox.Left - prevRight.Value;
+                                if (gap > Math.Max(26.0, medianHeight * 2.4))
+                                {
+                                    lineBuilder.Append("  |  ");
+                                }
+                                else
+                                {
+                                    lineBuilder.Append(' ');
+                                }
+                            }
+                            lineBuilder.Append(text);
+                            prevRight = w.BoundingBox.Right;
+                        }
+
+                        var builtLine = lineBuilder.ToString().Trim();
+                        if (string.IsNullOrWhiteSpace(builtLine)) continue;
+
+                        if (lineMaxHeight > medianHeight * 1.28 && builtLine.Length <= 90 && !builtLine.StartsWith("#"))
+                        {
+                            pageSb.AppendLine($"### {builtLine}");
+                        }
+                        else
+                        {
+                            pageSb.AppendLine(builtLine);
+                        }
                     }
-
                 }
 
                 // If word extraction yielded minimal content, fallback to page.Text

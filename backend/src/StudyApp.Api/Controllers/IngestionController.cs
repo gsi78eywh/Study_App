@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.RateLimiting;
+﻿using Microsoft.AspNetCore.RateLimiting;
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Security.Claims;
@@ -669,6 +669,10 @@ public class IngestionController : ControllerBase
 
         var resolvedTitle = ResolveUsableTitle(candidateTitle, uri.ToString(), extractedText);
 
+        bool hasDirectTranscript = isYouTubeScan &&
+            (extractedText.Contains("## Spoken Voice Transcription", StringComparison.OrdinalIgnoreCase) ||
+             extractedText.Contains("## Video Transcript & Spoken Narration", StringComparison.OrdinalIgnoreCase));
+
         return Ok(new
         {
             url = uri.ToString(),
@@ -680,6 +684,8 @@ public class IngestionController : ControllerBase
             extractedText = extractedText.Trim(),
             hasContent = true,
             isVideo = isYouTubeScan,
+            hasTranscript = hasDirectTranscript,
+            isVoiceOnly = isYouTubeScan && !hasDirectTranscript,
             isSong = isYouTubeScan && IsSongOrLyricsContent(resolvedTitle, authorName, extractedText, extractedText),
             videoId = videoId,
             thumbnailUrl = thumbnailUrl,
@@ -687,7 +693,11 @@ public class IngestionController : ControllerBase
             duration = durationStr,
             message = isSearchQuery
                 ? "Search query inquiry synthesized into comprehensive study notes."
-                : (isYouTubeScan ? "Video details and lecture content extracted successfully." : "Article content extracted and parsed successfully.")
+                : (isYouTubeScan
+                    ? (hasDirectTranscript
+                        ? "Video transcript and lecture content extracted successfully."
+                        : "Voice-only video analyzed: speaker topic & study summary synthesized.")
+                    : "Article content extracted and parsed successfully.")
         });
     }
 

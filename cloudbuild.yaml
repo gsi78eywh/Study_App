@@ -1,0 +1,63 @@
+# Google Cloud Build & Cloud Run Deployment Pipeline for StudyApp Backend
+# Project: studyapp-51772 | Region: asia-southeast1 (low-latency APAC / Philippines)
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/studyapp-api:$COMMIT_SHA'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/studyapp-api:latest'
+      - '-f'
+      - 'Dockerfile'
+      - '.'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/studyapp-api'
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/studyapp-api:$COMMIT_SHA'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '8080'
+      - '--cpu'
+      - '2'
+      - '--memory'
+      - '1Gi'
+      - '--concurrency'
+      - '80'
+      - '--min-instances'
+      - '1'
+      - '--max-instances'
+      - '10'
+      - '--cpu-boost'
+      - '--timeout'
+      - '120s'
+      - '--set-env-vars'
+      - 'ASPNETCORE_ENVIRONMENT=Production,DOTNET_TieredPGO=1'
+
+substitutions:
+  _REGION: asia-southeast1
+  _REPO: studyapp
+  _SERVICE_NAME: studyapp-api
+
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/studyapp-api:$COMMIT_SHA'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/studyapp-api:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+

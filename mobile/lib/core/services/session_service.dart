@@ -36,13 +36,25 @@ class SessionService {
     // Release builds on mobile strictly enforce the configured/production HTTPS endpoint with no local override
     if (kReleaseMode && !kIsWeb) return null;
     final saved = _prefs.getString(_keyBaseUrl);
-    if (saved == ApiConstants.renderProductionUrl) return null;
+    if (saved == ApiConstants.renderProductionUrl ||
+        saved == ApiConstants.cloudRunProductionUrl) {
+      return null;
+    }
     return saved;
   }
 
-  bool get isOnboardingCompleted => _prefs.getBool(_keyOnboardingCompleted) ?? false;
+  bool get isOnboardingCompleted {
+    if (_prefs.getBool(_keyOnboardingCompleted) == true) return true;
+    final uid = userId;
+    if (uid != null && _prefs.getBool("onboarding_complete_$uid") == true) {
+      return true;
+    }
+    return false;
+  }
+
   String get schoolLevel => _prefs.getString(_keySchoolLevel) ?? "College";
-  String get gradingScale => _prefs.getString(_keyGradingScale) ?? "USJ-R (1.00 - 5.00)";
+  String get gradingScale =>
+      _prefs.getString(_keyGradingScale) ?? "USJ-R (1.00 - 5.00)";
   bool get hasMinorConsent => _prefs.getBool(_keyMinorConsent) ?? false;
   bool get isGoogleLinked => _prefs.getBool(_keyIsGoogleLinked) ?? false;
 
@@ -50,12 +62,20 @@ class SessionService {
     await _prefs.setBool(_keyIsGoogleLinked, linked);
   }
 
+  Future<void> completeOnboarding() async {
+    await _prefs.setBool(_keyOnboardingCompleted, true);
+    final uid = userId;
+    if (uid != null && uid.isNotEmpty) {
+      await _prefs.setBool("onboarding_complete_$uid", true);
+    }
+  }
+
   Future<void> setOnboardingCompleted({
     required String schoolLevel,
     required String gradingScale,
     bool hasMinorConsent = false,
   }) async {
-    await _prefs.setBool(_keyOnboardingCompleted, true);
+    await completeOnboarding();
     await _prefs.setString(_keySchoolLevel, schoolLevel);
     await _prefs.setString(_keyGradingScale, gradingScale);
     await _prefs.setBool(_keyMinorConsent, hasMinorConsent);
