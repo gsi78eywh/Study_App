@@ -33,6 +33,7 @@ class SyncService {
   static const String _offlineCoursesKey = "offline_cached_courses_v2";
   static List<CourseModel> _cachedCourses = [];
   static List<CourseModel> get cachedCourses => List.unmodifiable(_cachedCourses);
+  static set cachedCourses(List<CourseModel> courses) => _cachedCourses = List.from(courses);
 
   /// Clears in-memory course cache to prevent cross-session data leakage
   static void clearCache() {

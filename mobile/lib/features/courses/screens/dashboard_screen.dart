@@ -1,7 +1,6 @@
-﻿import "dart:async";
+import "dart:async";
 import "package:dio/dio.dart";
 import "package:flutter/material.dart";
-import "package:flutter/services.dart";
 import "package:google_fonts/google_fonts.dart";
 
 import "../../../core/network/api_client.dart";
@@ -15,14 +14,11 @@ import "../models/course_models.dart";
 import "../../auth/screens/login_screen.dart";
 import "../../flashcards/screens/flashcards_screen.dart";
 import "../../ingestion/screens/ingestion_screen.dart";
+import "../../ingestion/services/local_pdf_extractor.dart";
 import "../../quiz/models/quiz_models.dart";
 import "../../quiz/screens/quiz_player_screen.dart";
 import "../../quiz/screens/rapid_fire_screen.dart";
 import "../../sync/services/sync_service.dart";
-import "../../ai_tutor/screens/ai_tutor_screen.dart";
-import "../../ai_tutor/services/seth_ai_engine.dart";
-import "../../ai_tutor/widgets/easy_writing_studio_modal.dart";
-import "../../../core/utils/url_launcher_helper.dart";
 import "../../settings/services/settings_service.dart";
 import "../../settings/screens/settings_screen.dart";
 import "../../settings/widgets/dswd_safety_modal.dart";
@@ -67,47 +63,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final int _studioDraftRevision = 0;
   String? _activeCourseId;
 
-  // Universal Search (Google Search + Seth AI + Local Courses/StudySets/Questions)
+  // Local workspace filter
   final TextEditingController _universalSearchController = TextEditingController();
-  bool _isSearchingUniversal = false;
   String _universalSearchQuery = "";
-  SethAiSearchOverview? _universalSearchResult;
-
-  Future<void> _executeUniversalSearch([String? customQuery]) async {
-    final q = (customQuery ?? _universalSearchController.text).trim();
-    if (q.isEmpty) {
-      setState(() {
-        _universalSearchQuery = "";
-        _universalSearchResult = null;
-        _isSearchingUniversal = false;
-      });
-      return;
-    }
-    if (customQuery != null) {
-      _universalSearchController.text = customQuery;
-    }
-    setState(() {
-      _universalSearchQuery = q;
-      _isSearchingUniversal = true;
-    });
-    try {
-      final res = await SethAiEngine.searchUniversal(
-        q,
-        apiClient: widget.apiClient,
-        courseId: _activeCourseId,
-      );
-      if (mounted) {
-        setState(() {
-          _universalSearchResult = res;
-          _isSearchingUniversal = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() => _isSearchingUniversal = false);
-      }
-    }
-  }
 
   String _cleanDescription(String? raw) {
     if (raw == null || raw.trim().isEmpty) {
@@ -130,8 +88,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return cleaned;
   }
 
-  void _openAddMaterial([String? targetCourseId]) {
-    Navigator.of(context).push(
+  void _openAddMaterial([String? targetCourseId]) async {
+    final createdSet = await Navigator.of(context).push<StudySetModel>(
       MaterialPageRoute(
         builder: (_) => IngestionScreen(
           courses: _courses,
@@ -142,123 +100,87 @@ class _DashboardScreenState extends State<DashboardScreen> {
           draftTitle: _studioDraftTitle,
           draftContent: _studioDraftContent,
           draftRevision: _studioDraftRevision,
-          onStudySetCreated: (newSet) async {
-            await _fetchCoursesAndSync();
+          onStudySetCreated: (newSet) {
             if (!mounted) return;
             setState(() {
-              final course = _courses.firstWhere(
-                (c) => c.id == newSet.courseId,
-                orElse: () => _courses.isNotEmpty
-                    ? _courses.first
-                    : CourseModel(
-                        id: newSet.courseId,
-                        code: "GEN-101",
-                        name: "General Studies",
-                        colorHex: "#2E7D5B",
-                        createdAt: DateTime.now(),
-                        studySets: [newSet],
-                      ),
-              );
-              if (!course.studySets.any((s) => s.id == newSet.id)) {
-                course.studySets.insert(0, newSet);
+              final idx = _courses.indexWhere((c) => c.id == newSet.courseId);
+              if (idx >= 0) {
+                final existing = _courses[idx];
+                final updatedSets = [
+                  newSet,
+                  ...existing.studySets.where((s) => s.id != newSet.id),
+                ];
+                _courses[idx] = existing.copyWith(studySets: updatedSets);
+              } else if (_courses.isNotEmpty) {
+                final first = _courses.first;
+                final updatedSets = [
+                  newSet,
+                  ...first.studySets.where((s) => s.id != newSet.id),
+                ];
+                _courses[0] = first.copyWith(studySets: updatedSets);
+              } else {
+                _courses = [
+                  CourseModel(
+                    id: newSet.courseId.isNotEmpty
+                        ? newSet.courseId
+                        : "local_course_default",
+                    code: "GEN-101",
+                    name: "General Studies",
+                    colorHex: "#2E7D5B",
+                    createdAt: DateTime.now(),
+                    studySets: [newSet],
+                  ),
+                ];
               }
+              SyncService.cachedCourses = List.from(_courses);
             });
-            Navigator.of(context).pop();
           },
         ),
       ),
     );
+
+    if (createdSet != null && mounted) {
+      _fetchCoursesAndSync();
+    }
   }
 
   List<QuestionModel> _buildInstantLocalQuestions(StudySetModel set) {
-    final topic = set.title.trim().isNotEmpty ? set.title.trim() : "Core Study Concept";
-    final desc = _cleanDescription(set.description);
-    return [
-      QuestionModel(
-        id: "local-${set.id}-1",
-        studySetId: set.id,
-        type: QuestionTypeEnum.multipleChoice,
-        prompt: "What is the primary focus and core principle of $topic?",
-        hints: const ["Focus on the core definition of the study set."],
-        explanation: desc,
-        difficulty: 2,
-        options: [
-          QuestionOptionModel(
-            id: "opt-1a",
-            optionText: desc,
-            isCorrect: true,
-          ),
-          QuestionOptionModel(
-            id: "opt-1b",
-            optionText: "Unrelated external assumption not grounded in $topic.",
-            isCorrect: false,
-          ),
-          QuestionOptionModel(
-            id: "opt-1c",
-            optionText: "Random trial-and-error without structured verification.",
-            isCorrect: false,
-          ),
-          QuestionOptionModel(
-            id: "opt-1d",
-            optionText: "Ignoring boundary conditions and core definitions.",
-            isCorrect: false,
-          ),
-        ],
-      ),
-      QuestionModel(
-        id: "local-${set.id}-2",
-        studySetId: set.id,
-        type: QuestionTypeEnum.trueFalse,
-        prompt: "True or False: Mastering $topic requires understanding both its core definition and its practical application.",
-        hints: const ["Consider how theory and practice work together."],
-        explanation: "Understanding both theory and real-world application is essential for exam readiness in $topic.",
-        difficulty: 1,
-        isTrue: true,
-        options: [
-          QuestionOptionModel(id: "opt-2a", optionText: "True", isCorrect: true),
-          QuestionOptionModel(id: "opt-2b", optionText: "False", isCorrect: false),
-        ],
-      ),
-      QuestionModel(
-        id: "local-${set.id}-3",
-        studySetId: set.id,
-        type: QuestionTypeEnum.identification,
-        prompt: "Identify the study topic described: $desc",
-        hints: [topic],
-        explanation: "This study set focuses on $topic.",
-        difficulty: 2,
-        correctAnswer: topic,
-        options: [
-          QuestionOptionModel(id: "opt-3a", optionText: topic, isCorrect: true),
-        ],
-      ),
-    ];
+    return LocalExamSynthesizer.getQuestionsForSet(set);
   }
 
   void _startPracticeForSet(StudySetModel set) async {
     List<QuestionModel> loadedQuestions = [];
-    BuildContext? loadingDialogCtx;
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) {
-        loadingDialogCtx = ctx;
-        return const Center(child: CircularProgressIndicator());
-      },
-    );
-    try {
-      final res = await widget.apiClient.dio.get(
-        '/api/v1/studysets/${set.id}/questions',
-        options: Options(receiveTimeout: const Duration(seconds: 6)),
+    if (!set.id.startsWith("local_")) {
+      BuildContext? loadingDialogCtx;
+      showDialog(
+        context: context,
+        barrierDismissible: true,
+        builder: (ctx) {
+          loadingDialogCtx = ctx;
+          return const Center(child: CircularProgressIndicator());
+        },
       );
-      if (res.statusCode == 200 && res.data is List) {
-        loadedQuestions = (res.data as List)
-            .map((q) => QuestionModel.fromJson(q as Map<String, dynamic>))
-            .toList();
+      try {
+        final res = await widget.apiClient.dio
+            .get(
+              '/api/v1/studysets/${set.id}/questions',
+              options: Options(receiveTimeout: const Duration(milliseconds: 2500)),
+            )
+            .timeout(const Duration(milliseconds: 2500));
+        if (res.statusCode == 200 && res.data is List) {
+          loadedQuestions = (res.data as List)
+              .map((q) => QuestionModel.fromJson(q as Map<String, dynamic>))
+              .toList();
+          if (loadedQuestions.isNotEmpty) {
+            LocalExamSynthesizer.registerQuestions(set.id, loadedQuestions);
+          }
+        }
+      } catch (_) {}
+      if (loadingDialogCtx != null &&
+          loadingDialogCtx!.mounted &&
+          Navigator.canPop(loadingDialogCtx!)) {
+        Navigator.pop(loadingDialogCtx!);
       }
-    } catch (_) {}
-    if (loadingDialogCtx != null && loadingDialogCtx!.mounted && Navigator.canPop(loadingDialogCtx!)) {
-      Navigator.pop(loadingDialogCtx!);
     }
 
     if (!mounted) return;
@@ -275,7 +197,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           sessionService: widget.sessionService,
         ),
       ),
-    ).then((_) => _fetchCoursesAndSync(fullFetch: true));
+    ).then((_) => _fetchCoursesAndSync(fullFetch: false));
   }
 
   Timer? _eyeBreakMonitoringTimer;
@@ -926,6 +848,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
+    final localCoursesBackup = List<CourseModel>.from(_courses);
     final result = await _syncService.performSync(
       fullFetch: fullFetch,
       currentCourses: _courses,
@@ -934,14 +857,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     setState(() {
       _isLoadingCourses = false;
-      if (result.success && (result.syncedCourses.isNotEmpty || fullFetch)) {
-        _courses = result.syncedCourses;
+      if (result.success && result.syncedCourses.isNotEmpty) {
+        // Merge any local study sets that haven't been synced to backend yet
+        final merged = List<CourseModel>.from(result.syncedCourses);
+        for (final localC in localCoursesBackup) {
+          final localSets = localC.studySets
+              .where((s) => s.id.startsWith("local_"))
+              .toList();
+          final targetIdx = merged.indexWhere((c) => c.id == localC.id);
+          if (targetIdx >= 0 && localSets.isNotEmpty) {
+            final existingSets = merged[targetIdx].studySets;
+            final combinedSets = [
+              ...localSets.where((ls) => !existingSets.any((es) => es.id == ls.id)),
+              ...existingSets,
+            ];
+            merged[targetIdx] = merged[targetIdx].copyWith(studySets: combinedSets);
+          } else if (targetIdx == -1 &&
+              (localC.id.startsWith("local_") || localSets.isNotEmpty)) {
+            merged.insert(0, localC);
+          }
+        }
+        _courses = merged;
+        SyncService.cachedCourses = List.from(_courses);
       }
-      // Do not inject demo courses; keep clean for new user
-      if (_courses.isEmpty) {
-        _courses = [];
-      }
-      if (_courses.isNotEmpty && (_activeCourseId == null || !_courses.any((c) => c.id == _activeCourseId))) {
+      if (_courses.isNotEmpty &&
+          (_activeCourseId == null ||
+              !_courses.any((c) => c.id == _activeCourseId))) {
         _activeCourseId = _courses.first.id;
       }
     });
@@ -1078,22 +1019,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 }
 
                 try {
-                  final response = await widget.apiClient.dio.post(
-                    "/api/v1/courses",
-                    data: {
-                      "code": code,
-                      "name": name,
-                      "colorHex": selectedColor,
-                    },
-                  );
+                  final response = await widget.apiClient.dio
+                      .post(
+                        "/api/v1/courses",
+                        data: {
+                          "code": code,
+                          "name": name,
+                          "colorHex": selectedColor,
+                        },
+                      )
+                      .timeout(const Duration(milliseconds: 2500));
                   if (!mounted) return;
-                  if (!ctx.mounted) return;
-                  Navigator.pop(ctx);
+                  if (ctx.mounted) Navigator.pop(ctx);
 
                   if (response.data is Map<String, dynamic>) {
                     final newCourse = CourseModel.fromJson(response.data);
                     setState(() {
                       _courses = [..._courses, newCourse];
+                      _activeCourseId ??= newCourse.id;
+                      SyncService.cachedCourses = List.from(_courses);
                     });
                   }
 
@@ -1104,45 +1048,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   );
 
-                  await _fetchCoursesAndSync(fullFetch: true);
-                } catch (e) {
+                  await _fetchCoursesAndSync(fullFetch: false);
+                } catch (_) {
+                  // Instant offline fallback: create the course locally without failing
                   if (!mounted) return;
-                  String msg = "Unable to create the course. Please try again.";
-                  bool isUnauthorized = false;
-
-                  if (e is DioException) {
-                    if (e.response?.statusCode == 401) {
-                      isUnauthorized = true;
-                      msg = "Session expired. Please sign in again.";
-                    } else if (e.response?.data is Map &&
-                        (e.response?.data as Map)["message"] != null) {
-                      msg = (e.response!.data as Map)["message"].toString();
-                    } else if (e.error != null && e.error.toString().isNotEmpty) {
-                      msg = e.error.toString();
-                    }
-                  }
-
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  final localCourse = CourseModel(
+                    id: "local_course_${DateTime.now().millisecondsSinceEpoch}",
+                    code: code,
+                    name: name,
+                    colorHex: selectedColor,
+                    createdAt: DateTime.now(),
+                    studySets: const [],
+                  );
+                  setState(() {
+                    _courses = [..._courses, localCourse];
+                    _activeCourseId ??= localCourse.id;
+                    SyncService.cachedCourses = List.from(_courses);
+                  });
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(msg),
-                      backgroundColor: AppColors.danger,
+                      content: Text("Course '$code' created!"),
+                      backgroundColor: AppColors.accent,
                     ),
                   );
-
-                  if (isUnauthorized) {
-                    await widget.sessionService.clearAuth();
-                    if (mounted) {
-                      if (ctx.mounted) Navigator.pop(ctx);
-                      Navigator.of(context).pushReplacement(
-                        MaterialPageRoute(
-                          builder: (_) => LoginScreen(
-                            apiClient: widget.apiClient,
-                            sessionService: widget.sessionService,
-                          ),
-                        ),
-                      );
-                    }
-                  }
                 }
               },
               child: const Text("Create"),
@@ -1385,75 +1314,75 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _startRapidFire(StudySetModel set) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text("Loading Rapid-Fire session..."),
-              ],
+    List<QuestionModel> questions = [];
+    if (!set.id.startsWith("local_")) {
+      BuildContext? loadingDialogCtx;
+      showDialog(
+        context: context,
+        barrierDismissible: true,
+        builder: (ctx) {
+          loadingDialogCtx = ctx;
+          return const Center(
+            child: Card(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text("Loading Rapid-Fire session..."),
+                  ],
+                ),
+              ),
             ),
-          ),
+          );
+        },
+      );
+      try {
+        final resp = await widget.apiClient.dio
+            .get(
+              "/api/v1/practice/studysets/${set.id}/questions",
+              queryParameters: {
+                "mode": StudyModeValue.rapidFireBlitz,
+                "count": _settingsService.settings.defaultQuestionCount,
+              },
+            )
+            .timeout(const Duration(milliseconds: 2500));
+        if (resp.statusCode == 200 && resp.data is List) {
+          final raw = resp.data as List<dynamic>;
+          questions = raw
+              .map((q) => QuestionModel.fromJson(q as Map<String, dynamic>))
+              .toList();
+          if (questions.isNotEmpty) {
+            LocalExamSynthesizer.registerQuestions(set.id, questions);
+          }
+        }
+      } catch (_) {}
+      if (loadingDialogCtx != null &&
+          loadingDialogCtx!.mounted &&
+          Navigator.canPop(loadingDialogCtx!)) {
+        Navigator.pop(loadingDialogCtx!);
+      }
+    }
+
+    if (questions.isEmpty) {
+      questions = _buildInstantLocalQuestions(set);
+    }
+    if (!mounted) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RapidFireScreen(
+          studySet: set,
+          questions: questions,
+          apiClient: widget.apiClient,
+          sessionService: widget.sessionService,
+          secondsPerQuestion:
+              _settingsService.settings.blitzSecondsPerQuestion,
         ),
       ),
     );
-    try {
-      final resp = await widget.apiClient.dio.get(
-        "/api/v1/practice/studysets/${set.id}/questions",
-        queryParameters: {
-          "mode": StudyModeValue.rapidFireBlitz,
-          "count": _settingsService.settings.defaultQuestionCount,
-        },
-      );
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      if (resp.statusCode == 200) {
-        final raw = resp.data as List<dynamic>;
-        final questions = raw
-            .map((q) => QuestionModel.fromJson(q as Map<String, dynamic>))
-            .toList();
-        if (questions.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                "No questions available for Rapid-Fire. Generate a study set first.",
-              ),
-              backgroundColor: AppColors.warning,
-            ),
-          );
-          return;
-        }
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => RapidFireScreen(
-              studySet: set,
-              questions: questions,
-              apiClient: widget.apiClient,
-              sessionService: widget.sessionService,
-              secondsPerQuestion:
-                  _settingsService.settings.blitzSecondsPerQuestion,
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Could not start Rapid-Fire: $e"),
-            backgroundColor: AppColors.danger,
-          ),
-        );
-      }
-    }
   }
 
   Future<void> _exportStudyGuide(StudySetModel set) async {
@@ -1551,47 +1480,56 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final effectiveMode = mode ?? _settingsService.settings.preferredStudyMode;
     final effectiveCount = count ?? _settingsService.settings.defaultQuestionCount;
 
-    BuildContext? loadingDialogCtx;
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) {
-        loadingDialogCtx = ctx;
-        return const Center(
-          child: Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text("Loading practice questions..."),
-                ],
+    List<QuestionModel> questions = [];
+    if (!set.id.startsWith("local_")) {
+      BuildContext? loadingDialogCtx;
+      showDialog(
+        context: context,
+        barrierDismissible: true,
+        builder: (ctx) {
+          loadingDialogCtx = ctx;
+          return const Center(
+            child: Card(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text("Loading practice questions..."),
+                  ],
+                ),
               ),
             ),
-          ),
-        );
-      },
-    );
-
-    List<QuestionModel> questions = [];
-    try {
-      final response = await widget.apiClient.dio.get(
-        "/api/v1/practice/studysets/${set.id}/questions",
-        queryParameters: {"mode": effectiveMode, "count": effectiveCount},
-        options: Options(receiveTimeout: const Duration(seconds: 6)),
+          );
+        },
       );
-      if (response.statusCode == 200 && response.data is List) {
-        final List list = response.data;
-        questions = list
-            .map((item) => QuestionModel.fromJson(item as Map<String, dynamic>))
-            .toList();
-      }
-    } catch (_) {}
 
-    if (loadingDialogCtx != null && loadingDialogCtx!.mounted && Navigator.canPop(loadingDialogCtx!)) {
-      Navigator.pop(loadingDialogCtx!);
+      try {
+        final response = await widget.apiClient.dio
+            .get(
+              "/api/v1/practice/studysets/${set.id}/questions",
+              queryParameters: {"mode": effectiveMode, "count": effectiveCount},
+              options: Options(receiveTimeout: const Duration(milliseconds: 2500)),
+            )
+            .timeout(const Duration(milliseconds: 2500));
+        if (response.statusCode == 200 && response.data is List) {
+          final List list = response.data;
+          questions = list
+              .map((item) => QuestionModel.fromJson(item as Map<String, dynamic>))
+              .toList();
+          if (questions.isNotEmpty) {
+            LocalExamSynthesizer.registerQuestions(set.id, questions);
+          }
+        }
+      } catch (_) {}
+
+      if (loadingDialogCtx != null &&
+          loadingDialogCtx!.mounted &&
+          Navigator.canPop(loadingDialogCtx!)) {
+        Navigator.pop(loadingDialogCtx!);
+      }
     }
 
     if (questions.isEmpty) {
@@ -2737,7 +2675,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildUniversalSearchAndQuickHub(bool isDark) {
-    final qLower = _universalSearchQuery.toLowerCase();
+    final qLower = _universalSearchQuery.trim().toLowerCase();
     final matchingLocalSets = <StudySetModel>[];
     if (qLower.isNotEmpty) {
       for (final c in _courses) {
@@ -2755,379 +2693,202 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Google-Standard Universal Search Bar (Seth AI + Web + Local Workspace)
+        // Clean Primary Study Workflow Bar (No laggy AI web search or clutter)
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: context.surfaceColor,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: const Color(0xFF2E7D5B).withValues(alpha: 0.45),
-              width: 1.4,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
+            border: Border.all(color: context.cardBorderColor),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(Icons.travel_explore_rounded, color: Color(0xFF2E7D5B), size: 22),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2E7D5B),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
+                      ),
+                      onPressed: () => _openAddMaterial(),
+                      icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                      label: const Text(
+                        "Add / Paste PDF & Notes",
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF2E7D5B),
+                        side: const BorderSide(color: Color(0xFF2E7D5B), width: 1.3),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () => setState(() => _currentTabIndex = 1),
+                      icon: const Icon(Icons.quiz_rounded, size: 18),
+                      label: const Text(
+                        "Practice & Create Exam",
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildQuickFeatureChip(
+                    icon: Icons.slideshow_rounded,
+                    label: "4-Step Walkthrough Slideshow",
+                    color: const Color(0xFF2E7D5B),
+                    isDark: isDark,
+                    onTap: () => OnboardingModal.showForce(
+                      context,
+                      sessionService: widget.sessionService,
+                      onCompleted: () {
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                  ),
+                  _buildQuickFeatureChip(
+                    icon: Icons.add_box_rounded,
+                    label: "New Course",
+                    color: const Color(0xFF3B82F6),
+                    isDark: isDark,
+                    onTap: _showAddCourseDialog,
+                  ),
+                  _buildQuickFeatureChip(
+                    icon: Icons.bar_chart_rounded,
+                    label: "Grade Tracker",
+                    color: const Color(0xFF0D9488),
+                    isDark: isDark,
+                    onTap: () => GradeTrackerSheet.show(
+                      context,
+                      widget.apiClient,
+                      onGradesUpdated: () {
+                        _fetchCoursesAndSync(fullFetch: true);
+                        _loadTodayStudyPlan();
+                      },
+                    ),
+                  ),
+                  _buildQuickFeatureChip(
+                    icon: Icons.calendar_month_rounded,
+                    label: "Study Planner",
+                    color: const Color(0xFF6366F1),
+                    isDark: isDark,
+                    onTap: _openAcademicPlannerModal,
+                  ),
+                ],
+              ),
+              if (_courses.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                TextField(
                   controller: _universalSearchController,
-                  onSubmitted: (_) => _executeUniversalSearch(),
-                  style: TextStyle(fontSize: 13.5, color: context.textPrimary),
+                  onChanged: (v) => setState(() => _universalSearchQuery = v),
+                  style: TextStyle(fontSize: 13, color: context.textPrimary),
                   decoration: InputDecoration(
-                    hintText: "Search Google + Seth AI + all courses, study sets & flashcards...",
+                    hintText: "Filter your local courses & study sets...",
                     hintStyle: TextStyle(fontSize: 12.5, color: context.textSecondary),
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    filled: false,
+                    prefixIcon: const Icon(Icons.filter_list_rounded, size: 18, color: Color(0xFF2E7D5B)),
+                    suffixIcon: _universalSearchQuery.isNotEmpty
+                        ? IconButton(
+                            visualDensity: VisualDensity.compact,
+                            icon: Icon(Icons.close_rounded, size: 16, color: context.textSecondary),
+                            onPressed: () {
+                              _universalSearchController.clear();
+                              setState(() => _universalSearchQuery = "");
+                            },
+                          )
+                        : null,
                     isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: context.cardBorderColor),
+                    ),
                   ),
                 ),
-              ),
-              if (_universalSearchController.text.isNotEmpty || _universalSearchQuery.isNotEmpty)
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(Icons.close_rounded, size: 18, color: context.textSecondary),
-                  tooltip: "Clear search",
-                  onPressed: () {
-                    _universalSearchController.clear();
-                    setState(() {
-                      _universalSearchQuery = "";
-                      _universalSearchResult = null;
-                      _isSearchingUniversal = false;
-                    });
-                  },
-                ),
-              const SizedBox(width: 4),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2E7D5B),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  minimumSize: const Size(0, 36),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
-                ),
-                onPressed: _isSearchingUniversal ? null : () => _executeUniversalSearch(),
-                icon: _isSearchingUniversal
-                    ? const SizedBox(
-                        width: 13,
-                        height: 13,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.search_rounded, size: 16),
-                label: Text(
-                  _isSearchingUniversal ? "..." : "Search",
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                ),
-              ),
+              ],
             ],
           ),
         ),
-        const SizedBox(height: 10),
-
-        // Quick Feature Action Pills (Mobile-Friendly Wrap)
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _buildQuickFeatureChip(
-              icon: Icons.auto_awesome_rounded,
-              label: "Seth AI Search",
-              color: const Color(0xFF2E7D5B),
-              isDark: isDark,
-              onTap: () => setState(() => _currentTabIndex = 3),
-            ),
-            _buildQuickFeatureChip(
-              icon: Icons.edit_note_rounded,
-              label: "Easy Maker & Corrector",
-              color: const Color(0xFF0D9488),
-              isDark: isDark,
-              onTap: () => EasyWritingStudioModal.show(
-                context,
-                apiClient: widget.apiClient,
-              ),
-            ),
-            _buildQuickFeatureChip(
-              icon: Icons.calendar_month_rounded,
-              label: "Study Planner",
-              color: const Color(0xFF3B82F6),
-              isDark: isDark,
-              onTap: _openAcademicPlannerModal,
-            ),
-            _buildQuickFeatureChip(
-              icon: Icons.document_scanner_rounded,
-              label: "Scan Screenshot / YouTube",
-              color: const Color(0xFFD97706),
-              isDark: isDark,
-              onTap: () => _openAddMaterial(),
-            ),
-            _buildQuickFeatureChip(
-              icon: Icons.android_rounded,
-              label: "Download Android APK",
-              color: const Color(0xFF16A34A),
-              isDark: isDark,
-              onTap: () => launchWebUrl("https://github.com/gsi78eywh/Study_App/raw/main/StudyApp-release.apk"),
-            ),
-          ],
-        ),
-
-        // Universal Search Results Panel (loads ALL local & web data like Google Search)
-        if (_universalSearchQuery.isNotEmpty) ...[
-          const SizedBox(height: 14),
+        if (qLower.isNotEmpty) ...[
+          const SizedBox(height: 10),
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: context.surfaceColor,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFF2E7D5B).withValues(alpha: 0.4)),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: context.cardBorderColor),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.public_rounded, color: Color(0xFF2E7D5B), size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        "All Search Results for \"$_universalSearchQuery\"",
-                        style: GoogleFonts.outfit(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: context.textPrimary,
-                        ),
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: () => setState(() => _currentTabIndex = 3),
-                      icon: const Icon(Icons.chat_bubble_outline_rounded, size: 14),
-                      label: const Text("Open in Seth AI", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                    ),
-                  ],
-                ),
-                const Divider(height: 18),
-
-                // 1. Local Matching Study Sets
-                if (matchingLocalSets.isNotEmpty) ...[
-                  Text(
-                    "📚 Matching Study Sets in Your Workspace (${matchingLocalSets.length})",
-                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF2E7D5B)),
-                  ),
-                  const SizedBox(height: 8),
-                  ...matchingLocalSets.take(5).map((set) => Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: context.secondaryBg,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: context.cardBorderColor),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.menu_book_rounded, size: 18, color: Color(0xFF2E7D5B)),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    set.title,
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: context.textPrimary),
-                                  ),
-                                  Text(
-                                    "${set.questionCount} questions • ${_cleanDescription(set.description)}",
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(fontSize: 11.5, color: context.textSecondary),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF2E7D5B),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                minimumSize: const Size(0, 32),
-                              ),
-                              onPressed: () => _startPracticeForSet(set),
-                              child: const Text("Practice", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
-                            ),
-                          ],
-                        ),
-                      )),
-                  const SizedBox(height: 10),
-                ],
-
-                // 2. Seth AI Google Search Overview
-                if (_isSearchingUniversal)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 20),
-                    child: Center(
-                      child: Column(
-                        children: [
-                          CircularProgressIndicator(color: Color(0xFF2E7D5B)),
-                          SizedBox(height: 10),
-                          Text(
-                            "Seth AI is searching Google-standard web sources & your workspace...",
-                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-                          ),
-                        ],
-                      ),
-                    ),
+            child: matchingLocalSets.isEmpty
+                ? Text(
+                    "No study sets matching \"$_universalSearchQuery\" in your workspace.",
+                    style: TextStyle(fontSize: 12.5, color: context.textSecondary),
                   )
-                else if (_universalSearchResult != null) ...[
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2E7D5B).withValues(alpha: isDark ? 0.16 : 0.08),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: const Color(0xFF2E7D5B).withValues(alpha: 0.35)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.auto_awesome_rounded, size: 16, color: Color(0xFF2E7D5B)),
-                            const SizedBox(width: 6),
-                            const Expanded(
-                              child: Text(
-                                "Seth AI • Google-Standard Direct Answer & Overview",
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Color(0xFF2E7D5B)),
-                              ),
-                            ),
-                            IconButton(
-                              visualDensity: VisualDensity.compact,
-                              icon: const Icon(Icons.copy_rounded, size: 15, color: Color(0xFF2E7D5B)),
-                              tooltip: "Copy answer",
-                              onPressed: () {
-                                Clipboard.setData(ClipboardData(text: _universalSearchResult!.aiOverview));
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text("Copied Seth AI overview to clipboard")),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        SelectableText(
-                          _universalSearchResult!.aiOverview,
-                          style: TextStyle(fontSize: 13, height: 1.5, color: context.textPrimary),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // 3. Verified Web & Encyclopedia Sources
-                  if (_universalSearchResult!.webSources.isNotEmpty) ...[
-                    const SizedBox(height: 14),
-                    Text(
-                      "🌐 Verified Web & Reference Sources (${_universalSearchResult!.webSources.length})",
-                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: context.textPrimary),
-                    ),
-                    const SizedBox(height: 8),
-                    ..._universalSearchResult!.webSources.map((src) => InkWell(
-                          onTap: () {
-                            PdfStudyGuideViewerModal.show(
-                              context,
-                              title: src.title,
-                              content: src.snippet.isNotEmpty
-                                  ? "## \n\n\n\n---\n\n"
-                                  : _universalSearchResult!.aiOverview,
-                              sourceType: "Direct In-App Knowledge Reader",
-                            );
-                          },
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        "Matching Study Sets (${matchingLocalSets.length})",
+                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF2E7D5B)),
+                      ),
+                      const SizedBox(height: 8),
+                      ...matchingLocalSets.take(6).map((set) => Container(
                             margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                             decoration: BoxDecoration(
                               color: context.secondaryBg,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(10),
                               border: Border.all(color: context.cardBorderColor),
                             ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                            child: Row(
                               children: [
-                                Row(
-                                  children: [
-                                    const Icon(Icons.language_rounded, size: 15, color: Color(0xFF2E7D5B)),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        src.title,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
-                                          color: Color(0xFF2E7D5B),
-                                        ),
+                                const Icon(Icons.menu_book_rounded, size: 18, color: Color(0xFF2E7D5B)),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        set.title,
+                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: context.textPrimary),
                                       ),
-                                    ),
-                                    const Icon(Icons.open_in_new_rounded, size: 14, color: Color(0xFF2E7D5B)),
-                                  ],
-                                ),
-                                if (src.snippet.isNotEmpty) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    src.snippet,
-                                    style: TextStyle(fontSize: 12, color: context.textSecondary, height: 1.4),
+                                      Text(
+                                        "${set.questionCount} questions • ${_cleanDescription(set.description)}",
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(fontSize: 11.5, color: context.textSecondary),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
+                                const SizedBox(width: 8),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF2E7D5B),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    minimumSize: const Size(0, 32),
+                                  ),
+                                  onPressed: () => _startPracticeForSet(set),
+                                  child: const Text("Practice", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                                ),
                               ],
                             ),
-                          ),
-                        )),
-                  ],
-
-                  // 4. Local Questions from Backend Search
-                  if (_universalSearchResult!.localQuestions.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      "🎯 Matching Flashcards & Questions (${_universalSearchResult!.localQuestions.length})",
-                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: context.textPrimary),
-                    ),
-                    const SizedBox(height: 6),
-                    ..._universalSearchResult!.localQuestions.take(5).map((q) => Container(
-                          margin: const EdgeInsets.only(bottom: 6),
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: context.secondaryBg,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: context.cardBorderColor),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                (q["prompt"] ?? "").toString(),
-                                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5, color: context.textPrimary),
-                              ),
-                              if ((q["explanation"] ?? "").toString().isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                Text(
-                                  "Answer: ${q["explanation"]}",
-                                  style: const TextStyle(fontSize: 11.5, color: Color(0xFF2E7D5B), fontWeight: FontWeight.w600),
-                                ),
-                              ],
-                            ],
-                          ),
-                        )),
-                  ],
-                ],
-              ],
-            ),
+                          )),
+                    ],
+                  ),
           ),
         ],
       ],
@@ -3245,10 +3006,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         const SizedBox(height: 4),
                         Text(
                           _courses.isEmpty
-                              ? "Powered by Seth AI (Google Search Mode) • Online & Offline Ready"
+                              ? "Actual PDF Page Layout • Active Recall & Exam Studio"
                               : (_courses.length == 1
-                                  ? "Targeting mastery across 1 course • Seth AI Active"
-                                  : "Targeting mastery across ${_courses.length} courses • Seth AI Active"),
+                                  ? "Targeting mastery across 1 course • Offline & Online Ready"
+                                  : "Targeting mastery across ${_courses.length} courses • Offline & Online Ready"),
                           style: GoogleFonts.inter(
                             fontSize: 12.5,
                             color: context.textSecondary,
@@ -4773,8 +4534,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       (Icons.home_rounded, cs.getFriendlyTabName(0, "Home"), 0),
       (Icons.fitness_center_rounded, "Practice", 1),
       (Icons.local_library_rounded, "Library", 2),
-      (Icons.auto_awesome_rounded, "Seth AI", 3),
-      (Icons.person_rounded, "Profile", 4),
+      (Icons.person_rounded, "Profile", 3),
     ];
 
     return Container(
@@ -4808,7 +4568,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                       Text(
-                        "Seth AI • Study Workspace",
+                        "PDF Layout & Exam Studio",
                         style: TextStyle(
                           fontSize: 11,
                           color: context.textSecondary,
@@ -4844,13 +4604,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: OutlinedButton.icon(
-              onPressed: () => EasyWritingStudioModal.show(
+              onPressed: () => OnboardingModal.showForce(
                 context,
-                apiClient: widget.apiClient,
+                sessionService: widget.sessionService,
               ),
-              icon: const Icon(Icons.edit_note_rounded, size: 18),
+              icon: const Icon(Icons.slideshow_rounded, size: 18),
               label: const Text(
-                "Easy Maker & Corrector",
+                "4-Step Walkthrough",
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
               ),
               style: OutlinedButton.styleFrom(
@@ -4969,7 +4729,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       onGradesUpdated: () { _fetchCoursesAndSync(fullFetch: true); _loadTodayStudyPlan(); },
                     ),
                     onOpenFlashcards: () => setState(() => _currentTabIndex = 1),
-                    onOpenAiTutor: () => setState(() => _currentTabIndex = 3),
+                    onOpenAiTutor: () => setState(() => _currentTabIndex = 1),
                   ),
                 ),
                 IconButton(
@@ -5017,7 +4777,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    _builtTabs.add(_currentTabIndex);
+    final safeTabIndex = _currentTabIndex.clamp(0, 3);
+    _builtTabs.add(safeTabIndex);
     final isDark = context.isDarkMode;
     final isDesktop = MediaQuery.sizeOf(context).width >= 768;
 
@@ -5027,7 +4788,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           if (isDesktop) _buildDesktopSidebar(isDark),
           Expanded(
             child: IndexedStack(
-              index: _currentTabIndex,
+              index: safeTabIndex,
               children: [
                 // Tab 0: Home
                 _lazy(0, () => _buildHomeTab()),
@@ -5045,10 +4806,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 // Tab 2: Library (Courses, Study Sets, Course Notebooks)
                 _lazy(2, () => _buildLibraryTab()),
-                // Tab 3: Seth AI (Google Search AI Mode + Easy Maker & Corrector)
-                _lazy(3, () => AiTutorScreen(apiClient: widget.apiClient, courses: _courses)),
-                // Tab 4: Profile (Grades, Settings, Privacy & NPC DPA Compliance, Account)
-                _lazy(4, () => _buildProfileTab()),
+                // Tab 3: Profile (Grades, Settings, Privacy & NPC DPA Compliance, Account)
+                _lazy(3, () => _buildProfileTab()),
               ],
             ),
           ),
@@ -5064,7 +4823,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               child: BottomNavigationBar(
-                currentIndex: _currentTabIndex,
+                currentIndex: safeTabIndex,
                 onTap: (index) => setState(() => _currentTabIndex = index),
                 backgroundColor: Colors.transparent,
                 elevation: 0,
@@ -5092,29 +4851,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     label: "Library",
                   ),
                   const BottomNavigationBarItem(
-                    icon: Icon(Icons.auto_awesome_rounded),
-                    label: "Seth AI",
-                  ),
-                  const BottomNavigationBarItem(
                     icon: Icon(Icons.person_rounded),
                     label: "Profile",
                   ),
                 ],
               ),
             ),
-      floatingActionButton: _currentTabIndex == 3
-          ? null
-          : FloatingActionButton.extended(
-              heroTag: 'dashboard_fab_add_material',
-              onPressed: () => _openAddMaterial(),
-              icon: const Icon(Icons.add_rounded),
-              label: const Text(
-                "Add Material",
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-            ),
+      // No floatingActionButton overlapping buttons across tabs
+      floatingActionButton: null,
     );
   } 
 }

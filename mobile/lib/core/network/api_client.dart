@@ -1,4 +1,3 @@
-import "package:flutter/foundation.dart";
 import "package:dio/dio.dart";
 import "../constants/api_constants.dart";
 import "../services/session_service.dart";
@@ -8,15 +7,14 @@ import "../../features/courses/models/grade_models.dart";
 class ApiClient {
   final SessionService sessionService;
   late final Dio dio;
+  DateTime? _lastNetworkFailureAt;
 
   ApiClient(this.sessionService) {
     dio = Dio(
       BaseOptions(
         baseUrl: sessionService.baseUrl ?? ApiConstants.defaultBaseUrl,
-        connectTimeout: const Duration(seconds: 5),
-        // Responsive 20-second default timeout so slow cold starts never freeze UI.
-        // Specific heavy uploads override receiveTimeout per-request when needed.
-        receiveTimeout: const Duration(seconds: 20),
+        connectTimeout: const Duration(milliseconds: 2500),
+        receiveTimeout: const Duration(milliseconds: 4000),
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
@@ -38,63 +36,34 @@ class ApiClient {
             options.headers["Authorization"] = "Bearer $token";
           }
 
+          // Circuit breaker: if the remote server just failed/timed out within the last 30s,
+          // fail background GET requests immediately so the app UI stays 0ms instant!
+          final isGet = options.method.toUpperCase() == "GET";
+          if (isGet &&
+              _lastNetworkFailureAt != null &&
+              DateTime.now().difference(_lastNetworkFailureAt!).inSeconds < 30 &&
+              options.extra["force_network"] != true) {
+            return handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.connectionError,
+                error: "Fast offline circuit breaker active.",
+              ),
+            );
+          }
+
           return handler.next(options);
         },
         onResponse: (response, handler) {
+          _lastNetworkFailureAt = null;
           sessionService.recordActivity();
           return handler.next(response);
         },
         onError: (DioException e, handler) async {
-          final isGet = e.requestOptions.method.toUpperCase() == "GET";
-          final isRateLimited = e.response?.statusCode == 429;
-          final isReceiveTimeout = e.type == DioExceptionType.receiveTimeout;
-          final retryCount = (e.requestOptions.extra["retry_count"] as num?)?.toInt() ?? 0;
-
-          // Quick single retry for transient rate limits or receive delays (never duplicate connection errors)
-          if ((isReceiveTimeout || isRateLimited) && isGet && retryCount < 1) {
-            e.requestOptions.extra["retry_count"] = retryCount + 1;
-            final waitMs = isRateLimited ? 1000 : 500;
-            await Future.delayed(Duration(milliseconds: waitMs));
-            try {
-              final retryResponse = await dio.fetch(e.requestOptions);
-              return handler.resolve(retryResponse);
-            } catch (_) {}
-          }
-
-          // Fast candidate host discovery (1.5s health probe instead of blocking 20s fetches)
-          if (isGet &&
-              (e.type == DioExceptionType.connectionError ||
-                  e.type == DioExceptionType.connectionTimeout) &&
-              e.requestOptions.extra["tried_alternate_host"] != true) {
-            e.requestOptions.extra["tried_alternate_host"] = true;
-            final currentUrl = dio.options.baseUrl;
-            final candidates = kDebugMode && defaultTargetPlatform == TargetPlatform.android
-                ? <String>[
-                    "http://127.0.0.1:5000",
-                    "http://10.0.2.2:5000",
-                    ...ApiConstants.productionEndpoints,
-                  ]
-                : ApiConstants.productionEndpoints;
-
-            for (final candidate in candidates) {
-              if (candidate == currentUrl) continue;
-              try {
-                final probeDio = Dio(BaseOptions(
-                  baseUrl: candidate,
-                  connectTimeout: const Duration(milliseconds: 1800),
-                  receiveTimeout: const Duration(milliseconds: 1800),
-                ));
-                final healthResp = await probeDio.get("/health");
-                if (healthResp.statusCode == 200) {
-                  dio.options.baseUrl = candidate;
-                  e.requestOptions.baseUrl = candidate;
-                  await sessionService.setBaseUrl(candidate);
-                  final fallbackResponse = await dio.fetch(e.requestOptions);
-                  return handler.resolve(fallbackResponse);
-                }
-              } catch (_) {}
-            }
-            dio.options.baseUrl = currentUrl;
+          if (e.type == DioExceptionType.connectionError ||
+              e.type == DioExceptionType.connectionTimeout ||
+              e.type == DioExceptionType.receiveTimeout) {
+            _lastNetworkFailureAt = DateTime.now();
           }
 
           String errorMessage = "A network error occurred.";

@@ -113,7 +113,7 @@ class SethAiEngine {
     // 2. Try direct live AI synthesis grounded in real facts
     try {
       final webSources = await sourcesFuture.timeout(
-        const Duration(seconds: 4),
+        const Duration(milliseconds: 1400),
         onTimeout: () => <SethAiSource>[],
       );
 
@@ -125,6 +125,9 @@ class SethAiEngine {
         isSocraticMode: isSocraticMode,
         history: history,
         webSources: webSources,
+      ).timeout(
+        const Duration(milliseconds: 1800),
+        onTimeout: () => null,
       );
 
       if (directReply != null &&
@@ -159,8 +162,8 @@ class SethAiEngine {
             "history": history,
           },
           options: Options(
-            sendTimeout: const Duration(seconds: 8),
-            receiveTimeout: const Duration(seconds: 10),
+            sendTimeout: const Duration(milliseconds: 1800),
+            receiveTimeout: const Duration(milliseconds: 2200),
           ),
         );
 

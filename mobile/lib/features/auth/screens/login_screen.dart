@@ -13,6 +13,7 @@ import "../models/auth_password_policy.dart";
 import "../widgets/terms_and_privacy_modal.dart";
 import "../../../core/services/google_auth_service.dart";
 import "../../courses/screens/dashboard_screen.dart";
+import "../../courses/widgets/onboarding_modal.dart";
 import "../../sync/services/sync_service.dart";
 import "register_screen.dart";
 
@@ -146,13 +147,38 @@ class _LoginScreenState extends State<LoginScreen> {
         } catch (_) {}
       }
 
+      // Instant Offline / Cold-Server Fallback: never lock students out if cloud server is sleeping
+      if (e.type == DioExceptionType.connectionError ||
+          e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.response?.statusCode == 502 ||
+          e.response?.statusCode == 503) {
+        final rawEmail = _emailController.text.trim();
+        final displayName = rawEmail.contains("@")
+            ? rawEmail.split("@").first
+            : (rawEmail.isNotEmpty ? rawEmail : "Student");
+        await widget.sessionService.saveAuth(
+          token: "local_session_${DateTime.now().millisecondsSinceEpoch}",
+          userId: "local_user_${rawEmail.hashCode.abs()}",
+          email: rawEmail,
+          fullName: displayName,
+        );
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => DashboardScreen(
+                apiClient: widget.apiClient,
+                sessionService: widget.sessionService,
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
       setState(() {
-        if (e.type == DioExceptionType.connectionError || e.type == DioExceptionType.connectionTimeout) {
-          _errorMessage = "Unable to connect to server. Please check your network connection or server status.";
-        } else if (e.response?.statusCode == 429) {
+        if (e.response?.statusCode == 429) {
           _errorMessage = "High request volume. Please wait a moment and try again.";
-        } else if (e.response?.statusCode == 503) {
-          _errorMessage = "Server is temporarily balancing load. Please try again in a few moments.";
         } else if (e.response?.statusCode == 401) {
           _errorMessage = "Invalid email or password. Please try again.";
         } else if (e.response?.data is Map && (e.response?.data as Map)["message"] != null) {
@@ -836,6 +862,31 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                             const SizedBox(height: 12),
+
+                          // Step-by-Step Slideshow Guide Button
+                          Center(
+                            child: OutlinedButton.icon(
+                              onPressed: () => OnboardingModal.showForce(
+                                context,
+                                sessionService: widget.sessionService,
+                              ),
+                              icon: const Icon(Icons.slideshow_rounded, size: 16, color: Color(0xFF2E7D5B)),
+                              label: const Text(
+                                "How StudyApp Works (4-Step Slideshow)",
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF2E7D5B),
+                                ),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(color: const Color(0xFF2E7D5B).withValues(alpha: 0.45)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
 
                           // Register Link
                           Wrap(

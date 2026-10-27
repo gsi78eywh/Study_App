@@ -6,6 +6,7 @@ import "../../../core/services/session_service.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../courses/models/course_models.dart";
 import "../../flashcards/screens/flashcards_screen.dart";
+import "../../ingestion/services/local_pdf_extractor.dart";
 import "../../quiz/models/quiz_models.dart";
 import "../../quiz/screens/mistake_bank_screen.dart";
 import "../../quiz/screens/quiz_player_screen.dart";
@@ -96,17 +97,25 @@ class _PracticeScreenState extends State<PracticeScreen> {
   }
 
   Future<List<QuestionModel>> _resolveQuestionsForSet(StudySetModel set) async {
-    try {
-      final res = await widget.apiClient.dio.get('/api/v1/studysets/${set.id}/questions');
-      if (res.statusCode == 200 && res.data is List) {
-        return (res.data as List)
-            .map((q) => QuestionModel.fromJson(q as Map<String, dynamic>))
-            .toList();
+    if (!set.id.startsWith("local_")) {
+      try {
+        final res = await widget.apiClient.dio
+            .get('/api/v1/studysets/${set.id}/questions')
+            .timeout(const Duration(milliseconds: 2500));
+        if (res.statusCode == 200 && res.data is List) {
+          final parsed = (res.data as List)
+              .map((q) => QuestionModel.fromJson(q as Map<String, dynamic>))
+              .toList();
+          if (parsed.isNotEmpty) {
+            LocalExamSynthesizer.registerQuestions(set.id, parsed);
+            return parsed;
+          }
+        }
+      } catch (e) {
+        debugPrint("Fallback to local exam synthesizer for set ${set.id}: $e");
       }
-    } catch (e) {
-      debugPrint("Failed to fetch questions for set ${set.id}: $e");
     }
-    return [];
+    return LocalExamSynthesizer.getQuestionsForSet(set);
   }
 
   void _showSessionCompositionModal({
@@ -115,16 +124,23 @@ class _PracticeScreenState extends State<PracticeScreen> {
     required String modeDescription,
     required ValueChanged<List<QuestionModel>> onProceed,
   }) async {
-    // Show loading indicator while resolving questions
+    BuildContext? loadingDialogCtx;
     showDialog(
       context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
+      barrierDismissible: true,
+      builder: (ctx) {
+        loadingDialogCtx = ctx;
+        return const Center(child: CircularProgressIndicator());
+      },
     );
 
     final questions = await _resolveQuestionsForSet(set);
+    if (loadingDialogCtx != null &&
+        loadingDialogCtx!.mounted &&
+        Navigator.of(loadingDialogCtx!).canPop()) {
+      Navigator.of(loadingDialogCtx!).pop();
+    }
     if (!mounted) return;
-    Navigator.of(context).pop(); // dismiss loader
 
     if (questions.isEmpty) {
       _showNoQuestionsDialog();

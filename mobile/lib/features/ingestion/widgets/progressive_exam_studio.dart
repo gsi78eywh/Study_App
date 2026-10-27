@@ -8,6 +8,7 @@ import "../../../core/theme/app_theme.dart";
 import "../../courses/models/course_models.dart";
 import "../../quiz/models/quiz_models.dart";
 import "../../quiz/screens/quiz_player_screen.dart";
+import "../services/local_pdf_extractor.dart";
 
 class ProgressiveExamStudio extends StatefulWidget {
   final String courseId;
@@ -195,7 +196,10 @@ class _ProgressiveExamStudioState extends State<ProgressiveExamStudio> {
       });
     }
 
-    // 2. Call backend multi-kind ingestion endpoint
+    // 2. Call backend multi-kind ingestion endpoint with fast 3.5s timeout + on-device fallback
+    StudySetModel? studySet;
+    List<QuestionModel> loadedQuestions = [];
+
     try {
       final payload = <String, dynamic>{
         "courseId": widget.courseId,
@@ -212,16 +216,18 @@ class _ProgressiveExamStudioState extends State<ProgressiveExamStudio> {
         "setIndex": 0,
       };
 
-      final response = await widget.apiClient.dio.post(
-        ApiConstants.ingestText,
-        data: payload,
-        cancelToken: _cancelToken,
-      );
+      final response = await widget.apiClient.dio
+          .post(
+            ApiConstants.ingestText,
+            data: payload,
+            cancelToken: _cancelToken,
+          )
+          .timeout(const Duration(milliseconds: 3500));
 
       if (response.statusCode == 200 && response.data is Map) {
         final data = Map<String, dynamic>.from(response.data as Map);
 
-        final studySet = StudySetModel(
+        studySet = StudySetModel(
           id: data["id"]?.toString() ?? "",
           courseId: data["courseId"]?.toString() ?? widget.courseId,
           title: data["title"] ?? widget.initialTitle,
@@ -234,61 +240,51 @@ class _ProgressiveExamStudioState extends State<ProgressiveExamStudio> {
               [],
         );
 
-        List<QuestionModel> loadedQuestions = [];
         if (data["questions"] is List) {
           loadedQuestions = (data["questions"] as List)
               .map((q) => QuestionModel.fromJson(Map<String, dynamic>.from(q as Map)))
               .toList();
         } else {
-          // Fallback: fetch directly from study set questions endpoint
-          final qResp = await widget.apiClient.dio.get(
-            ApiConstants.studySetQuestions(studySet.id),
-          );
+          final qResp = await widget.apiClient.dio
+              .get(ApiConstants.studySetQuestions(studySet.id))
+              .timeout(const Duration(milliseconds: 2500));
           if (qResp.statusCode == 200 && qResp.data is List) {
             loadedQuestions = (qResp.data as List)
                 .map((q) => QuestionModel.fromJson(Map<String, dynamic>.from(q as Map)))
                 .toList();
           }
         }
+      }
+    } catch (_) {
+      // Backend timed out or unreachable -> fall back immediately to on-device synthesis below!
+    }
 
-        if (mounted) {
-          _stageTimer?.cancel();
-          setState(() {
-            _createdStudySet = studySet;
-            _allQuestions = loadedQuestions;
-            _isApiLoading = false;
-            _currentStageIndex = _synthesisStages.length - 1;
-            _displayProgress = 1.0;
-            _isSynthesisComplete = true;
-            _updateVisibleQuestions();
-          });
-          widget.onExamSaved(studySet);
-        }
-      } else {
-        _stageTimer?.cancel();
-        if (mounted) {
-          setState(() {
-            _isApiLoading = false;
-            _errorMessage = "Received unexpected server response format.";
-          });
-        }
-      }
-    } on DioException catch (e) {
+    if (studySet == null || loadedQuestions.isEmpty) {
+      final localBundle = LocalExamSynthesizer.synthesizeStudySet(
+        title: widget.initialTitle,
+        content: widget.sourceText,
+        courseId: widget.courseId.isNotEmpty ? widget.courseId : "default_course",
+        targetQuestionCount: 15,
+      );
+      studySet = localBundle.studySet;
+      loadedQuestions = localBundle.questions;
+    } else {
+      LocalExamSynthesizer.registerQuestions(studySet.id, loadedQuestions);
+    }
+
+    if (mounted) {
       _stageTimer?.cancel();
-      if (mounted) {
-        setState(() {
-          _isApiLoading = false;
-          _errorMessage = e.error?.toString() ?? e.message ?? "Exam synthesis failed.";
-        });
-      }
-    } catch (e) {
-      _stageTimer?.cancel();
-      if (mounted) {
-        setState(() {
-          _isApiLoading = false;
-          _errorMessage = "Synthesis error: $e";
-        });
-      }
+      setState(() {
+        _createdStudySet = studySet;
+        _allQuestions = loadedQuestions;
+        _isApiLoading = false;
+        _errorMessage = null;
+        _currentStageIndex = _synthesisStages.length - 1;
+        _displayProgress = 1.0;
+        _isSynthesisComplete = true;
+        _updateVisibleQuestions();
+      });
+      widget.onExamSaved(studySet);
     }
   }
 
