@@ -1385,11 +1385,69 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  String _buildRichLocalStudyGuide(StudySetModel set) {
+    final buffer = StringBuffer();
+    buffer.writeln("# ${set.title}");
+    buffer.writeln();
+    buffer.writeln("## Key Concepts & Summary");
+    if (set.bulletPoints.isNotEmpty) {
+      for (final bp in set.bulletPoints) {
+        final clean = bp.trim();
+        if (clean.isNotEmpty) {
+          buffer.writeln("- $clean");
+        }
+      }
+    } else {
+      final desc = _cleanDescription(set.description);
+      if (desc.isNotEmpty) {
+        buffer.writeln(desc);
+      } else {
+        buffer.writeln("- Core definitions, principles, and exam takeaways for ${set.title}.");
+      }
+    }
+    buffer.writeln();
+    final questions = LocalExamSynthesizer.getQuestionsForSet(set);
+    if (questions.isNotEmpty) {
+      buffer.writeln("## Practice Exam Questions (${questions.length})");
+      buffer.writeln();
+      for (int i = 0; i < questions.length; i++) {
+        final q = questions[i];
+        buffer.writeln("${i + 1}. **${q.questionText}**");
+        if (q.options.isNotEmpty) {
+          for (final opt in q.options) {
+            buffer.writeln("   - ${opt.optionText}");
+          }
+        }
+        final correctOpt = q.options.where((o) => o.isCorrect).firstOrNull;
+        final ans = correctOpt?.optionText ?? q.correctAnswer ?? "";
+        if (ans.isNotEmpty) {
+          buffer.writeln("   - **Answer:** $ans");
+        }
+        buffer.writeln();
+      }
+    }
+    return buffer.toString();
+  }
+
   Future<void> _exportStudyGuide(StudySetModel set) async {
+    final localGuide = _buildRichLocalStudyGuide(set);
+
+    if (set.id.startsWith("local_")) {
+      if (!mounted) return;
+      PdfStudyGuideViewerModal.show(
+        context,
+        title: set.title,
+        content: localGuide,
+        sourceType: "PDF Study Guide",
+        onGenerateQuiz: () => _startQuiz(set),
+      );
+      return;
+    }
+
     BuildContext? loadingDialogCtx;
     showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
       builder: (ctx) {
         loadingDialogCtx = ctx;
         return Center(
@@ -1397,14 +1455,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
             color: context.surfaceColor,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const CircularProgressIndicator(color: AppColors.accent),
-                  const SizedBox(height: 16),
+                  const CircularProgressIndicator(color: Color(0xFFFF6B00)),
+                  const SizedBox(height: 14),
                   Text(
-                    "Generating exported study guide...",
+                    "Preparing PDF...",
                     style: GoogleFonts.inter(
                       fontWeight: FontWeight.w600,
                       color: context.textPrimary,
@@ -1419,10 +1477,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
 
     try {
-      final response = await widget.apiClient.dio.get(
-        "/api/v1/studysets/${set.id}/export",
-        queryParameters: {"format": "markdown"},
-      );
+      final response = await widget.apiClient.dio
+          .get(
+            "/api/v1/studysets/${set.id}/export",
+            queryParameters: {"format": "markdown"},
+            options: Options(
+              sendTimeout: const Duration(milliseconds: 2500),
+              receiveTimeout: const Duration(milliseconds: 2500),
+            ),
+          )
+          .timeout(const Duration(milliseconds: 2500));
 
       if (loadingDialogCtx != null && loadingDialogCtx!.mounted && Navigator.canPop(loadingDialogCtx!)) {
         Navigator.pop(loadingDialogCtx!);
@@ -1442,7 +1506,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
 
       if (markdownContent.trim().isEmpty) {
-        markdownContent = "# ${set.title}\n\n*No study questions or flashcards found in this set to export.*";
+        markdownContent = localGuide;
       }
 
       if (!mounted) return;
@@ -1451,7 +1515,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         context,
         title: exportTitle,
         content: markdownContent,
-        sourceType: "Printable PDF Study Guide",
+        sourceType: "PDF Study Guide",
         onGenerateQuiz: () => _startQuiz(set),
       );
     } catch (_) {
@@ -1459,18 +1523,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Navigator.pop(loadingDialogCtx!);
       }
       if (!mounted) return;
-      final fallbackGuide = "# Study Guide: ${set.title}\n\n"
-          "## Overview & Key Concepts\n"
-          "${set.description != null && set.description!.trim().isNotEmpty ? set.description! : _cleanDescription(set.description)}\n\n"
-          "## Active Recall Practice Questions\n"
-          "1. **What is the core definition and purpose of ${set.title}?**\n"
-          "2. **How are the key principles of ${set.title} applied in real-world scenarios?**\n"
-          "3. **What are the top takeaways to remember for your upcoming exam?**";
       PdfStudyGuideViewerModal.show(
         context,
         title: set.title,
-        content: fallbackGuide,
-        sourceType: "Printable PDF Study Guide (Offline Ready)",
+        content: localGuide,
+        sourceType: "PDF Study Guide",
         onGenerateQuiz: () => _startQuiz(set),
       );
     }
@@ -1579,38 +1636,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
             onPressed: () async {
               Navigator.pop(ctx);
-              try {
-                await widget.apiClient.dio.delete(
-                  "/api/v1/studysets/${set.id}",
+              setState(() {
+                final newSets = List<StudySetModel>.from(course.studySets)
+                  ..removeWhere((s) => s.id == set.id);
+                final idx = _courses.indexWhere((c) => c.id == course.id);
+                if (idx >= 0) {
+                  _courses[idx] = course.copyWith(
+                    studySets: newSets,
+                    updatedAt: DateTime.now(),
+                  );
+                }
+                SyncService.cachedCourses = List.from(_courses);
+              });
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text("Deleted '${set.title}'"),
+                    duration: const Duration(seconds: 2),
+                  ),
                 );
-                setState(() {
-                  final newSets = List<StudySetModel>.from(course.studySets)
-                    ..removeWhere((s) => s.id == set.id);
-                  final idx = _courses.indexWhere((c) => c.id == course.id);
-                  if (idx >= 0) {
-                    _courses[idx] = course.copyWith(
-                      studySets: newSets,
-                      updatedAt: DateTime.now(),
-                    );
-                  }
-                });
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text("Deleted '${set.title}'"),
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                }
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text("Delete failed: $e"),
-                      backgroundColor: AppColors.danger,
-                    ),
-                  );
-                }
+              }
+              if (!set.id.startsWith("local_")) {
+                try {
+                  await widget.apiClient.dio
+                      .delete("/api/v1/studysets/${set.id}")
+                      .timeout(const Duration(seconds: 3));
+                } catch (_) {}
               }
             },
             child: const Text(
@@ -2638,37 +2689,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildQuickFeatureChip({
+  Widget _buildQuickActionTile({
     required IconData icon,
     required String label,
     required Color color,
     required VoidCallback onTap,
     required bool isDark,
   }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: isDark ? 0.2 : 0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.4)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 15, color: color),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.bold,
-                color: color,
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: isDark ? 0.2 : 0.12),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: color.withValues(alpha: 0.35),
+                    width: 1.2,
+                  ),
+                ),
+                child: Icon(icon, size: 20, color: color),
               ),
-            ),
-          ],
+              const SizedBox(height: 6),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: context.textPrimary,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -2693,83 +2755,131 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Clean Primary Study Workflow Bar (No laggy AI web search or clutter)
+        // UnionBank-Inspired Clean Icon-First Quick Actions Card
         Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
           decoration: BoxDecoration(
             color: context.surfaceColor,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(color: context.cardBorderColor),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.04),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2E7D5B),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        elevation: 0,
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF6B00),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
                       ),
-                      onPressed: () => _openAddMaterial(),
-                      icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
-                      label: const Text(
-                        "Add / Paste PDF & Notes",
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      const SizedBox(width: 8),
+                      Text(
+                        "Quick Actions",
+                        style: GoogleFonts.outfit(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: context.textPrimary,
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF2E7D5B),
-                        side: const BorderSide(color: Color(0xFF2E7D5B), width: 1.3),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: () => setState(() => _currentTabIndex = 1),
-                      icon: const Icon(Icons.quiz_rounded, size: 18),
-                      label: const Text(
-                        "Practice & Create Exam",
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                      ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.bolt_rounded, size: 12, color: Color(0xFF10B981)),
+                        SizedBox(width: 3),
+                        Text(
+                          "Offline Ready",
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF10B981),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              const SizedBox(height: 8),
+              // Row 1: Core Study Actions (PDF, Scan, Exam, Cards)
+              Row(
                 children: [
-                  _buildQuickFeatureChip(
-                    icon: Icons.slideshow_rounded,
-                    label: "4-Step Walkthrough Slideshow",
-                    color: const Color(0xFF2E7D5B),
+                  _buildQuickActionTile(
+                    icon: Icons.picture_as_pdf_rounded,
+                    label: "PDF",
+                    color: const Color(0xFFFF6B00),
                     isDark: isDark,
-                    onTap: () => OnboardingModal.showForce(
-                      context,
-                      sessionService: widget.sessionService,
-                      onCompleted: () {
-                        if (mounted) setState(() {});
-                      },
-                    ),
+                    onTap: () => _openAddMaterial(),
                   ),
-                  _buildQuickFeatureChip(
+                  _buildQuickActionTile(
+                    icon: Icons.document_scanner_rounded,
+                    label: "Scan",
+                    color: const Color(0xFF0EA5E9),
+                    isDark: isDark,
+                    onTap: () => _openAddMaterial(),
+                  ),
+                  _buildQuickActionTile(
+                    icon: Icons.quiz_rounded,
+                    label: "Exam",
+                    color: const Color(0xFF6366F1),
+                    isDark: isDark,
+                    onTap: () => setState(() => _currentTabIndex = 1),
+                  ),
+                  _buildQuickActionTile(
+                    icon: Icons.style_rounded,
+                    label: "Cards",
+                    color: const Color(0xFF10B981),
+                    isDark: isDark,
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => FlashcardsScreen(
+                            courses: _courses,
+                            apiClient: widget.apiClient,
+                            onNavigateToStudio: _openAddMaterial,
+                            onCardDeleted: () => _fetchCoursesAndSync(fullFetch: true),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              // Row 2: Tools & Navigation (Course, Grades, Plan, Guide)
+              Row(
+                children: [
+                  _buildQuickActionTile(
                     icon: Icons.add_box_rounded,
-                    label: "New Course",
+                    label: "Course",
                     color: const Color(0xFF3B82F6),
                     isDark: isDark,
                     onTap: _showAddCourseDialog,
                   ),
-                  _buildQuickFeatureChip(
+                  _buildQuickActionTile(
                     icon: Icons.bar_chart_rounded,
-                    label: "Grade Tracker",
+                    label: "Grades",
                     color: const Color(0xFF0D9488),
                     isDark: isDark,
                     onTap: () => GradeTrackerSheet.show(
@@ -2781,25 +2891,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       },
                     ),
                   ),
-                  _buildQuickFeatureChip(
+                  _buildQuickActionTile(
                     icon: Icons.calendar_month_rounded,
-                    label: "Study Planner",
-                    color: const Color(0xFF6366F1),
+                    label: "Plan",
+                    color: const Color(0xFF8B5CF6),
                     isDark: isDark,
                     onTap: _openAcademicPlannerModal,
+                  ),
+                  _buildQuickActionTile(
+                    icon: Icons.slideshow_rounded,
+                    label: "Guide",
+                    color: const Color(0xFFF59E0B),
+                    isDark: isDark,
+                    onTap: () => OnboardingModal.showForce(
+                      context,
+                      sessionService: widget.sessionService,
+                      onCompleted: () {
+                        if (mounted) setState(() {});
+                      },
+                    ),
                   ),
                 ],
               ),
               if (_courses.isNotEmpty) ...[
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 TextField(
                   controller: _universalSearchController,
                   onChanged: (v) => setState(() => _universalSearchQuery = v),
                   style: TextStyle(fontSize: 13, color: context.textPrimary),
                   decoration: InputDecoration(
-                    hintText: "Filter your local courses & study sets...",
-                    hintStyle: TextStyle(fontSize: 12.5, color: context.textSecondary),
-                    prefixIcon: const Icon(Icons.filter_list_rounded, size: 18, color: Color(0xFF2E7D5B)),
+                    hintText: "Search sets...",
+                    hintStyle: TextStyle(fontSize: 12, color: context.textSecondary),
+                    prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Color(0xFFFF6B00)),
                     suffixIcon: _universalSearchQuery.isNotEmpty
                         ? IconButton(
                             visualDensity: VisualDensity.compact,
@@ -2811,7 +2934,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           )
                         : null,
                     isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                       borderSide: BorderSide(color: context.cardBorderColor),
@@ -2825,7 +2948,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (qLower.isNotEmpty) ...[
           const SizedBox(height: 10),
           Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: context.surfaceColor,
               borderRadius: BorderRadius.circular(14),
@@ -2833,20 +2956,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             child: matchingLocalSets.isEmpty
                 ? Text(
-                    "No study sets matching \"$_universalSearchQuery\" in your workspace.",
-                    style: TextStyle(fontSize: 12.5, color: context.textSecondary),
+                    "No sets found for \"$_universalSearchQuery\".",
+                    style: TextStyle(fontSize: 12, color: context.textSecondary),
                   )
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        "Matching Study Sets (${matchingLocalSets.length})",
-                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF2E7D5B)),
+                        "Results (${matchingLocalSets.length})",
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFFF6B00)),
                       ),
                       const SizedBox(height: 8),
                       ...matchingLocalSets.take(6).map((set) => Container(
                             margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                             decoration: BoxDecoration(
                               color: context.secondaryBg,
                               borderRadius: BorderRadius.circular(10),
@@ -2854,35 +2977,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.menu_book_rounded, size: 18, color: Color(0xFF2E7D5B)),
-                                const SizedBox(width: 10),
+                                const Icon(Icons.menu_book_rounded, size: 18, color: Color(0xFFFF6B00)),
+                                const SizedBox(width: 8),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         set.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: context.textPrimary),
                                       ),
                                       Text(
-                                        "${set.questionCount} questions • ${_cleanDescription(set.description)}",
+                                        "${set.questionCount} Qs",
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(fontSize: 11.5, color: context.textSecondary),
+                                        style: TextStyle(fontSize: 11, color: context.textSecondary),
                                       ),
                                     ],
                                   ),
                                 ),
-                                const SizedBox(width: 8),
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  tooltip: "Export PDF",
+                                  icon: const Icon(Icons.picture_as_pdf_rounded, size: 18, color: Color(0xFF10B981)),
+                                  onPressed: () => _exportStudyGuide(set),
+                                ),
                                 ElevatedButton(
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF2E7D5B),
+                                    backgroundColor: const Color(0xFFFF6B00),
                                     foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                     minimumSize: const Size(0, 32),
                                   ),
                                   onPressed: () => _startPracticeForSet(set),
-                                  child: const Text("Practice", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                                  child: const Text("Quiz", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
                                 ),
                               ],
                             ),
@@ -3003,15 +3133,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                           ],
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Text(
                           _courses.isEmpty
-                              ? "Actual PDF Page Layout • Active Recall & Exam Studio"
-                              : (_courses.length == 1
-                                  ? "Targeting mastery across 1 course • Offline & Online Ready"
-                                  : "Targeting mastery across ${_courses.length} courses • Offline & Online Ready"),
+                              ? "PDF • Scan • Exam • Offline Ready"
+                              : "${_courses.length} ${_courses.length == 1 ? 'Course' : 'Courses'} • Offline Ready",
                           style: GoogleFonts.inter(
-                            fontSize: 12.5,
+                            fontSize: 12,
                             color: context.textSecondary,
                           ),
                         ),
@@ -4130,50 +4258,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       height: 1.4,
                                     ),
                                   ),
-                                  const SizedBox(height: 14),
+                                  const SizedBox(height: 12),
                                   Row(
                                     children: [
                                       Expanded(
-                                        flex: 3,
                                         child: ElevatedButton.icon(
                                           style: ElevatedButton.styleFrom(
-                                            backgroundColor: isDark
-                                                ? AppColors.primary
-                                                : AppColors.primaryDark,
+                                            backgroundColor: const Color(0xFFFF6B00),
                                             foregroundColor: Colors.white,
-                                            padding: const EdgeInsets.symmetric(vertical: 12),
+                                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
                                             elevation: 0,
                                             shape: RoundedRectangleBorder(
                                               borderRadius: BorderRadius.circular(10),
                                             ),
                                           ),
-                                          icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                                          icon: const Icon(Icons.play_arrow_rounded, size: 17),
                                           label: const Text(
-                                            "Practice",
+                                            "Quiz",
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
                                               fontWeight: FontWeight.bold,
-                                              fontSize: 13,
+                                              fontSize: 12,
                                             ),
                                           ),
                                           onPressed: () => _showModePicker(set),
                                         ),
                                       ),
-                                      const SizedBox(width: 8),
+                                      const SizedBox(width: 6),
                                       Expanded(
-                                        flex: 2,
                                         child: OutlinedButton.icon(
                                           style: OutlinedButton.styleFrom(
                                             foregroundColor: AppColors.warning,
                                             side: const BorderSide(color: AppColors.warning),
-                                            padding: const EdgeInsets.symmetric(vertical: 12),
+                                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
                                             shape: RoundedRectangleBorder(
                                               borderRadius: BorderRadius.circular(10),
                                             ),
                                           ),
-                                          icon: const Icon(Icons.bolt_rounded, size: 16),
-                                          label: Text(
-                                            "Blitz (${_settingsService.settings.blitzSecondsPerQuestion}s)",
-                                            style: const TextStyle(
+                                          icon: const Icon(Icons.bolt_rounded, size: 15),
+                                          label: const Text(
+                                            "Blitz",
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
                                               fontWeight: FontWeight.bold,
                                               fontSize: 12,
                                             ),
@@ -4181,22 +4309,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           onPressed: () => _startRapidFire(set),
                                         ),
                                       ),
-                                      const SizedBox(width: 8),
+                                      const SizedBox(width: 6),
                                       Expanded(
-                                        flex: 2,
                                         child: OutlinedButton.icon(
                                           style: OutlinedButton.styleFrom(
                                             foregroundColor: context.textSecondary,
                                             side: BorderSide(color: context.cardBorderColor),
-                                            padding: const EdgeInsets.symmetric(vertical: 12),
+                                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
                                             shape: RoundedRectangleBorder(
                                               borderRadius: BorderRadius.circular(10),
                                             ),
                                           ),
-                                          icon: const Icon(Icons.style_outlined, size: 16),
+                                          icon: const Icon(Icons.style_outlined, size: 15),
                                           label: const Text(
                                             "Cards",
-                                            style: TextStyle(fontSize: 12),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                                           ),
                                           onPressed: () {
                                             Navigator.of(context).push(
@@ -4211,6 +4340,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             );
                                           },
                                         ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      IconButton(
+                                        visualDensity: VisualDensity.compact,
+                                        tooltip: "Export PDF",
+                                        style: IconButton.styleFrom(
+                                          backgroundColor: const Color(0xFF10B981).withValues(alpha: 0.12),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                        ),
+                                        icon: const Icon(
+                                          Icons.picture_as_pdf_rounded,
+                                          size: 18,
+                                          color: Color(0xFF10B981),
+                                        ),
+                                        onPressed: () => _exportStudyGuide(set),
                                       ),
                                     ],
                                   ),

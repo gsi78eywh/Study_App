@@ -1,4 +1,5 @@
 import "dart:async";
+import "package:dio/dio.dart";
 import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
 import "package:google_fonts/google_fonts.dart";
@@ -11,11 +12,11 @@ import "../services/clipboard_image_reader.dart";
 import "../services/fast_ocr_service.dart";
 
 enum ScannerMode {
-  handwritten("Handwritten Notes", Icons.edit_note_rounded, "Optimized for handwritten lecture notes and diagrams"),
-  textbook("Book & Printed", Icons.menu_book_rounded, "Optimized for textbook pages, dense paragraphs, and publications"),
-  examSheet("Exam & Quiz Sheet", Icons.assignment_outlined, "Optimized for review questionnaires and test papers"),
-  definitions("Formulas & Glossary", Icons.science_outlined, "Optimized for definitions, terms, and formulas"),
-  syllabus("Syllabus & Outline", Icons.calendar_month_rounded, "Extracts exam dates, assignment deadlines, and topics into Academic Calendar");
+  handwritten("Notes", Icons.edit_note_rounded, "Handwritten notes"),
+  textbook("Book", Icons.menu_book_rounded, "Printed pages"),
+  examSheet("Exam", Icons.assignment_outlined, "Test papers"),
+  definitions("Terms", Icons.science_outlined, "Formulas & terms"),
+  syllabus("Outline", Icons.calendar_month_rounded, "Course outline");
 
   final String label;
   final IconData icon;
@@ -355,12 +356,14 @@ Key Concepts:
 
 
   Future<void> _autoGenerateFlashcardsFromOcr() async {
-    final text = _textController.text.trim();
+    final text = _textController.text.trim().isNotEmpty
+        ? _textController.text.trim()
+        : _extractedText.trim();
     if (text.isEmpty) return;
 
     final title = _titleController.text.trim().isNotEmpty
         ? _titleController.text.trim()
-        : "OCR Flashcards (${DateTime.now().month}/${DateTime.now().day})";
+        : "Scanned Cards (${DateTime.now().month}/${DateTime.now().day})";
 
     setState(() => _isGeneratingFlashcards = true);
 
@@ -374,30 +377,29 @@ Key Concepts:
           "questionTypes": ["identification", "multiple_choice"],
           "targetCount": 8,
         },
+        options: Options(
+          sendTimeout: const Duration(seconds: 3),
+          receiveTimeout: const Duration(seconds: 3),
+        ),
       );
-
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.bolt_rounded, color: Color(0xFFFDE047), size: 20),
-                const SizedBox(width: 8),
-                Expanded(child: Text("⚡ Auto-generated active recall flashcards for '$title'!")),
-              ],
-            ),
-            backgroundColor: const Color(0xFF6366F1),
-            duration: const Duration(seconds: 4),
+            content: Text("⚡ Flashcards created for '$title'"),
+            backgroundColor: const Color(0xFFFF6B00),
+            duration: const Duration(seconds: 3),
           ),
         );
       }
-    } catch (e) {
+    } catch (_) {
+      // Offline fallback: synthesize directly on device via onExportAndCreateExam
       if (mounted) {
-        setState(() {
-          _isGeneratingFlashcards = false;
-          _errorMessage = "Could not generate flashcards: $e";
-        });
+        final courseId = _selectedCourseId.isNotEmpty
+            ? _selectedCourseId
+            : (widget.courses.isNotEmpty ? widget.courses.first.id : "");
+        Navigator.of(context).pop();
+        widget.onExportAndCreateExam(courseId, title, text);
       }
     }
   }
@@ -529,49 +531,46 @@ Key Concepts:
             ),
           ),
 
-          // Header
+          // Header (UnionBank Clean Icon-First Header)
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 10),
+            padding: const EdgeInsets.fromLTRB(18, 10, 14, 8),
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(9),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF6366F1), Color(0xFF06B6D4)],
+                      colors: [Color(0xFFFF6B00), Color(0xFFF97316)],
                     ),
                     borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF06B6D4).withValues(alpha: 0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
                   ),
                   child: const Icon(
                     Icons.document_scanner_rounded,
                     color: Colors.white,
-                    size: 22,
+                    size: 20,
                   ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "In-App Camera Scanner",
+                        "Smart Scanner",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.outfit(
-                          fontSize: 18,
+                          fontSize: 17,
                           fontWeight: FontWeight.bold,
                           color: context.textPrimary,
                         ),
                       ),
                       Text(
-                        "Scan text or physical notes & auto-create exams",
+                        "Instant Offline & Vision OCR",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: 11.5,
                           color: context.textSecondary,
                         ),
                       ),
@@ -907,67 +906,36 @@ Key Concepts:
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF06B6D4).withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.3)),
-                      ),
-                      child: const Icon(
-                        Icons.camera_alt_outlined,
-                        color: Color(0xFF06B6D4),
-                        size: 26,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
                     Text(
-                      "Scan camera photo, pick screenshot, or paste clipboard image",
+                      "Tap an icon to scan",
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
-                        color: Colors.white70,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      spacing: 8,
-                      runSpacing: 8,
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF06B6D4),
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          icon: const Icon(Icons.camera_alt_rounded, size: 15),
-                          label: const Text("Take Photo", style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
-                          onPressed: _captureFromCamera,
+                        _buildScanIconTile(
+                          icon: Icons.camera_alt_rounded,
+                          label: "Camera",
+                          color: const Color(0xFFFF6B00),
+                          onTap: _captureFromCamera,
                         ),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.white38),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          icon: const Icon(Icons.photo_library_outlined, size: 15),
-                          label: const Text("Pick Image", style: TextStyle(fontSize: 12.5)),
-                          onPressed: _pickFromGallery,
+                        _buildScanIconTile(
+                          icon: Icons.photo_library_rounded,
+                          label: "Gallery",
+                          color: const Color(0xFF06B6D4),
+                          onTap: _pickFromGallery,
                         ),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF67E8F9),
-                            side: const BorderSide(color: Color(0xFF06B6D4)),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          icon: const Icon(Icons.content_paste_rounded, size: 15),
-                          label: const Text("Paste Screenshot", style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
-                          onPressed: _pasteScreenshotFromClipboard,
+                        _buildScanIconTile(
+                          icon: Icons.content_paste_rounded,
+                          label: "Paste",
+                          color: const Color(0xFF10B981),
+                          onTap: _pasteScreenshotFromClipboard,
                         ),
                       ],
                     ),
@@ -977,23 +945,19 @@ Key Concepts:
             else
               Positioned(
                 bottom: 12,
-                child: Row(
-                  children: [
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.black.withValues(alpha: 0.7),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          side: const BorderSide(color: Colors.white24),
-                        ),
-                      ),
-                      icon: const Icon(Icons.refresh_rounded, size: 15),
-                      label: const Text("Retake Photo", style: TextStyle(fontSize: 12)),
-                      onPressed: _clearScan,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black.withValues(alpha: 0.75),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      side: const BorderSide(color: Colors.white24),
                     ),
-                  ],
+                  ),
+                  icon: const Icon(Icons.refresh_rounded, size: 15),
+                  label: const Text("Rescan", style: TextStyle(fontSize: 12)),
+                  onPressed: _clearScan,
                 ),
               ),
           ],
@@ -1117,81 +1081,51 @@ Key Concepts:
           ),
           const SizedBox(height: 16),
 
-          // Passive Capture: 1-Tap Auto-Flashcards from OCR
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF10B981),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                elevation: 4,
-              ),
-              icon: _isGeneratingFlashcards
-                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.bolt_rounded, size: 20, color: Color(0xFFFDE047)),
-              label: Text(
-                _isGeneratingFlashcards ? "Generating Active Recall Decks..." : "⚡ 1-Tap Auto-Flashcards from OCR",
-                style: GoogleFonts.outfit(
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              onPressed: _isGeneratingFlashcards ? null : _autoGenerateFlashcardsFromOcr,
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6366F1),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              icon: const Icon(Icons.auto_awesome, size: 16),
-              label: Text(
-                "🚀 Create Practice Exam from Scan",
-                style: GoogleFonts.outfit(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              onPressed: _triggerAutoExportAndCreateExam,
-            ),
-          ),
-          const SizedBox(height: 10),
-
+          // UnionBank Icon-First Action Bar (Exam, Cards, Save, Editor)
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Expanded(
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF6366F1),
-                    side: const BorderSide(color: Color(0xFF6366F1)),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(Icons.bookmark_add_rounded, size: 16),
-                  label: const Text("Save to Notes"),
-                  onPressed: _isSavingToNotebook ? null : _saveScannedNotesToNotebook,
+                child: _buildResultActionTile(
+                  context,
+                  icon: Icons.quiz_rounded,
+                  label: "Exam",
+                  color: const Color(0xFFFF6B00),
+                  filled: true,
+                  onTap: _triggerAutoExportAndCreateExam,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: context.textPrimary,
-                    side: BorderSide(color: context.cardBorderColor),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(Icons.edit_note_rounded, size: 16),
-                  label: const Text("Send to Editor"),
-                  onPressed: _triggerExportToEditor,
+                child: _buildResultActionTile(
+                  context,
+                  icon: Icons.bolt_rounded,
+                  label: _isGeneratingFlashcards ? "..." : "Cards",
+                  color: const Color(0xFF10B981),
+                  filled: true,
+                  onTap: _isGeneratingFlashcards ? null : _autoGenerateFlashcardsFromOcr,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildResultActionTile(
+                  context,
+                  icon: Icons.bookmark_add_rounded,
+                  label: "Save",
+                  color: const Color(0xFF0EA5E9),
+                  filled: false,
+                  onTap: _isSavingToNotebook ? null : _saveScannedNotesToNotebook,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildResultActionTile(
+                  context,
+                  icon: Icons.edit_note_rounded,
+                  label: "Editor",
+                  color: const Color(0xFF6366F1),
+                  filled: false,
+                  onTap: _triggerExportToEditor,
                 ),
               ),
             ],
@@ -1201,58 +1135,137 @@ Key Concepts:
     );
   }
 
+  Widget _buildScanIconTile({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.35),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Icon(icon, color: Colors.white, size: 24),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: GoogleFonts.outfit(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResultActionTile(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required Color color,
+    required bool filled,
+    required VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: filled ? color : color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: filled ? color : color.withValues(alpha: 0.35),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 20, color: filled ? Colors.white : color),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.outfit(
+                fontSize: 11.5,
+                fontWeight: FontWeight.bold,
+                color: filled ? Colors.white : color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSamplePresetsSection(BuildContext context, bool isDark) {
-    if (!kDebugMode) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            const Icon(Icons.bolt_rounded, color: Color(0xFFF59E0B), size: 16),
+            const Icon(Icons.bolt_rounded, color: Color(0xFFFF6B00), size: 16),
             const SizedBox(width: 6),
             Text(
-              "Sample Academic Notes (Sample):",
+              "Quick Sample Scans",
               style: GoogleFonts.outfit(
-                fontSize: 13,
+                fontSize: 12.5,
                 fontWeight: FontWeight.bold,
                 color: context.textPrimary,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 10),
-        ..._samplePresets.entries.map((entry) {
-          return Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            child: InkWell(
-              onTap: () => _loadSamplePreset(entry.key),
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                decoration: BoxDecoration(
-                  color: context.secondaryBg,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: context.cardBorderColor),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        entry.value["name"]!,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: context.textPrimary,
-                        ),
-                      ),
-                    ),
-                    const Icon(Icons.arrow_forward_ios_rounded, size: 12, color: Color(0xFF6366F1)),
-                  ],
+        const SizedBox(height: 8),
+        Row(
+          children: _samplePresets.entries.map((entry) {
+            final shortName = entry.key == "biology"
+                ? "Biology"
+                : entry.key == "cs"
+                    ? "CompSci"
+                    : "Chemistry";
+            return Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: context.textPrimary,
+                    side: BorderSide(color: context.cardBorderColor),
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () => _loadSamplePreset(entry.key),
+                  child: Text(
+                    shortName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
+                  ),
                 ),
               ),
-            ),
-          );
-        }),
+            );
+          }).toList(),
+        ),
       ],
     );
   }

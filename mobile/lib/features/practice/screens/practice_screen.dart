@@ -441,34 +441,36 @@ class _PracticeScreenState extends State<PracticeScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Practice & Mastery",
-                        style: GoogleFonts.outfit(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: context.textPrimary,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Practice Hub",
+                          style: GoogleFonts.outfit(
+                            fontSize: 21,
+                            fontWeight: FontWeight.bold,
+                            color: context.textPrimary,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        "Active recall, quizzes, flashcards & mistake recovery",
-                        style: TextStyle(fontSize: 12.5, color: context.textSecondary),
-                      ),
-                    ],
+                        const SizedBox(height: 2),
+                        Text(
+                          "Quizzes • Cards • Blitz • Exam",
+                          style: TextStyle(fontSize: 12, color: context.textSecondary),
+                        ),
+                      ],
+                    ),
                   ),
                   if (widget.courses.length > 1)
                     DropdownButtonHideUnderline(
                       child: DropdownButton<String?>(
                         value: _selectedCourseId,
-                        hint: const Text("All Courses", style: TextStyle(fontSize: 12)),
+                        hint: const Text("All", style: TextStyle(fontSize: 12)),
                         items: [
-                          const DropdownMenuItem(value: null, child: Text("All Courses", style: TextStyle(fontSize: 12))),
+                          const DropdownMenuItem(value: null, child: Text("All", style: TextStyle(fontSize: 12))),
                           ...widget.courses.map((c) => DropdownMenuItem(
                                 value: c.id,
-                                child: Text("${c.code} (${c.studySets.length} sets)", style: const TextStyle(fontSize: 12)),
+                                child: Text(c.code, style: const TextStyle(fontSize: 12)),
                               )),
                         ],
                         onChanged: (val) => setState(() => _selectedCourseId = val),
@@ -476,21 +478,21 @@ class _PracticeScreenState extends State<PracticeScreen> {
                     ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
-              // Readiness & Mastery Card (Only shows score when real data exists)
+              // Readiness & Mastery Card (Compact UnionBank-inspired)
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: isDark
-                        ? [const Color(0xFF312E81).withValues(alpha: 0.4), context.surfaceColor]
-                        : [const Color(0xFFEEF2FF), Colors.white],
+                        ? [const Color(0xFF1E293B), context.surfaceColor]
+                        : [const Color(0xFFFFF7ED), Colors.white],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+                  border: Border.all(color: const Color(0xFFFF6B00).withValues(alpha: 0.3)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -498,62 +500,62 @@ class _PracticeScreenState extends State<PracticeScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF6366F1).withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(10),
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFF6B00).withValues(alpha: 0.15),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.insights_rounded, color: Color(0xFFFF6B00), size: 18),
                               ),
-                              child: const Icon(Icons.insights_rounded, color: Color(0xFF6366F1), size: 20),
-                            ),
-                            const SizedBox(width: 10),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  "Exam Readiness",
-                                  style: GoogleFonts.outfit(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                    color: context.textPrimary,
-                                  ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      "Exam Readiness",
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.outfit(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                        color: context.textPrimary,
+                                      ),
+                                    ),
+                                    Text(
+                                      hasRealData ? "Live accuracy & retention" : "Take a quiz to track score",
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 11, color: context.textSecondary),
+                                    ),
+                                  ],
                                 ),
-                                Text(
-                                  hasRealData ? "Based on recent session accuracy & retention" : "Complete a quiz to unlock readiness metric",
-                                  style: TextStyle(fontSize: 11, color: context.textSecondary),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        InkWell(
-                          onTap: () => _showReadinessFormulaDialog(context),
-                          borderRadius: BorderRadius.circular(8),
-                          child: Padding(
-                            padding: const EdgeInsets.all(6),
-                            child: Row(
-                              children: const [
-                                Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF6366F1)),
-                                SizedBox(width: 4),
-                                Text("Formula", style: TextStyle(fontSize: 11, color: Color(0xFF6366F1), fontWeight: FontWeight.bold)),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => _showReadinessFormulaDialog(context),
+                          tooltip: "Formula",
+                          icon: const Icon(Icons.info_outline_rounded, size: 18, color: Color(0xFFFF6B00)),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 14),
                     if (hasRealData) ...[
+                      const SizedBox(height: 10),
                       Row(
                         children: [
                           Text(
                             "${(readinessScore * 100).round()}%",
                             style: GoogleFonts.outfit(
-                              fontSize: 28,
+                              fontSize: 26,
                               fontWeight: FontWeight.w900,
-                              color: const Color(0xFF6366F1),
+                              color: const Color(0xFFFF6B00),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -564,103 +566,83 @@ class _PracticeScreenState extends State<PracticeScreen> {
                                 value: readinessScore.clamp(0.0, 1.0),
                                 minHeight: 8,
                                 backgroundColor: context.cardBorderColor,
-                                valueColor: const AlwaysStoppedAnimation(Color(0xFF6366F1)),
+                                valueColor: const AlwaysStoppedAnimation(Color(0xFFFF6B00)),
                               ),
                             ),
                           ),
                         ],
                       ),
-                    ] else ...[
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: context.cardBorderColor.withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.school_outlined, size: 16, color: Color(0xFF6366F1)),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                "No readiness score yet. Take a quiz or Blitz below to begin data-backed tracking.",
-                                style: TextStyle(fontSize: 12, color: context.textSecondary),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     ],
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
-              // Practice Modes Grid (Five Core Modes per Blueprint)
+              // Practice Modes Grid (Clean, Short Labels, Icon-First)
               Text(
-                "Choose Practice Mode",
+                "Practice Modes",
                 style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold, color: context.textPrimary),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
 
               GridView.count(
                 crossAxisCount: MediaQuery.sizeOf(context).width > 600 ? 3 : 2,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 1.15,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 1.25,
                 children: [
                   _buildModeCard(
                     context,
                     title: "Smart Quiz",
-                    subtitle: "Adaptive practice across all modes",
-                    badge: "$_totalPracticeQuestions questions",
+                    subtitle: "Adaptive recall",
+                    badge: "$_totalPracticeQuestions Qs",
                     icon: Icons.psychology_rounded,
-                    color: const Color(0xFF6366F1),
+                    color: const Color(0xFFFF6B00),
                     onTap: _startSmartQuizSession,
                   ),
                   _buildModeCard(
                     context,
                     title: "Flashcards",
-                    subtitle: "Spaced retrieval with SM-2 intervals",
-                    badge: "FSRS Intervals",
+                    subtitle: "Flip & review",
+                    badge: "Cards",
                     icon: Icons.style_outlined,
                     color: const Color(0xFF10B981),
                     onTap: _startFlashcards,
                   ),
                   _buildModeCard(
                     context,
-                    title: "Rapid-Fire Blitz",
-                    subtitle: "Quick speed recall under timer",
-                    badge: "Speed Test",
+                    title: "Blitz",
+                    subtitle: "Speed timer",
+                    badge: "60s",
                     icon: Icons.bolt_rounded,
                     color: const Color(0xFFF59E0B),
                     onTap: _startRapidFireBlitz,
                   ),
                   _buildModeCard(
                     context,
-                    title: "Mistake Bank",
-                    subtitle: "Target and resolve past missed errors",
-                    badge: "${widget.studyPlan?.unresolvedMistakesCount ?? 0} to fix",
+                    title: "Mistakes",
+                    subtitle: "Fix past errors",
+                    badge: "${widget.studyPlan?.unresolvedMistakesCount ?? 0} left",
                     icon: Icons.psychology_alt_outlined,
                     color: const Color(0xFFEF4444),
                     onTap: _openMistakeBank,
                   ),
                   _buildModeCard(
                     context,
-                    title: "Simulated Exam",
-                    subtitle: "Full-length balanced test session",
-                    badge: "Balanced Mix",
+                    title: "Mock Exam",
+                    subtitle: "Full test run",
+                    badge: "Timed",
                     icon: Icons.school_rounded,
-                    color: const Color(0xFF8B5CF6),
+                    color: const Color(0xFF6366F1),
                     onTap: _startSimulatedExam,
                   ),
                   _buildModeCard(
                     context,
-                    title: "Standard Quiz",
-                    subtitle: "Classic question-by-question review",
-                    badge: "Direct Review",
+                    title: "Quick Quiz",
+                    subtitle: "Direct Q&A",
+                    badge: "Review",
                     icon: Icons.quiz_outlined,
                     color: const Color(0xFF06B6D4),
                     onTap: _startStandardQuiz,

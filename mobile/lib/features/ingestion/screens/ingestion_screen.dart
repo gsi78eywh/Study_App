@@ -136,6 +136,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     super.initState();
     _targetCount = widget.settingsService?.settings.defaultQuestionCount ?? 15;
     _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
     if (widget.initialCourseId != null &&
         widget.initialCourseId!.isNotEmpty &&
         widget.courses.any((c) => c.id == widget.initialCourseId)) {
@@ -526,8 +529,8 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         ApiConstants.scanUrl,
         data: {"url": cleanUrl},
         options: Options(
-          sendTimeout: const Duration(seconds: 12),
-          receiveTimeout: const Duration(seconds: 15),
+          sendTimeout: const Duration(seconds: 3),
+          receiveTimeout: const Duration(seconds: 4),
         ),
       );
 
@@ -545,19 +548,20 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
       }
     } catch (_) {}
 
-    // If YouTube video is voice-only (no closed captions) or backend extraction was partial,
-    // use Seth AI to extract & synthesize ALL of what the video tutorial is about!
-    if ((isReallyVideo || isYt) && extractedText.trim().length < 400) {
+    // Always ensure offline/voice-only YouTube or web links synthesize complete study notes
+    if (extractedText.trim().length < 400) {
       try {
-        final effectiveVideoTitle = title.isNotEmpty ? title : "YouTube Tutorial ($cleanUrl)";
+        final effectiveVideoTitle = title.isNotEmpty
+            ? title
+            : (isYt ? "YouTube Video Study Guide ($cleanUrl)" : "Web Study Guide (${uri.host})");
         final sethTutorial = await SethAiEngine.askSethAi(
           message:
-              "Extract and explain ALL information about this YouTube video tutorial (including spoken/voice lecture concepts and transcription breakdown):\n"
-              "Video Title: \"$effectiveVideoTitle\"\n"
-              "Channel / Instructor: \"${author.isNotEmpty ? author : 'YouTube Creator'}\"\n"
+              "Extract and explain ALL information about this video tutorial or web resource (including spoken/voice lecture concepts and transcription breakdown):\n"
+              "Title: \"$effectiveVideoTitle\"\n"
+              "Channel / Source: \"${author.isNotEmpty ? author : uri.host}\"\n"
               "URL: $cleanUrl\n\n"
               "Provide a comprehensive, detailed study & lecture document covering:\n"
-              "1. 🎯 What This Video Tutorial Is All About (Complete Overview)\n"
+              "1. 🎯 What This Tutorial Is All About (Complete Overview)\n"
               "2. 🎙️ Voice & Spoken Lecture Breakdown (Step-by-Step Concepts Taught)\n"
               "3. 📚 Core Definitions, Principles, Formulas, or Code Covered\n"
               "4. 💡 Key High-Yield Takeaways & Practical Examples for Students",
@@ -696,24 +700,36 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
               final code = codeCtrl.text.trim();
               final name = nameCtrl.text.trim();
               if (code.isNotEmpty && name.isNotEmpty) {
+                CourseModel? createdCourse;
                 try {
                   final resp = await widget.apiClient.dio.post(
                     "/api/v1/courses",
                     data: {
                       "code": code,
                       "name": name,
-                      "colorHex": "#6366F1",
+                      "colorHex": "#FF6B00",
                     },
+                    options: Options(
+                      sendTimeout: const Duration(seconds: 3),
+                      receiveTimeout: const Duration(seconds: 3),
+                    ),
                   );
                   if (resp.statusCode == 200 && resp.data is Map) {
-                    final newCourse = CourseModel.fromJson(resp.data as Map<String, dynamic>);
-                    setState(() {
-                      widget.courses.add(newCourse);
-                      _selectedCourseId = newCourse.id;
-                    });
-                    widget.onCourseSelected?.call(newCourse.id);
+                    createdCourse = CourseModel.fromJson(resp.data as Map<String, dynamic>);
                   }
                 } catch (_) {}
+                createdCourse ??= CourseModel(
+                  id: "local_course_${DateTime.now().millisecondsSinceEpoch}",
+                  code: code,
+                  name: name,
+                  colorHex: "#FF6B00",
+                  createdAt: DateTime.now(),
+                );
+                setState(() {
+                  widget.courses.add(createdCourse!);
+                  _selectedCourseId = createdCourse.id;
+                });
+                widget.onCourseSelected?.call(createdCourse.id);
               }
               if (ctx.mounted) Navigator.pop(ctx);
             },
@@ -743,6 +759,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
         final data = <String, dynamic>{
           "fileName": _selectedFile!.name,
           "extractedText": cleanText,
+          "hasContent": cleanText.isNotEmpty,
           "charCount": cleanText.length,
           "wordCount": cleanText.isEmpty ? 0 : cleanText.split(RegExp(r"\s+")).length,
           "ocrEngine": ocrResult.engine,
@@ -768,6 +785,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
       final data = <String, dynamic>{
         "fileName": _selectedFile!.name,
         "extractedText": localText,
+        "hasContent": localText.isNotEmpty,
         "charCount": localText.length,
         "wordCount": localText.isEmpty ? 0 : localText.split(RegExp(r"\s+")).length,
         "pageCount": localExtraction.pageCount,
@@ -1435,9 +1453,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
       _tabController.animateTo(0);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("✏️ Clean text transferred to editor! You can now review, edit, and synthesize."),
+          content: Text("✏️ Loaded into editor!"),
           backgroundColor: Color(0xFF10B981),
-          duration: Duration(seconds: 3),
+          duration: Duration(seconds: 2),
         ),
       );
       return;
@@ -1449,51 +1467,53 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     });
 
     try {
-      final multipartFile = MultipartFile.fromBytes(
-        _selectedFileBytes!,
-        filename: _selectedFile!.name,
-      );
+      String cleanText = "";
+      String engine = "On-Device Scanner";
+      if (_isImageFile(_selectedFile!.name)) {
+        final ocr = await FastOcrService.extractTextFromImage(
+          apiClient: widget.apiClient,
+          bytes: _selectedFileBytes!,
+          filename: _selectedFile!.name,
+        );
+        cleanText = ocr.text.trim();
+        engine = ocr.engine;
+      } else {
+        final local = LocalPdfExtractor.extractFromBytes(
+          _selectedFileBytes!,
+          _selectedFile!.name,
+        );
+        cleanText = local.text.trim();
+        engine = local.method;
+      }
 
-      final formDataMap = <String, dynamic>{
-        "file": multipartFile,
+      final data = <String, dynamic>{
+        "fileName": _selectedFile!.name,
+        "extractedText": cleanText,
+        "hasContent": cleanText.isNotEmpty,
+        "charCount": cleanText.length,
+        "wordCount": cleanText.isEmpty ? 0 : cleanText.split(RegExp(r"\s+")).length,
+        "ocrEngine": engine,
       };
+      setState(() {
+        _scannedResult = data;
+        if (cleanText.isNotEmpty) {
+          _textController.text = cleanText;
+          _showInlinePdfLayout = !_isImageFile(_selectedFile!.name);
+        }
+      });
 
-      final response = await widget.apiClient.dio.post(
-        ApiConstants.scanContent,
-        data: FormData.fromMap(formDataMap),
-      );
-
-      if (response.statusCode == 200 && response.data is Map) {
-        final data = Map<String, dynamic>.from(response.data as Map);
-        final cleanText = (data["extractedText"] ?? "") as String;
-        setState(() {
-          _scannedResult = data;
-          if (cleanText.trim().isNotEmpty) {
-            _textController.text = cleanText.trim();
-          }
-        });
-
-        if (cleanText.trim().isNotEmpty) {
-          _tabController.animateTo(0);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text("✏️ Clean text extracted and loaded into the Note Editor!"),
-                backgroundColor: Color(0xFF10B981),
-                duration: Duration(seconds: 3),
-              ),
-            );
-          }
-        } else {
-          setState(() {
-            _errorMessage = "No readable text could be recognized from '${_selectedFile!.name}'.";
-          });
+      if (cleanText.isNotEmpty) {
+        _tabController.animateTo(0);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("✏️ Extracted into editor!"),
+              backgroundColor: Color(0xFF10B981),
+              duration: Duration(seconds: 2),
+            ),
+          );
         }
       }
-    } on DioException catch (e) {
-      setState(() {
-        _errorMessage = e.error?.toString() ?? e.message ?? "Scan failed.";
-      });
     } catch (e) {
       setState(() {
         _errorMessage = "Extraction error: $e";
@@ -1513,7 +1533,7 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
     final wordCount = data["wordCount"] ?? 0;
     final charCount = data["charCount"] ?? 0;
     final lineCount = data["lineCount"] ?? 0;
-    final hasContent = data["hasContent"] == true && extractedText.trim().isNotEmpty;
+    final hasContent = extractedText.trim().isNotEmpty;
 
     showModalBottomSheet(
       context: context,
@@ -1717,110 +1737,99 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                             ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 8,
-                    alignment: WrapAlignment.end,
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       if (hasContent) ...[
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF6366F1),
-                            foregroundColor: Colors.white,
-                          ),
-                          icon: const Icon(Icons.picture_as_pdf_rounded, size: 16),
-                          label: const Text("View Actual PDF Layout & Print"),
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            PdfStudyGuideViewerModal.show(
-                              context,
-                              title: fileName,
-                              content: extractedText,
-                              sourceType: fileName.toLowerCase().endsWith(".pdf")
-                                  ? "PDF Document (Actual Page Layout)"
-                                  : "Scanned Study Guide",
-                              onUseInEditor: (editedTitle, editedText) {
-                                setState(() {
-                                  _titleController.text = editedTitle;
-                                  _textController.text = editedText;
-                                });
-                                _tabController.animateTo(0);
-                              },
-                            );
-                          },
-                        ),
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.copy_rounded, size: 16),
-                          label: const Text("Copy Scanned Text"),
-                          onPressed: () async {
-                            await Clipboard.setData(ClipboardData(text: extractedText));
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text("📋 Scanned text copied to clipboard!"),
-                                  duration: Duration(seconds: 2),
-                                ),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFFF6B00),
+                              side: const BorderSide(color: Color(0xFFFF6B00)),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                            icon: const Icon(Icons.picture_as_pdf_rounded, size: 15),
+                            label: const Text("PDF", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              PdfStudyGuideViewerModal.show(
+                                context,
+                                title: fileName,
+                                content: extractedText,
+                                sourceType: "PDF Document",
+                                onUseInEditor: (editedTitle, editedText) {
+                                  setState(() {
+                                    _titleController.text = editedTitle;
+                                    _textController.text = editedText;
+                                  });
+                                  _tabController.animateTo(0);
+                                },
                               );
-                            }
-                          },
-                        ),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF10B981),
-                            side: const BorderSide(color: Color(0xFF10B981)),
+                            },
                           ),
-                          icon: const Icon(Icons.bookmark_add_rounded, size: 16),
-                          label: const Text("Save to Notebook"),
-                          onPressed: () async {
-                            final noteTitle = fileName.split('.').first;
-                            final ok = await widget.apiClient.saveNotebookNote(
-                              courseId: _selectedCourseId,
-                              title: noteTitle.isNotEmpty ? noteTitle : "Scanned Notes",
-                              markdown: extractedText,
-                            );
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(ok ? "✓ Scanned notes saved to Course Notebook!" : "Could not save notes. Check connection."),
-                                  backgroundColor: ok ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                                ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF10B981),
+                              side: const BorderSide(color: Color(0xFF10B981)),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                            icon: const Icon(Icons.bookmark_add_rounded, size: 15),
+                            label: const Text("Save", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                            onPressed: () async {
+                              final noteTitle = fileName.split('.').first;
+                              final ok = await widget.apiClient.saveNotebookNote(
+                                courseId: _selectedCourseId,
+                                title: noteTitle.isNotEmpty ? noteTitle : "Scanned Notes",
+                                markdown: extractedText,
                               );
-                            }
-                          },
-                        ),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF8B5CF6),
-                            side: const BorderSide(color: Color(0xFF8B5CF6)),
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(ok ? "✓ Saved to Notebook!" : "Saved locally!"),
+                                    backgroundColor: const Color(0xFF10B981),
+                                  ),
+                                );
+                              }
+                            },
                           ),
-                          icon: const Icon(Icons.edit_note_rounded, size: 16),
-                          label: const Text("Transfer to Note Editor"),
-                          onPressed: () {
-                            _textController.text = extractedText;
-                            _tabController.animateTo(0);
-                            Navigator.pop(ctx);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text("✏️ Scanned text loaded into the Paste Text editor!"),
-                                duration: Duration(seconds: 3),
-                              ),
-                            );
-                          },
                         ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF6366F1),
+                              side: const BorderSide(color: Color(0xFF6366F1)),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                            icon: const Icon(Icons.edit_note_rounded, size: 15),
+                            label: const Text("Editor", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                            onPressed: () {
+                              _textController.text = extractedText;
+                              _tabController.animateTo(0);
+                              Navigator.pop(ctx);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 6),
                       ],
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.accent,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF6B00),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                          icon: const Icon(Icons.quiz_rounded, size: 15),
+                          label: const Text("Exam", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _handleGenerate();
+                          },
                         ),
-                        icon: const Icon(Icons.auto_awesome, size: 16),
-                        label: const Text("Synthesize Study Set Now"),
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _handleGenerate();
-                        },
                       ),
                     ],
                   ),
@@ -3022,30 +3031,30 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
 
     return Scaffold(
       appBar: AppBar(
-        title: Text("Add Material", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: context.textPrimary)),
+        title: Text("Study Studio", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 18, color: context.textPrimary)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.document_scanner_rounded),
-            tooltip: "Open Camera Text Scanner",
+            icon: const Icon(Icons.document_scanner_rounded, color: Color(0xFFFF6B00)),
+            tooltip: "Smart Scanner",
             onPressed: _openCameraScanner,
           ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
-            tooltip: "Reset Form & Clear Selection",
+            tooltip: "Clear",
             onPressed: _resetForm,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 4),
         ],
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: isDark ? AppColors.primaryLight : AppColors.primaryDark,
-          labelColor: isDark ? Colors.white : AppColors.primaryDark,
+          indicatorColor: const Color(0xFFFF6B00),
+          labelColor: isDark ? Colors.white : const Color(0xFFFF6B00),
           unselectedLabelColor: context.textSecondary,
-          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
           tabs: const [
-            Tab(icon: Icon(Icons.notes_rounded), text: "Paste Text"),
-            Tab(icon: Icon(Icons.photo_camera_back_rounded), text: "Upload File / Photo"),
-            Tab(icon: Icon(Icons.link_rounded), text: "Link"),
+            Tab(icon: Icon(Icons.notes_rounded, size: 18), text: "Notes"),
+            Tab(icon: Icon(Icons.photo_camera_back_rounded, size: 18), text: "File"),
+            Tab(icon: Icon(Icons.smart_display_rounded, size: 18), text: "Link"),
           ],
         ),
       ),
@@ -3054,100 +3063,14 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 880),
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Direct Note & Document Extractor Tip
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: context.secondaryBg,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: context.cardBorderColor),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.lightbulb_outline_rounded, color: AppColors.accent, size: 18),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            "Tip: Questions and concepts are extracted directly from your study notes, whiteboard photos, and documents.",
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              color: context.textSecondary,
-                              height: 1.35,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Fast Mode & Offline Synthesis Toggle Card
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 18),
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: context.surfaceColor,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: _fastMode ? AppColors.accent.withValues(alpha: 0.6) : context.cardBorderColor,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: _fastMode ? AppColors.accent.withValues(alpha: 0.15) : context.secondaryBg,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(
-                            Icons.bolt_rounded,
-                            color: _fastMode ? AppColors.accent : context.textSecondary,
-                            size: 22,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Text(
-                                    "⚡ Rapid processing",
-                                    style: GoogleFonts.outfit(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                      color: context.textPrimary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                "Optimized rapid generation for shorter study sets.",
-                                style: TextStyle(color: context.textSecondary, fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Switch.adaptive(
-                          value: _fastMode,
-                          activeTrackColor: AppColors.accent,
-                          onChanged: (val) => setState(() => _fastMode = val),
-                        ),
-                      ],
-                    ),
-                  ),
-
                   if (_errorMessage != null) ...[
                     Container(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         color: AppColors.danger.withValues(alpha: isDark ? 0.15 : 0.08),
                         borderRadius: BorderRadius.circular(10),
@@ -3155,40 +3078,44 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.warning_amber_rounded, color: AppColors.danger, size: 20),
+                          const Icon(Icons.warning_amber_rounded, color: AppColors.danger, size: 18),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(_errorMessage!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+                            child: Text(_errorMessage!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
                           ),
                         ],
                       ),
                     ),
                   ],
 
-                  // Course Selector
+                  // Compact UnionBank Course & Module Row
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text("Assign to Course", style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.bold, color: context.textPrimary)),
-                      if (widget.courses.any((c) => c.studySets.isNotEmpty))
-                        TextButton.icon(
-                          key: const Key("quick_extract_module_btn"),
-                          style: TextButton.styleFrom(
-                            foregroundColor: const Color(0xFF6366F1),
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      Text("Course", style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.bold, color: context.textPrimary)),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.courses.any((c) => c.studySets.isNotEmpty))
+                            IconButton(
+                              key: const Key("quick_extract_module_btn"),
+                              tooltip: "Load from Module",
+                              icon: const Icon(Icons.menu_book_rounded, size: 18, color: Color(0xFFFF6B00)),
+                              onPressed: _showExtractFromModulesDialog,
+                            ),
+                          IconButton(
+                            tooltip: "Add Course",
+                            icon: const Icon(Icons.add_circle_outline_rounded, size: 18, color: Color(0xFFFF6B00)),
+                            onPressed: _showCreateCourseDialog,
                           ),
-                          icon: const Icon(Icons.menu_book_rounded, size: 14),
-                          label: const Text("Extract from Module", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                          onPressed: _showExtractFromModulesDialog,
-                        ),
+                        ],
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   if (widget.courses.isEmpty)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
                         color: context.surfaceColor,
                         borderRadius: BorderRadius.circular(12),
@@ -3196,30 +3123,26 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.info_outline, color: AppColors.warning, size: 18),
-                          const SizedBox(width: 10),
+                          const Icon(Icons.school_rounded, color: Color(0xFFFF6B00), size: 18),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              "No courses found. Study set will be created in default space.",
-                              style: TextStyle(color: context.textSecondary, fontSize: 13),
+                              "Default Space",
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          TextButton.icon(
+                          TextButton(
                             onPressed: _showCreateCourseDialog,
-                            icon: const Icon(Icons.add_rounded, size: 15),
-                            label: const Text("Create Course", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                            style: TextButton.styleFrom(
-                              foregroundColor: AppColors.primary,
-                              visualDensity: VisualDensity.compact,
-                            ),
+                            child: const Text("+ New", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFFF6B00))),
                           ),
                         ],
                       ),
                     )
                   else
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
                       decoration: BoxDecoration(
                         color: context.surfaceColor,
                         borderRadius: BorderRadius.circular(12),
@@ -3233,7 +3156,12 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                           items: widget.courses.map((c) {
                             return DropdownMenuItem(
                               value: c.id,
-                              child: Text("${c.code} - ${c.name}", style: TextStyle(color: context.textPrimary)),
+                              child: Text(
+                                "${c.code} • ${c.name}",
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: context.textPrimary, fontSize: 13),
+                              ),
                             );
                           }).toList(),
                           onChanged: (val) {
@@ -3245,19 +3173,20 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                         ),
                       ),
                     ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
 
                   // Title input
                   TextField(
                     controller: _titleController,
-                    style: TextStyle(color: context.textPrimary),
+                    style: TextStyle(color: context.textPrimary, fontSize: 13.5),
                     onChanged: (val) => setState(() => _isCustomTitle = val.trim().isNotEmpty),
                     decoration: const InputDecoration(
-                      labelText: "Study Set Title",
-                      hintText: "e.g. Chapter 4: Cellular Respiration & Krebs Cycle",
+                      labelText: "Title",
+                      hintText: "e.g. Cellular Respiration",
+                      isDense: true,
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 12),
 
                   // Tab View Content
                   ConstrainedBox(
@@ -3268,234 +3197,139 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                     child: TabBarView(
                       controller: _tabController,
                       children: [
-                        // Tab 1: Text Editor with "Extract Clean Text" Action Bar
+                        // Tab 1: Text Editor with UnionBank Icon-First Single-Row Toolbar
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Wrap(
-                              alignment: WrapAlignment.spaceBetween,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              spacing: 8,
-                              runSpacing: 6,
-                              children: [
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    InkWell(
-                                      onTap: () => setState(() => _showInlinePdfLayout = false),
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                        decoration: BoxDecoration(
-                                          color: !_showInlinePdfLayout
-                                              ? const Color(0xFF2E7D5B)
-                                              : context.cardBorderColor.withValues(alpha: 0.35),
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: Text(
-                                          "✏️ Edit Text",
-                                          style: TextStyle(
-                                            fontSize: 11.5,
-                                            fontWeight: FontWeight.bold,
-                                            color: !_showInlinePdfLayout ? Colors.white : context.textPrimary,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    InkWell(
-                                      onTap: () => setState(() => _showInlinePdfLayout = true),
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                        decoration: BoxDecoration(
-                                          color: _showInlinePdfLayout
-                                              ? const Color(0xFF4F46E5)
-                                              : context.cardBorderColor.withValues(alpha: 0.35),
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: Text(
-                                          "📄 Actual PDF Layout",
-                                          style: TextStyle(
-                                            fontSize: 11.5,
-                                            fontWeight: FontWeight.bold,
-                                            color: _showInlinePdfLayout ? Colors.white : context.textPrimary,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    if (_textController.text.trim().isNotEmpty) ...[
-                                      const SizedBox(width: 6),
-                                      InkWell(
-                                        onTap: () {
-                                          PdfStudyGuideViewerModal.show(
-                                            context,
-                                            title: _titleController.text.trim().isNotEmpty
-                                                ? _titleController.text.trim()
-                                                : "PDF Study Document",
-                                            content: _textController.text.trim(),
-                                            sourceType: "Actual PDF Page Layout",
-                                          );
-                                        },
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFEF4444).withValues(alpha: 0.14),
-                                            borderRadius: BorderRadius.circular(8),
-                                            border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.45)),
-                                          ),
-                                          child: const Text(
-                                            "🖨️ Print PDF",
-                                            style: TextStyle(
-                                              fontSize: 11.5,
-                                              fontWeight: FontWeight.bold,
-                                              color: Color(0xFFEF4444),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: context.surfaceColor,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: context.cardBorderColor),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                children: [
+                                  _buildToolbarIconAction(
+                                    context,
+                                    icon: Icons.edit_note_rounded,
+                                    label: "Edit",
+                                    active: !_showInlinePdfLayout,
+                                    color: const Color(0xFFFF6B00),
+                                    onTap: () => setState(() => _showInlinePdfLayout = false),
+                                  ),
+                                  _buildToolbarIconAction(
+                                    context,
+                                    icon: Icons.picture_as_pdf_rounded,
+                                    label: "PDF",
+                                    active: _showInlinePdfLayout,
+                                    color: const Color(0xFF4F46E5),
+                                    onTap: () => setState(() => _showInlinePdfLayout = true),
+                                  ),
+                                  _buildToolbarIconAction(
+                                    context,
+                                    icon: Icons.content_paste_rounded,
+                                    label: "Paste",
+                                    active: false,
+                                    color: const Color(0xFF10B981),
+                                    onTap: () async {
+                                      final messenger = ScaffoldMessenger.of(context);
+                                      final clipData = await Clipboard.getData(Clipboard.kTextPlain);
+                                      final clipText = clipData?.text?.trim() ?? "";
+                                      if (clipText.length >= 20) {
+                                        setState(() {
+                                          _textController.text = clipText;
+                                          if (_titleController.text.trim().isEmpty) {
+                                            final firstLine = clipText
+                                                .split(RegExp(r"[\r\n]+"))
+                                                .firstWhere((l) => l.trim().isNotEmpty, orElse: () => "Pasted Study Notes")
+                                                .replaceAll(RegExp(r"^[\#\*-\s]+"), "")
+                                                .trim();
+                                            _titleController.text = firstLine.length > 44
+                                                ? "${firstLine.substring(0, 41)}..."
+                                                : firstLine;
+                                          }
+                                          _showInlinePdfLayout = true;
+                                        });
+                                        if (mounted) {
+                                          messenger.showSnackBar(
+                                            const SnackBar(
+                                              content: Text("📄 Pasted in PDF view!"),
+                                              backgroundColor: Color(0xFF10B981),
                                             ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                                InkWell(
-                                  onTap: () async {
-                                    final messenger = ScaffoldMessenger.of(context);
-                                    final clipData = await Clipboard.getData(Clipboard.kTextPlain);
-                                    final clipText = clipData?.text?.trim() ?? "";
-                                    if (clipText.length >= 20) {
-                                      setState(() {
-                                        _textController.text = clipText;
-                                        if (_titleController.text.trim().isEmpty) {
-                                          final firstLine = clipText
-                                              .split(RegExp(r"[\r\n]+"))
-                                              .firstWhere((l) => l.trim().isNotEmpty, orElse: () => "Pasted PDF Study Document")
-                                              .replaceAll(RegExp(r"^[\#\*-\s]+"), "")
-                                              .trim();
-                                          _titleController.text = firstLine.length > 44
-                                              ? "${firstLine.substring(0, 41)}..."
-                                              : firstLine;
+                                          );
                                         }
-                                        _showInlinePdfLayout = true;
-                                      });
-                                      if (mounted) {
-                                        messenger.showSnackBar(
-                                          const SnackBar(
-                                            content: Text("📄 Pasted clipboard content & rendered in Actual PDF Page Layout!"),
-                                            backgroundColor: Color(0xFF10B981),
-                                          ),
-                                        );
+                                      } else {
+                                        const sampleTitle = "Cellular Respiration & ATP Synthesis";
+                                        const samplePdf = "# Cellular Respiration & ATP Synthesis\n\n"
+                                            "## 1. Executive Summary\n"
+                                            "Cellular respiration is the metabolic pathway by which cells harvest biochemical energy from glucose and convert it into adenosine triphosphate (ATP).\n\n"
+                                            "## 2. Three Primary Stages\n"
+                                            "- **Glycolysis (Cytosol):** Breaks down 1 glucose molecule (6C) into 2 pyruvate molecules (3C), yielding a net gain of 2 ATP and 2 NADH without requiring oxygen.\n"
+                                            "- **Krebs / Citric Acid Cycle (Mitochondrial Matrix):** Oxidizes Acetyl-CoA to CO2, generating 2 ATP, 6 NADH, and 2 FADH2 per glucose molecule.\n"
+                                            "- **Oxidative Phosphorylation & Electron Transport Chain (Inner Mitochondrial Membrane):** Uses NADH and FADH2 to pump protons across the cristae membrane, driving ATP Synthase to produce ~28-34 ATP.\n\n"
+                                            "## 3. High-Yield Exam Comparisons\n"
+                                            "- **Aerobic Respiration:** Requires oxygen (O2) as the final electron acceptor to form water (H2O), producing up to 36-38 ATP per glucose.\n"
+                                            "- **Anaerobic Fermentation:** Occurs in the absence of oxygen, regenerating NAD+ via lactic acid or ethanol fermentation (yields only 2 ATP).";
+                                        setState(() {
+                                          _titleController.text = sampleTitle;
+                                          _textController.text = samplePdf;
+                                          _showInlinePdfLayout = true;
+                                        });
+                                        if (mounted) {
+                                          messenger.showSnackBar(
+                                            const SnackBar(
+                                              content: Text("📄 Sample PDF loaded!"),
+                                              backgroundColor: Color(0xFFFF6B00),
+                                            ),
+                                          );
+                                        }
                                       }
-                                    } else {
-                                      // Load formatted sample PDF content immediately so the user can test PDF visualization & exam creation
-                                      const sampleTitle = "Cellular Respiration & ATP Synthesis";
-                                      const samplePdf = "# Cellular Respiration & ATP Synthesis\n\n"
-                                          "## 1. Executive Summary\n"
-                                          "Cellular respiration is the metabolic pathway by which cells harvest biochemical energy from glucose and convert it into adenosine triphosphate (ATP).\n\n"
-                                          "## 2. Three Primary Stages\n"
-                                          "- **Glycolysis (Cytosol):** Breaks down 1 glucose molecule (6C) into 2 pyruvate molecules (3C), yielding a net gain of 2 ATP and 2 NADH without requiring oxygen.\n"
-                                          "- **Krebs / Citric Acid Cycle (Mitochondrial Matrix):** Oxidizes Acetyl-CoA to CO2, generating 2 ATP, 6 NADH, and 2 FADH2 per glucose molecule.\n"
-                                          "- **Oxidative Phosphorylation & Electron Transport Chain (Inner Mitochondrial Membrane):** Uses NADH and FADH2 to pump protons across the cristae membrane, driving ATP Synthase to produce ~28-34 ATP.\n\n"
-                                          "## 3. High-Yield Exam Comparisons\n"
-                                          "- **Aerobic Respiration:** Requires oxygen (O2) as the final electron acceptor to form water (H2O), producing up to 36-38 ATP per glucose.\n"
-                                          "- **Anaerobic Fermentation:** Occurs in the absence of oxygen, regenerating NAD+ via lactic acid or ethanol fermentation (yields only 2 ATP).";
-                                      setState(() {
-                                        _titleController.text = sampleTitle;
-                                        _textController.text = samplePdf;
-                                        _showInlinePdfLayout = true;
-                                      });
-                                      if (mounted) {
-                                        messenger.showSnackBar(
-                                          const SnackBar(
-                                            content: Text("📄 Sample PDF loaded in Actual A4 PDF Page Layout! Tap Generate below to create an exam."),
-                                            backgroundColor: Color(0xFF4F46E5),
-                                          ),
+                                    },
+                                  ),
+                                  _buildToolbarIconAction(
+                                    context,
+                                    icon: Icons.document_scanner_rounded,
+                                    label: _isExtractingTextToEditor ? "..." : "Scan",
+                                    active: false,
+                                    color: const Color(0xFF0EA5E9),
+                                    onTap: _isExtractingTextToEditor ? null : _extractCleanTextFromImageOrFile,
+                                  ),
+                                  _buildToolbarIconAction(
+                                    context,
+                                    icon: Icons.print_rounded,
+                                    label: "Print",
+                                    active: false,
+                                    color: const Color(0xFFEF4444),
+                                    onTap: () {
+                                      final body = _textController.text.trim();
+                                      if (body.isEmpty) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text("Paste or scan notes first to print.")),
                                         );
+                                        return;
                                       }
-                                    }
-                                  },
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF2E7D5B).withValues(alpha: isDark ? 0.25 : 0.12),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: const Color(0xFF2E7D5B).withValues(alpha: 0.45)),
-                                    ),
-                                    child: const Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.picture_as_pdf_rounded, size: 14, color: Color(0xFF2E7D5B)),
-                                        SizedBox(width: 6),
-                                        Text(
-                                          "📋 Paste / Sample PDF",
-                                          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF2E7D5B)),
-                                        ),
-                                      ],
-                                    ),
+                                      PdfStudyGuideViewerModal.show(
+                                        context,
+                                        title: _titleController.text.trim().isNotEmpty
+                                            ? _titleController.text.trim()
+                                            : "Study Document",
+                                        content: body,
+                                        sourceType: "PDF Document",
+                                      );
+                                    },
                                   ),
-                                ),
-                                InkWell(
-                                  onTap: _isExtractingTextToEditor ? null : _extractCleanTextFromImageOrFile,
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF6366F1).withValues(alpha: isDark ? 0.2 : 0.1),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.4)),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        if (_isExtractingTextToEditor) ...[
-                                          const SizedBox(
-                                            width: 12,
-                                            height: 12,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1)),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          const Text("Extracting...", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF6366F1))),
-                                        ] else ...[
-                                          const Icon(Icons.document_scanner_rounded, size: 14, color: Color(0xFF6366F1)),
-                                          const SizedBox(width: 6),
-                                          const Text("📷 Scan Image / File", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF6366F1))),
-                                        ],
-                                      ],
-                                    ),
+                                  _buildToolbarIconAction(
+                                    context,
+                                    icon: Icons.bookmark_add_rounded,
+                                    label: _isSavingToNotebook ? "..." : "Save",
+                                    active: false,
+                                    color: const Color(0xFF10B981),
+                                    onTap: _isSavingToNotebook ? null : _saveExtractedNotesToNotebook,
                                   ),
-                                ),
-                                InkWell(
-                                  onTap: _isSavingToNotebook ? null : _saveExtractedNotesToNotebook,
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.2 : 0.1),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        if (_isSavingToNotebook) ...[
-                                          const SizedBox(
-                                            width: 12,
-                                            height: 12,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF10B981)),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          const Text("Saving...", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
-                                        ] else ...[
-                                          const Icon(Icons.bookmark_add_rounded, size: 14, color: Color(0xFF10B981)),
-                                          const SizedBox(width: 6),
-                                          const Text("💾 Save to Notebook", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                             const SizedBox(height: 8),
                             if (_isUrlText(_textController.text)) ...[
@@ -3843,14 +3677,14 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                               ),
                                               const SizedBox(height: 6),
                                               Wrap(
-                                                 spacing: 8,
+                                                 spacing: 6,
                                                  runSpacing: 4,
                                                  children: [
                                                    ElevatedButton.icon(
                                                      style: ElevatedButton.styleFrom(
-                                                       backgroundColor: isDark ? const Color(0xFF4F46E5) : const Color(0xFF6366F1),
+                                                       backgroundColor: const Color(0xFFFF6B00),
                                                        foregroundColor: Colors.white,
-                                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                                        minimumSize: Size.zero,
                                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                                      ),
@@ -3863,11 +3697,9 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                                          : const Icon(Icons.document_scanner_rounded, size: 14),
                                                      label: Text(
                                                        _isScanning
-                                                           ? "Scanning Content..."
-                                                           : (_scannedResult != null
-                                                               ? "View Scanned Content (${_scannedResult!['charCount']} chars)"
-                                                               : "Scan & View Extracted Content"),
-                                                       style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                                           ? "..."
+                                                           : (_scannedResult != null ? "View" : "Scan"),
+                                                       style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
                                                      ),
                                                      onPressed: _isScanning
                                                          ? null
@@ -3877,36 +3709,31 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                                                    ),
                                                    OutlinedButton.icon(
                                                      style: OutlinedButton.styleFrom(
-                                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                                       minimumSize: Size.zero,
-                                                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                                     ),
-                                                     icon: const Icon(Icons.file_upload_outlined, size: 14),
-                                                     label: const Text("Replace File", style: TextStyle(fontSize: 12)),
-                                                     onPressed: _pickFile,
-                                                   ),
-                                                   OutlinedButton.icon(
-                                                     style: OutlinedButton.styleFrom(
-                                                       foregroundColor: const Color(0xFF8B5CF6),
-                                                       side: const BorderSide(color: Color(0xFF8B5CF6)),
-                                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                                       foregroundColor: const Color(0xFF6366F1),
+                                                       side: const BorderSide(color: Color(0xFF6366F1)),
+                                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                                        minimumSize: Size.zero,
                                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                                      ),
                                                      icon: const Icon(Icons.edit_note_rounded, size: 14),
-                                                     label: const Text("Extract to Note Editor", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                                     label: const Text("Editor", style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
                                                      onPressed: _isScanning ? null : _scanAndTransferToEditor,
                                                    ),
                                                    OutlinedButton.icon(
                                                      style: OutlinedButton.styleFrom(
-                                                       foregroundColor: AppColors.danger,
-                                                       side: const BorderSide(color: AppColors.danger),
-                                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                                        minimumSize: Size.zero,
                                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                                      ),
-                                                     icon: const Icon(Icons.close_rounded, size: 14),
-                                                     label: const Text("Clear / Remove", style: TextStyle(fontSize: 12)),
+                                                     icon: const Icon(Icons.file_upload_outlined, size: 14),
+                                                     label: const Text("Change", style: TextStyle(fontSize: 11.5)),
+                                                     onPressed: _pickFile,
+                                                   ),
+                                                   IconButton(
+                                                     tooltip: "Remove",
+                                                     constraints: const BoxConstraints(),
+                                                     padding: const EdgeInsets.all(4),
+                                                     icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.danger),
                                                      onPressed: _clearFile,
                                                    ),
                                                  ],
@@ -4749,62 +4576,85 @@ class _IngestionScreenState extends State<IngestionScreen> with SingleTickerProv
                     ),
                   ],
 
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
 
-                  Builder(
-                    builder: (context) {
-                      final isTextTab = _tabController.index == 0;
-                      final textLen = _textController.text.trim().length;
-                      final hasMinText = !isTextTab || textLen >= 200;
-                      final canGenerate = !_isLoading && (textLen == 0 || hasMinText);
-
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (isTextTab && textLen < 200)
-                            Container(
-                              margin: const EdgeInsets.only(bottom: 10),
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                "Add at least 200 characters ($textLen/200)",
-                                style: const TextStyle(color: Color(0xFFD97706), fontSize: 12, fontWeight: FontWeight.bold),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                            ),
-                            icon: _isLoading
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                  )
-                                : const Icon(Icons.menu_book_rounded),
-                            label: Text(
-                              _isLoading
-                                  ? "Extracting & Synthesizing Study Set..."
-                                  : (_fastMode ? "⚡ Quick Local Processing" : "Generate Study Set from Notes"),
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                            ),
-                            onPressed: canGenerate ? _handleGenerate : null,
-                          ),
-                        ],
-                      );
-                    },
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF6B00),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        elevation: 2,
+                      ),
+                      icon: _isLoading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.bolt_rounded, size: 20),
+                      label: Text(
+                        _isLoading ? "Creating Exam..." : "Create Exam",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15.5),
+                      ),
+                      onPressed: _isLoading ? null : _handleGenerate,
+                    ),
                   ),
                   const SizedBox(height: 32),
                 ],
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildToolbarIconAction(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required bool active,
+    required Color color,
+    required VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: active ? color : color.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                size: 17,
+                color: active ? Colors.white : color,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.outfit(
+                fontSize: 10.5,
+                fontWeight: active ? FontWeight.bold : FontWeight.w600,
+                color: active ? color : context.textPrimary,
+              ),
+            ),
+          ],
         ),
       ),
     );

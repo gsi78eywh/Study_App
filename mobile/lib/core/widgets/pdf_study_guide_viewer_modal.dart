@@ -455,9 +455,11 @@ class _PdfStudyGuideViewerModalState extends State<PdfStudyGuideViewerModal> {
                         ),
                       ),
                       Text(
-                        "${widget.sourceType} • ${_pages.length} Page${_pages.length == 1 ? '' : 's'} (Actual PDF Layout)",
+                        "${widget.sourceType} • ${_pages.length}p",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 12,
+                          fontSize: 11.5,
                           color: Color(0xFF94A3B8),
                         ),
                       ),
@@ -505,13 +507,13 @@ class _PdfStudyGuideViewerModalState extends State<PdfStudyGuideViewerModal> {
                     size: 16,
                     color: _isVisualPdfMode ? Colors.white : Colors.white70,
                   ),
-                  label: const Text("📄 Actual PDF Page Layout"),
+                  label: const Text("PDF View"),
                   labelStyle: TextStyle(
-                    fontSize: 12,
+                    fontSize: 11.5,
                     fontWeight: FontWeight.bold,
                     color: _isVisualPdfMode ? Colors.white : Colors.white70,
                   ),
-                  selectedColor: const Color(0xFF6366F1),
+                  selectedColor: const Color(0xFFFF6B00),
                   backgroundColor: const Color(0xFF0F172A),
                 ),
                 const SizedBox(width: 8),
@@ -523,22 +525,22 @@ class _PdfStudyGuideViewerModalState extends State<PdfStudyGuideViewerModal> {
                     size: 16,
                     color: !_isVisualPdfMode ? Colors.white : Colors.white70,
                   ),
-                  label: const Text("✏️ Edit Text"),
+                  label: const Text("Edit"),
                   labelStyle: TextStyle(
-                    fontSize: 12,
+                    fontSize: 11.5,
                     fontWeight: FontWeight.bold,
                     color: !_isVisualPdfMode ? Colors.white : Colors.white70,
                   ),
-                  selectedColor: const Color(0xFF6366F1),
+                  selectedColor: const Color(0xFFFF6B00),
                   backgroundColor: const Color(0xFF0F172A),
                 ),
                 const Spacer(),
                 if (_pages.length > 1 && _isVisualPdfMode)
                   Text(
-                    "Page ${_selectedPageIndex + 1} / ${_pages.length}",
+                    "${_selectedPageIndex + 1}/${_pages.length}",
                     style: const TextStyle(
                       color: Color(0xFF38BDF8),
-                      fontSize: 12,
+                      fontSize: 11.5,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -604,8 +606,10 @@ class _PdfStudyGuideViewerModalState extends State<PdfStudyGuideViewerModal> {
                     onPressed: _printOrExportPdfGuide,
                     icon: const Icon(Icons.print_rounded, size: 18),
                     label: const Text(
-                      "Print / Export PDF",
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      "Print PDF",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
                     ),
                   ),
                 ),
@@ -613,7 +617,7 @@ class _PdfStudyGuideViewerModalState extends State<PdfStudyGuideViewerModal> {
                 Expanded(
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6366F1),
+                      backgroundColor: const Color(0xFFFF6B00),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 13),
                       shape: RoundedRectangleBorder(
@@ -631,10 +635,10 @@ class _PdfStudyGuideViewerModalState extends State<PdfStudyGuideViewerModal> {
                     },
                     icon: const Icon(Icons.bolt_rounded, size: 18),
                     label: Text(
-                      widget.onUseInEditor != null
-                          ? "Use & Generate Quiz"
-                          : "Done Viewing",
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      widget.onUseInEditor != null ? "Use / Exam" : "Done",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
                     ),
                   ),
                 ),
