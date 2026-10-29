@@ -339,7 +339,8 @@ class _GradeTrackerSheetState extends State<GradeTrackerSheet> with SingleTicker
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
+                Expanded(
+                  child: Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.all(8),
@@ -350,25 +351,30 @@ class _GradeTrackerSheetState extends State<GradeTrackerSheet> with SingleTicker
                       child: const Icon(Icons.school_rounded, color: Colors.white, size: 20),
                     ),
                     const SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Grade Tracker & GWA",
-                          style: GoogleFonts.outfit(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: context.textPrimary,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Grades & GWA",
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.outfit(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: context.textPrimary,
+                            ),
                           ),
-                        ),
-                        Text(
-                          "USJ-R Recoletos Scale (1.0 - 5.0)",
-                          style: TextStyle(color: context.textSecondary, fontSize: 11),
-                        ),
-                      ],
+                          Text(
+                            "Scale 1.0 – 5.0",
+                            style: TextStyle(color: context.textSecondary, fontSize: 11),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
+              ),
                 IconButton(
                   onPressed: () => Navigator.of(context).pop(),
                   icon: Icon(Icons.close_rounded, color: context.textSecondary),
@@ -384,8 +390,8 @@ class _GradeTrackerSheetState extends State<GradeTrackerSheet> with SingleTicker
             unselectedLabelColor: context.textSecondary,
             indicatorColor: const Color(0xFF6366F1),
             tabs: const [
-              Tab(icon: Icon(Icons.bar_chart_rounded, size: 18), text: "Course Grades & GWA"),
-              Tab(icon: Icon(Icons.calculate_rounded, size: 18), text: "What Grade Do I Need?"),
+              Tab(icon: Icon(Icons.bar_chart_rounded, size: 18), text: "Grades"),
+              Tab(icon: Icon(Icons.calculate_rounded, size: 18), text: "Target"),
             ],
           ),
 
@@ -695,11 +701,11 @@ class _GradeTrackerSheetState extends State<GradeTrackerSheet> with SingleTicker
           spacing: 8,
           runSpacing: 8,
           children: [
-            _buildTargetGwaChip(1.0, "1.0 (99% - Highest)"),
-            _buildTargetGwaChip(1.5, "1.5 (93% - Dean's List)"),
-            _buildTargetGwaChip(2.0, "2.0 (87% - Very Good)"),
-            _buildTargetGwaChip(2.5, "2.5 (81% - Good)"),
-            _buildTargetGwaChip(3.0, "3.0 (75% - Passing Cutoff)"),
+            _buildTargetGwaChip(1.0, "1.0"),
+            _buildTargetGwaChip(1.5, "1.5"),
+            _buildTargetGwaChip(2.0, "2.0"),
+            _buildTargetGwaChip(2.5, "2.5"),
+            _buildTargetGwaChip(3.0, "3.0 Pass"),
           ],
         ),
         const SizedBox(height: 20),

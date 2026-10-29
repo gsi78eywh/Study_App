@@ -872,7 +872,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               icon: const Icon(Icons.slideshow_rounded, size: 16, color: Color(0xFF2E7D5B)),
                               label: const Text(
-                                "How StudyApp Works (4-Step Slideshow)",
+                                "How It Works (Guide)",
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   fontSize: 12.5,
                                   fontWeight: FontWeight.bold,

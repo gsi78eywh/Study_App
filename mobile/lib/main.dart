@@ -22,6 +22,8 @@ void main() async {
   await NotificationService.instance.init();
   final themeController = ThemeController.init(sessionService);
   final apiClient = ApiClient(sessionService);
+  // Wake the cloud backend in the background (no UI wait).
+  apiClient.warmUpBackend();
 
   runApp(StudyAppMobile(
     sessionService: sessionService,

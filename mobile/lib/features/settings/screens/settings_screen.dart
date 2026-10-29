@@ -623,7 +623,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: context.scaffoldBg,
       appBar: AppBar(
         title: Text(
-          "Study Settings & Preferences",
+          "Settings",
           style: GoogleFonts.outfit(
             fontWeight: FontWeight.bold,
             fontSize: 20,
@@ -662,29 +662,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const Divider(height: 1),
             _buildDropdownTile(
-              title: "Preferred Practice Mode",
-              subtitle: "Primary assessment mode used when starting study sets",
+              title: "Practice Mode",
+              subtitle: "Default mode for study sets",
               value: _current.preferredStudyMode,
               items: const [
                 DropdownMenuItem(
                   value: StudyModeValue.simulatedExam,
-                  child: Text("🎯 Simulated Exam (All Types)"),
+                  child: Text("🎯 Mock Exam"),
                 ),
                 DropdownMenuItem(
                   value: StudyModeValue.multipleChoice,
-                  child: Text("📚 Multiple Choice Practice"),
+                  child: Text("📚 Multiple Choice"),
                 ),
                 DropdownMenuItem(
                   value: StudyModeValue.flashcards,
-                  child: Text("🃏 Spaced Repetition Flashcards"),
+                  child: Text("🃏 Flashcards"),
                 ),
                 DropdownMenuItem(
                   value: StudyModeValue.matchingType,
-                  child: Text("🧩 Two-Column Matching"),
+                  child: Text("🧩 Matching"),
                 ),
                 DropdownMenuItem(
                   value: StudyModeValue.rapidFireBlitz,
-                  child: Text("⚡ Rapid-Fire Blitz"),
+                  child: Text("⚡ Blitz"),
                 ),
               ],
               onChanged: (mode) {
@@ -704,7 +704,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Divider(height: 1),
             _buildSwitchTile(
               title: "Shuffle Option Choices",
-              subtitle: "Randomize distractor order to prevent positional memorization",
+              subtitle: "Shuffle answer order",
               value: _current.shuffleOptions,
               icon: Icons.shuffle_rounded,
               onChanged: (val) => setState(() => _current = _current.copyWith(shuffleOptions: val)),
@@ -800,7 +800,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Divider(height: 1),
             _buildSwitchTile(
               title: "Low Data Mode",
-              subtitle: "Compresses network payloads and prioritizes text for spotty campus Wi-Fi",
+              subtitle: "Faster on weak Wi-Fi",
               value: _lowDataMode,
               icon: Icons.data_saver_on_rounded,
               onChanged: (val) {
@@ -883,47 +883,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               listenable: ChildSafetyService.instance,
               builder: (context, _) {
                 final cs = ChildSafetyService.instance;
-                return Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Eye break reminder",
-                              style: GoogleFonts.outfit(
-                                fontWeight: FontWeight.bold,
-                                color: context.textPrimary,
-                                fontSize: 14,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              "Periodic pause based on the 20-20-20 eye-care rule",
-                              style: TextStyle(color: context.textSecondary, fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      DropdownButton<int>(
-                        value: cs.eyeBreakMinutes,
-                        underline: const SizedBox(),
-                        items: const [
-                          DropdownMenuItem(value: 20, child: Text("Every 20 mins (Recommended)")),
-                          DropdownMenuItem(value: 30, child: Text("Every 30 mins")),
-                          DropdownMenuItem(value: 45, child: Text("Every 45 mins")),
-                          DropdownMenuItem(value: 0, child: Text("Disabled")),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) cs.setEyeBreakMinutes(val);
-                        },
-                      ),
-                    ],
-                  ),
+                return _buildDropdownTile<int>(
+                  title: "Eye Break",
+                  subtitle: "20-20-20 eye-care pause",
+                  value: cs.eyeBreakMinutes,
+                  items: const [
+                    DropdownMenuItem(value: 20, child: Text("Every 20 min")),
+                    DropdownMenuItem(value: 30, child: Text("Every 30 min")),
+                    DropdownMenuItem(value: 45, child: Text("Every 45 min")),
+                    DropdownMenuItem(value: 0, child: Text("Off")),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) cs.setEyeBreakMinutes(val);
+                  },
                 );
               },
             ),
@@ -981,7 +953,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     _buildSwitchTile(
                       title: "Junior Learner Mode (Grades 1–6)",
-                      subtitle: "Enables simplified vocabulary, cheerful encouragement, and age-calibrated learning guardrails",
+                      subtitle: "Simpler words for Gr 1-6",
                       icon: Icons.child_care_rounded,
                       value: cs.isJuniorMode,
                       onChanged: (val) => cs.setJuniorMode(val),
@@ -1228,7 +1200,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const Divider(height: 1),
                     _buildSwitchTile(
                       title: "Read Aloud (Text-to-Speech)",
-                      subtitle: "Enable audio buttons across questions, flashcards, and explanations",
+                      subtitle: "Audio on questions & cards",
                       icon: Icons.record_voice_over_rounded,
                       value: cs.readAloudEnabled,
                       onChanged: (val) => cs.setReadAloudEnabled(val),
@@ -1236,7 +1208,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const Divider(height: 1),
                     _buildSwitchTile(
                       title: "Dyslexia-Friendly Font",
-                      subtitle: "Enhanced letter distinctness and weighted baseline to ease reading",
+                      subtitle: "Easier-to-read letters",
                       icon: Icons.font_download_outlined,
                       value: cs.dyslexiaFriendlyFont,
                       onChanged: (val) => cs.toggleDyslexiaFont(),
@@ -1261,7 +1233,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
               ),
               subtitle: const Text(
-                "Explore Passive Capture, Grade Tracker, Study Priority Engine, and study workflows",
+                "How to use StudyApp",
                 style: TextStyle(fontSize: 12),
               ),
               trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
@@ -1283,7 +1255,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 14),
               ),
               subtitle: const Text(
-                "View MAKABATA 1383 Helpline, Bantay Bata 163, DepEd CPU, and safety protections",
+                "Helplines & safety",
                 style: TextStyle(fontSize: 12),
               ),
               trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
@@ -1684,7 +1656,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      "Switch active API endpoint between local development and Render cloud deployment without rebuilding:",
+                      "Choose API server:",
                       style: TextStyle(color: context.textSecondary, fontSize: 12),
                     ),
                     const SizedBox(height: 12),
@@ -2070,36 +2042,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.outfit(
-                    fontWeight: FontWeight.bold,
-                    color: context.textPrimary,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(subtitle, style: TextStyle(color: context.textSecondary, fontSize: 12)),
-              ],
+          Text(
+            title,
+            style: GoogleFonts.outfit(
+              fontWeight: FontWeight.bold,
+              color: context.textPrimary,
+              fontSize: 14,
             ),
           ),
-          const SizedBox(width: 12),
-          DropdownButton<T>(
-            value: items.any((item) => item.value == value)
-                ? value
-                : (items.isNotEmpty ? items.first.value : null),
-            items: items,
-            onChanged: onChanged,
-            dropdownColor: context.surfaceColor,
-            underline: const SizedBox(),
-            style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
+          const SizedBox(height: 2),
+          Text(subtitle, style: TextStyle(color: context.textSecondary, fontSize: 12)),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: context.secondaryBg,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: context.cardBorderColor),
+            ),
+            child: DropdownButton<T>(
+              isExpanded: true,
+              value: items.any((item) => item.value == value)
+                  ? value
+                  : (items.isNotEmpty ? items.first.value : null),
+              items: items,
+              onChanged: onChanged,
+              dropdownColor: context.surfaceColor,
+              underline: const SizedBox(),
+              style: TextStyle(color: context.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
           ),
         ],
       ),

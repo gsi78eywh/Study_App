@@ -1,8 +1,10 @@
+import "dart:convert";
 import "package:dio/dio.dart";
 import "../constants/api_constants.dart";
 import "../services/session_service.dart";
 import "../../features/practice/models/adaptive_models.dart";
 import "../../features/courses/models/grade_models.dart";
+import "../../features/sync/services/sync_service.dart";
 
 class ApiClient {
   final SessionService sessionService;
@@ -332,33 +334,158 @@ class ApiClient {
     return null;
   }
 
-  Future<GradeSummaryModel?> getGradesSummary() async {
+  // ---------------------------------------------------------------------------
+  // On-device grade engine (USJ-R 1.0–5.0). Used whenever the server is slow or
+  // unreachable so the Grade Tracker NEVER shows "Could not load" errors.
+  // ---------------------------------------------------------------------------
+  static const String _localGradesKey = "local_grades_v1";
+
+  static double _pctToGwa(double pct) {
+    if (pct < 75) return 5.0;
+    final g = 1.0 + (99.0 - pct) / 12.0;
+    return g.clamp(1.0, 3.0);
+  }
+
+  static double _gwaToPct(double gwa) => (99.0 - (gwa - 1.0) * 12.0).clamp(75.0, 100.0);
+
+  Map<String, dynamic> _readLocalGrades() {
     try {
-      final res = await dio.get("/api/v1/grades/summary");
-      if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
-        final summary = GradeSummaryModel.fromJson(res.data as Map<String, dynamic>);
-        _cachedGradeSummary = summary;
-        return summary;
+      final raw = sessionService.prefs.getString(_localGradesKey);
+      if (raw != null && raw.isNotEmpty) {
+        return Map<String, dynamic>.from(jsonDecode(raw) as Map);
       }
-    } catch (_) {
-      if (_cachedGradeSummary != null) {
-        return _cachedGradeSummary;
+    } catch (_) {}
+    return <String, dynamic>{};
+  }
+
+  Future<void> _writeLocalGrades(Map<String, dynamic> data) async {
+    try {
+      await sessionService.prefs.setString(_localGradesKey, jsonEncode(data));
+    } catch (_) {}
+  }
+
+  GradeSummaryModel _buildLocalGradeSummary() {
+    final stored = _readLocalGrades();
+    final courses = <CourseGradeModel>[];
+    double weightedGwa = 0;
+    double gradedUnits = 0;
+    double totalUnits = 0;
+
+    for (final c in SyncService.cachedCourses) {
+      final g = Map<String, dynamic>.from((stored[c.id] as Map?) ?? const {});
+      final units = (g["units"] as num?)?.toDouble() ?? 3.0;
+      final pw = (g["prelimWeight"] as num?)?.toDouble() ?? 0.20;
+      final mw = (g["midtermWeight"] as num?)?.toDouble() ?? 0.20;
+      final sw = (g["semiFinalWeight"] as num?)?.toDouble() ?? 0.20;
+      final fw = (g["finalWeight"] as num?)?.toDouble() ?? 0.40;
+      final p = (g["prelimGrade"] as num?)?.toDouble();
+      final m = (g["midtermGrade"] as num?)?.toDouble();
+      final s = (g["semiFinalGrade"] as num?)?.toDouble();
+      final f = (g["finalGrade"] as num?)?.toDouble();
+
+      double sum = 0, wsum = 0;
+      if (p != null) { sum += p * pw; wsum += pw; }
+      if (m != null) { sum += m * mw; wsum += mw; }
+      if (s != null) { sum += s * sw; wsum += sw; }
+      if (f != null) { sum += f * fw; wsum += fw; }
+      final running = wsum > 0 ? sum / wsum : null;
+      final runningGwa = running != null ? _pctToGwa(running) : null;
+
+      String risk = "Normal";
+      if (running != null) {
+        if (running < 70) {
+          risk = "Critical Risk";
+        } else if (running < 75) {
+          risk = "Danger";
+        } else if (running < 80) {
+          risk = "Warning";
+        }
+      }
+
+      totalUnits += units;
+      if (runningGwa != null) {
+        weightedGwa += runningGwa * units;
+        gradedUnits += units;
+      }
+
+      courses.add(CourseGradeModel(
+        courseId: c.id,
+        courseCode: c.code,
+        courseName: c.name,
+        units: units,
+        prelimGrade: p,
+        midtermGrade: m,
+        semiFinalGrade: s,
+        finalGrade: f,
+        prelimWeight: pw,
+        midtermWeight: mw,
+        semiFinalWeight: sw,
+        finalWeight: fw,
+        runningPercentage: running,
+        runningGwa: runningGwa,
+        riskLevel: risk,
+        usjRDescription: running == null ? "No grades" : (running >= 75 ? "Passing" : "Failing"),
+      ));
+    }
+
+    final gwa = gradedUnits > 0 ? weightedGwa / gradedUnits : 0.0;
+    String honors = "Add grades to start";
+    if (gwa > 0) {
+      if (gwa <= 1.5) {
+        honors = "Dean's List";
+      } else if (gwa <= 2.0) {
+        honors = "Very Good";
+      } else if (gwa <= 3.0) {
+        honors = "Good Standing";
+      } else {
+        honors = "At Risk";
       }
     }
-    return null;
+
+    return GradeSummaryModel(
+      cumulativeGwa: gwa,
+      totalUnits: totalUnits,
+      honorsStatus: honors,
+      gradingScale: "USJ-R (1.0 - 5.0)",
+      courses: courses,
+    );
+  }
+
+  Future<GradeSummaryModel?> getGradesSummary({bool forceRefresh = false}) async {
+    if (!forceRefresh && _cachedGradeSummary != null) {
+      return _cachedGradeSummary;
+    }
+    try {
+      final res = await dio
+          .get("/api/v1/grades/summary")
+          .timeout(const Duration(milliseconds: 3000));
+      if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
+        final summary = GradeSummaryModel.fromJson(res.data as Map<String, dynamic>);
+        if (summary.courses.isNotEmpty || SyncService.cachedCourses.isEmpty) {
+          _cachedGradeSummary = summary;
+          return summary;
+        }
+      }
+    } catch (_) {}
+    // Instant on-device fallback (never returns null)
+    final local = _buildLocalGradeSummary();
+    _cachedGradeSummary = local;
+    return local;
   }
 
   Future<bool> updateCourseGrades(String courseId, Map<String, dynamic> data) async {
+    // Always persist locally first so saving never fails offline.
+    final stored = _readLocalGrades();
+    stored[courseId] = data;
+    await _writeLocalGrades(stored);
+    _cachedGradeSummary = null;
+
     try {
-      final res = await dio.put("/api/v1/grades/courses/$courseId", data: data);
-      if (res.statusCode == 200) {
-        _cachedGradeSummary = null;
-        return true;
-      }
-    } catch (_) {
-      return false;
-    }
-    return false;
+      await dio
+          .put("/api/v1/grades/courses/$courseId", data: data)
+          .timeout(const Duration(milliseconds: 3000));
+    } catch (_) {}
+    return true;
   }
 
   Future<WhatIfResultModel?> calculateWhatIf({
@@ -386,12 +513,52 @@ class ApiClient {
           "semiFinalWeight": semiFinalWeight,
           "finalWeight": finalWeight,
         },
-      );
+      ).timeout(const Duration(milliseconds: 2500));
       if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
         return WhatIfResultModel.fromJson(res.data as Map<String, dynamic>);
       }
     } catch (_) {}
-    return null;
+
+    // On-device What-If calculator
+    final target = _gwaToPct(targetGwa);
+    double known = 0, remaining = finalWeight;
+    if (prelimGrade != null) { known += prelimGrade * prelimWeight; } else { remaining += prelimWeight; }
+    if (midtermGrade != null) { known += midtermGrade * midtermWeight; } else { remaining += midtermWeight; }
+    if (semiFinalGrade != null) { known += semiFinalGrade * semiFinalWeight; } else { remaining += semiFinalWeight; }
+    final needed = remaining > 0 ? ((target - known) / remaining) : 0.0;
+    final clamped = needed < 0 ? 0.0 : needed;
+    final achievable = needed <= 100;
+    final course = SyncService.cachedCourses.where((c) => c.id == courseId).firstOrNull;
+    return WhatIfResultModel(
+      courseId: courseId,
+      courseCode: course?.code ?? "",
+      targetGwa: targetGwa,
+      targetPercentage: target,
+      neededFinalGrade: achievable ? clamped : null,
+      isAchievable: achievable,
+      assessment: !achievable
+          ? "Not reachable with current grades."
+          : (needed <= 0
+              ? "Already secured. Keep it up!"
+              : "Score ${clamped.toStringAsFixed(1)}% on remaining terms to get ${targetGwa.toStringAsFixed(2)}."),
+    );
+  }
+
+  /// Fire-and-forget ping that wakes a sleeping cloud backend (e.g. Render free tier)
+  /// while the student keeps using on-device features. Uses a long timeout on purpose.
+  Future<void> warmUpBackend() async {
+    try {
+      final base = sessionService.baseUrl ?? ApiConstants.defaultBaseUrl;
+      final warm = Dio(BaseOptions(
+        baseUrl: base,
+        connectTimeout: const Duration(seconds: 60),
+        receiveTimeout: const Duration(seconds: 60),
+      ));
+      final res = await warm.get(ApiConstants.health);
+      if (res.statusCode == 200) {
+        _lastNetworkFailureAt = null; // backend is awake: release the circuit breaker
+      }
+    } catch (_) {}
   }
 
   Future<bool> saveNotebookNote({

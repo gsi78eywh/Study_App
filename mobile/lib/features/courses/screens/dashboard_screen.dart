@@ -1150,7 +1150,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _modeTile(
               ctx,
               "🃏 Flashcards (Spaced Repetition)",
-              "Flip, reveal key facts, and rate your recall with SM-2 spacing",
+              "Flip and rate recall",
               AppColors.accent,
               () {
                 Navigator.pop(ctx);
@@ -1199,7 +1199,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _modeTile(
               ctx,
               "📚 Multiple Choice Quiz",
-              "Server-graded standard multiple-choice questions with full explanations",
+              "Multiple choice with answers",
               isDark ? AppColors.primary : AppColors.primaryDark,
               () {
                 Navigator.pop(ctx);
@@ -1210,7 +1210,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _modeTile(
               ctx,
               "🎯 Simulated Exam",
-              "Comprehensive exam covering MCQ, True/False, and Identification",
+              "MCQ, True/False, ID",
               const Color(0xFF6366F1),
               () {
                 Navigator.pop(ctx);
@@ -1252,7 +1252,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _modeTile(
               ctx,
               "📥 Export Study Guide",
-              "View or copy formatted study guide with summary and OCR text",
+              "View or copy guide",
               const Color(0xFF10B981),
               () {
                 Navigator.pop(ctx);
@@ -2123,48 +2123,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                alignment: WrapAlignment.spaceBetween,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   // Mode indicator chip with descriptive tooltip
-                  Tooltip(
-                    message: "Study Mode Selector: Standard Academic Mode, Junior Learner Mode (Grades 1-6), or Exam Cram Sprint. Tap to switch.",
-                    child: InkWell(
-                      onTap: () => _showJuniorModeDialog(),
-                      borderRadius: BorderRadius.circular(20),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: cs.isJuniorMode
-                              ? const Color(0xFFF59E0B)
-                              : (cs.gradeLevel >= 7 && cs.gradeLevel <= 10
-                                  ? const Color(0xFF10B981)
-                                  : (cs.gradeLevel >= 11 && cs.gradeLevel <= 12
-                                      ? const Color(0xFF8B5CF6)
-                                      : const Color(0xFF6366F1))),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              cs.stageBadgeText,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
+                  Flexible(
+                    child: Tooltip(
+                      message: "Study Mode Selector: Standard Academic Mode, Junior Learner Mode (Grades 1-6), or Exam Cram Sprint. Tap to switch.",
+                      child: InkWell(
+                        onTap: () => _showJuniorModeDialog(),
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: cs.isJuniorMode
+                                ? const Color(0xFFF59E0B)
+                                : (cs.gradeLevel >= 7 && cs.gradeLevel <= 10
+                                    ? const Color(0xFF10B981)
+                                    : (cs.gradeLevel >= 11 && cs.gradeLevel <= 12
+                                        ? const Color(0xFF8B5CF6)
+                                        : const Color(0xFF6366F1))),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  cs.shortStageBadgeText,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Icon(Icons.arrow_drop_down, color: Colors.white, size: 16),
-                          ],
+                              const SizedBox(width: 4),
+                              const Icon(Icons.arrow_drop_down, color: Colors.white, size: 16),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
 
                   // 20-20-20 Eye Break quick button with clear touchable affordance
                   Tooltip(
@@ -2188,7 +2192,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             const Text('🌿', style: TextStyle(fontSize: 13)),
                             const SizedBox(width: 4),
                             Text(
-                              'Eye Rest (20-20-20)',
+                              'Eye Break',
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
@@ -2242,7 +2246,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const Icon(Icons.tune_rounded, color: Color(0xFF6366F1), size: 22),
                 const SizedBox(width: 10),
                 Text(
-                  'Select Study Mode',
+                  'Study Level',
                   style: GoogleFonts.outfit(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -2259,7 +2263,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Antigravity adapts question difficulty, vocabulary, and pacing to match your learning stage:',
+                      'Pick your level:',
                       style: TextStyle(fontSize: 12.5, color: context.textSecondary, height: 1.4),
                     ),
                     const SizedBox(height: 14),
@@ -2299,14 +2303,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     children: [
                                       Row(
                                         children: [
-                                          Text(
-                                            'Elementary Learner (Grades 1–6)',
-                                            style: TextStyle(
+                                          Flexible(child: Text(
+                                            'Elementary (Gr 1–6)',
+                                            maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(
                                               fontWeight: FontWeight.bold,
                                               fontSize: 14,
                                               color: context.textPrimary,
                                             ),
-                                          ),
+                                          )),
                                           const SizedBox(width: 6),
                                           if (cs.isJuniorMode)
                                             Container(
@@ -2321,7 +2325,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        'Simplified vocabulary, cheerful hints, audio read-aloud & DSWD 20-20-20 pediatric eye breaks.',
+                                        'Simple words, hints & read-aloud.',
                                         style: TextStyle(fontSize: 11.5, color: context.textSecondary),
                                       ),
                                     ],
@@ -2397,14 +2401,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     children: [
                                       Row(
                                         children: [
-                                          Text(
-                                            'Junior High School (Grades 7–10)',
-                                            style: TextStyle(
+                                          Flexible(child: Text(
+                                            'Junior High (Gr 7–10)',
+                                            maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(
                                               fontWeight: FontWeight.bold,
                                               fontSize: 14,
                                               color: context.textPrimary,
                                             ),
-                                          ),
+                                          )),
                                           const SizedBox(width: 6),
                                           if (!cs.isJuniorMode && cs.gradeLevel >= 7 && cs.gradeLevel <= 10)
                                             Container(
@@ -2419,7 +2423,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        'Structured concept building, foundational formulas, balanced practice quizzes & exam preparation.',
+                                        'Core concepts & balanced quizzes.',
                                         style: TextStyle(fontSize: 11.5, color: context.textSecondary),
                                       ),
                                     ],
@@ -2494,14 +2498,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     children: [
                                       Row(
                                         children: [
-                                          Text(
-                                            'Senior High School (Grades 11–12)',
-                                            style: TextStyle(
+                                          Flexible(child: Text(
+                                            'Senior High (Gr 11–12)',
+                                            maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(
                                               fontWeight: FontWeight.bold,
                                               fontSize: 14,
                                               color: context.textPrimary,
                                             ),
-                                          ),
+                                          )),
                                           const SizedBox(width: 6),
                                           if (!cs.isJuniorMode && cs.gradeLevel >= 11 && cs.gradeLevel <= 12)
                                             Container(
@@ -2516,7 +2520,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        'Specialized academic tracks (STEM, ABM, HUMSS, TVL), college entrance exam readiness & deep drills.',
+                                        'STEM/ABM/HUMSS & entrance drills.',
                                         style: TextStyle(fontSize: 11.5, color: context.textSecondary),
                                       ),
                                     ],
@@ -2588,14 +2592,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 children: [
                                   Row(
                                     children: [
-                                      Text(
+                                      Flexible(child: Text(
                                         'College / University',
-                                        style: TextStyle(
+                                        maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(
                                           fontWeight: FontWeight.bold,
                                           fontSize: 14,
                                           color: context.textPrimary,
                                         ),
-                                      ),
+                                      )),
                                       const SizedBox(width: 6),
                                       if (!cs.isJuniorMode && (cs.gradeLevel < 7 || cs.gradeLevel > 12))
                                         Container(
@@ -2610,7 +2614,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    'Collegiate academic curriculum, GWA grade tracking, advanced AI lectures & comprehensive question taxonomy.',
+                                    'GWA tracking & advanced drills.',
                                     style: TextStyle(fontSize: 11.5, color: context.textSecondary),
                                   ),
                                 ],
@@ -2662,7 +2666,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    'High-yield retrieval drills prioritizing your mistake bank and weak topics for rapid review.',
+                                    'Fast review of weak topics.',
                                     style: TextStyle(fontSize: 11.5, color: context.textSecondary),
                                   ),
                                 ],
@@ -3486,7 +3490,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            "Complete these quick steps to build your connected study loop:",
+            "Quick start:",
             style: TextStyle(fontSize: 12.5, color: context.textSecondary),
           ),
           const SizedBox(height: 16),
@@ -3512,7 +3516,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _buildChecklistItem(
             stepNumber: 3,
             title: "Generate study set & flashcards",
-            description: "Review your extracted material, then generate practice questions.",
+            description: "Review notes, make questions.",
             isDone: hasGeneratedSet,
             actionLabel: "Generate",
             onTap: () => _openAddMaterial(),
@@ -3740,7 +3744,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            "One seamless loop: add lecture notes, generate spaced flashcards, and master weak spots through AI retrieval drills.",
+                            "Add notes. Make cards. Practice.",
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: context.textSecondary,
@@ -4061,7 +4065,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
-                                    "No study sets yet. Add study material to create your first set.",
+                                    "No study sets yet. Tap + to add.",
                                     style: TextStyle(
                                       color: context.textSecondary,
                                       fontSize: 13,
@@ -4464,7 +4468,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         children: [
                           Text("Grade Tracker", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
                           const SizedBox(height: 2),
-                          Text("Track assignments, prelims, midterms, and finals with target GPA", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                          Text("Track grades & GWA", style: TextStyle(fontSize: 12, color: context.textSecondary)),
                         ],
                       ),
                     ),
@@ -4512,7 +4516,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         children: [
                           Text("App Settings & Preferences", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
                           const SizedBox(height: 2),
-                          Text("Study pacing, dark/light theme, audio voice read-aloud & notifications", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                          Text("Theme, audio, alerts", style: TextStyle(fontSize: 12, color: context.textSecondary)),
                         ],
                       ),
                     ),
@@ -4570,14 +4574,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             children: [
                               Text("Privacy & Study Data", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15, color: context.textPrimary)),
                               const SizedBox(height: 2),
-                              Text("Review data handling before uploading personal documents.", style: TextStyle(fontSize: 12, color: context.textSecondary)),
+                              Text("Check before uploading.", style: TextStyle(fontSize: 12, color: context.textSecondary)),
                             ],
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Text("Avoid uploading documents with sensitive personal information. Study material may be sent to the configured AI service when you request extraction, tutoring, or question generation.", style: TextStyle(fontSize: 11.5, height: 1.5, color: context.textSecondary)),
+                    Text("Don't upload sensitive personal info. Material may be sent to AI when you generate questions.", style: TextStyle(fontSize: 11.5, height: 1.5, color: context.textSecondary)),
                     const SizedBox(height: 10),
                     TextButton.icon(
                       icon: const Icon(Icons.info_outline, size: 16),

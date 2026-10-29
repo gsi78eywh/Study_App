@@ -13,13 +13,14 @@ class ApiConstants {
   static const String _configuredBaseUrl = String.fromEnvironment("API_BASE_URL");
   static const String _cloudRunUrlEnv = String.fromEnvironment("CLOUD_RUN_URL");
 
+  // Render is the live backend. Cloud Run is only used when explicitly
+  // provided via --dart-define=CLOUD_RUN_URL=... after it has been deployed.
   static String get primaryCloudUrl =>
       _cloudRunUrlEnv.isNotEmpty ? _cloudRunUrlEnv : renderProductionUrl;
 
   static List<String> get productionEndpoints => [
         if (_configuredBaseUrl.isNotEmpty) _configuredBaseUrl,
         if (_cloudRunUrlEnv.isNotEmpty) _cloudRunUrlEnv,
-        cloudRunProductionUrl,
         renderProductionUrl,
       ];
 

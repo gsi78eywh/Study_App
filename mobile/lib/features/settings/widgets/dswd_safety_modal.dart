@@ -4,7 +4,7 @@ import "package:google_fonts/google_fonts.dart";
 import "../../../core/theme/app_theme.dart";
 import "../../../core/services/child_safety_service.dart";
 
-/// Dedicated DSWD Child Protection, CWC MAKABATA 1383 Helpline,
+/// Dedicated Student Protection, CWC MAKABATA 1383 Helpline,
 /// and Digital Wellness Hub for Students, Parents, and Teachers.
 class DswdSafetyModal extends StatelessWidget {
   const DswdSafetyModal({super.key});
@@ -46,18 +46,18 @@ class DswdSafetyModal extends StatelessWidget {
               ),
             ),
           ),
-          // Modal Header
+          // Modal Header - Clean, direct, no clipping
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(9),
                   decoration: BoxDecoration(
                     color: const Color(0xFF10B981).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.verified_user_rounded, color: Color(0xFF10B981), size: 24),
+                  child: const Icon(Icons.verified_user_rounded, color: Color(0xFF10B981), size: 22),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -65,7 +65,9 @@ class DswdSafetyModal extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "DSWD Child Safeguarding & Safety Hub",
+                        "Safety & Helplines",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.outfit(
                           fontSize: 17,
                           fontWeight: FontWeight.bold,
@@ -73,9 +75,11 @@ class DswdSafetyModal extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        "Council for the Welfare of Children (CWC) • RA 7610 • RA 11650",
+                        "24/7 Helplines & Student Wellness",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 11.5,
                           color: context.textSecondary,
                         ),
                       ),
@@ -90,6 +94,7 @@ class DswdSafetyModal extends StatelessWidget {
             ),
           ),
           const Divider(height: 1),
+
           // Scrollable Content
           Expanded(
             child: ListView(
@@ -119,13 +124,13 @@ class DswdSafetyModal extends StatelessWidget {
                       Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
                               color: Colors.white.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: const Text(
-                              "24/7 DSWD / CWC HELPLINE",
+                              "24/7 HELPLINE",
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 10.5,
@@ -138,9 +143,9 @@ class DswdSafetyModal extends StatelessWidget {
                           const Icon(Icons.phone_in_talk_rounded, color: Colors.white, size: 18),
                         ],
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                       Text(
-                        "MAKABATA Helpline 1383",
+                        "MAKABATA 1383",
                         style: GoogleFonts.outfit(
                           fontSize: 22,
                           fontWeight: FontWeight.w800,
@@ -149,8 +154,8 @@ class DswdSafetyModal extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        "Toll-free national hotline providing immediate psychological first-aid, child rights protection, and reporting of online or offline child harms.",
-                        style: TextStyle(color: Colors.white, fontSize: 12.5, height: 1.4),
+                        "Free national hotline for child safety and support.",
+                        style: TextStyle(color: Colors.white, fontSize: 12.5, height: 1.35),
                       ),
                       const SizedBox(height: 12),
                       Wrap(
@@ -200,9 +205,9 @@ class DswdSafetyModal extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
 
-                // Other Official Helplines
+                // Support Helplines
                 Text(
-                  "Support Helplines for Children & Youth",
+                  "Support Helplines",
                   style: GoogleFonts.outfit(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -214,7 +219,7 @@ class DswdSafetyModal extends StatelessWidget {
                   context: context,
                   icon: Icons.shield_rounded,
                   title: "Bantay Bata 163",
-                  subtitle: "Nationwide child welfare and rescue service.",
+                  subtitle: "Child welfare & rescue service",
                   contact: "163",
                   color: const Color(0xFF3B82F6),
                 ),
@@ -222,8 +227,8 @@ class DswdSafetyModal extends StatelessWidget {
                 _buildContactTile(
                   context: context,
                   icon: Icons.school_rounded,
-                  title: "DepEd Child Protection Unit",
-                  subtitle: "School safety, anti-bullying & student learner rights.",
+                  title: "DepEd Child Protection",
+                  subtitle: "School safety & anti-bullying",
                   contact: "(02) 8637-2306",
                   color: const Color(0xFF8B5CF6),
                 ),
@@ -231,16 +236,16 @@ class DswdSafetyModal extends StatelessWidget {
                 _buildContactTile(
                   context: context,
                   icon: Icons.emergency_rounded,
-                  title: "Philippine National Emergency",
-                  subtitle: "24/7 Police, Medical, & Fire Emergency.",
+                  title: "National Emergency",
+                  subtitle: "Police, medical, fire emergency",
                   contact: "911",
                   color: const Color(0xFFEF4444),
                 ),
                 const SizedBox(height: 20),
 
-                // DSWD PES Digital Parenting Guide
+                // Wellness Standards
                 Text(
-                  "DSWD Digital Parenting & Wellness Standards",
+                  "Wellness Standards",
                   style: GoogleFonts.outfit(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -251,46 +256,46 @@ class DswdSafetyModal extends StatelessWidget {
                 _buildPolicyCard(
                   context: context,
                   icon: Icons.remove_red_eye_rounded,
-                  title: "20-20-20 Eye Rest & Screen Breaks",
-                  desc: "Every 20 minutes, encourage young learners to rest their eyes for 20 seconds by looking at something 20 feet away and hydrating.",
-                  badge: "PES Guideline",
+                  title: "20-20-20 Eye Breaks",
+                  desc: "Rest eyes 20 seconds every 20 minutes.",
+                  badge: "Eye Care",
                   color: const Color(0xFF10B981),
                 ),
                 const SizedBox(height: 8),
                 _buildPolicyCard(
                   context: context,
                   icon: Icons.child_care_rounded,
-                  title: "Junior Learner Mode (Grades 1–6)",
-                  desc: "Simplified vocabulary, friendly icon badges, enlarged touch areas (48dp+), and audio read-aloud support designed for young motor and reading skills.",
-                  badge: "Inclusive RA 11650",
+                  title: "Junior Mode (Gr 1–6)",
+                  desc: "Simplified text and larger buttons.",
+                  badge: "Grades 1–6",
                   color: const Color(0xFFF59E0B),
                 ),
                 const SizedBox(height: 8),
                 _buildPolicyCard(
                   context: context,
                   icon: Icons.sentiment_very_satisfied_rounded,
-                  title: "Growth Mindset & Non-Punitive Feedback",
-                  desc: "NCCT/DSWD child content standards encourage learning through positive motivation without harsh failure shaming or punitive pressure.",
-                  badge: "Child-Friendly",
+                  title: "Positive Feedback",
+                  desc: "Constructive guidance without stress.",
+                  badge: "Mindset",
                   color: const Color(0xFF6366F1),
                 ),
                 const SizedBox(height: 8),
                 _buildPolicyCard(
                   context: context,
                   icon: Icons.lock_outline_rounded,
-                  title: "Zero Ads & Child Data Privacy",
-                  desc: "No third-party trackers, zero data harvesting of minors, and local-first study sets complying with RA 10173 Data Privacy Act.",
-                  badge: "Privacy Protected",
+                  title: "Zero Ads & Privacy",
+                  desc: "Zero tracking, zero ads, local data privacy.",
+                  badge: "Protected",
                   color: const Color(0xFFEC4899),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
-                // Quick Toggle Junior Mode inside Modal
+                // Quick Toggle Junior Mode
                 ListenableBuilder(
                   listenable: childSafety,
                   builder: (ctx, _) {
                     return Container(
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       decoration: BoxDecoration(
                         color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
                         borderRadius: BorderRadius.circular(14),
@@ -299,7 +304,7 @@ class DswdSafetyModal extends StatelessWidget {
                       child: Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(8),
+                            padding: const EdgeInsets.all(7),
                             decoration: BoxDecoration(
                               color: childSafety.isJuniorMode
                                   ? const Color(0xFF10B981).withValues(alpha: 0.2)
@@ -309,28 +314,28 @@ class DswdSafetyModal extends StatelessWidget {
                             child: Icon(
                               Icons.child_care_rounded,
                               color: childSafety.isJuniorMode ? const Color(0xFF10B981) : context.textSecondary,
-                              size: 20,
+                              size: 18,
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  "Junior Learner Mode",
+                                  "Junior Mode",
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
-                                    fontSize: 13.5,
+                                    fontSize: 13,
                                     color: context.textPrimary,
                                   ),
                                 ),
                                 Text(
                                   childSafety.isJuniorMode
-                                      ? "Active (Grades 1-6 simplified interface)"
-                                      : "Standard Mode (Grades 7+ / Advanced)",
+                                      ? "Active (Grades 1–6)"
+                                      : "Standard Mode (Grades 7+)",
                                   style: TextStyle(
-                                    fontSize: 11.5,
+                                    fontSize: 11,
                                     color: context.textSecondary,
                                   ),
                                 ),
@@ -386,11 +391,22 @@ class DswdSafetyModal extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: context.textPrimary)),
-                Text(subtitle, style: TextStyle(fontSize: 11, color: context.textSecondary)),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: context.textPrimary),
+                ),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: context.textSecondary),
+                ),
               ],
             ),
           ),
+          const SizedBox(width: 8),
           TextButton(
             style: TextButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -427,7 +443,7 @@ class DswdSafetyModal extends StatelessWidget {
         border: Border.all(color: context.cardBorderColor),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Icon(icon, color: color, size: 20),
           const SizedBox(width: 10),
@@ -437,20 +453,39 @@ class DswdSafetyModal extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: context.textPrimary)),
-                    const Spacer(),
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12.5,
+                          color: context.textPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: color.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: Text(badge, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+                      child: Text(
+                        badge,
+                        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 3),
-                Text(desc, style: TextStyle(fontSize: 11.5, color: context.textSecondary, height: 1.35)),
+                Text(
+                  desc,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11.5, color: context.textSecondary, height: 1.3),
+                ),
               ],
             ),
           ),

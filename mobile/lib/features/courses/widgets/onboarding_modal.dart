@@ -225,6 +225,7 @@ class _OnboardingModalState extends State<OnboardingModal> {
             children: [
               // Top bar with step badge & Skip button
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Container(
                     padding:
@@ -234,7 +235,7 @@ class _OnboardingModalState extends State<OnboardingModal> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      "STEP ${_currentSlide + 1} OF $_totalSlides • HOW STUDYAPP WORKS",
+                      "STEP ${_currentSlide + 1} OF $_totalSlides",
                       style: GoogleFonts.outfit(
                         fontSize: 11,
                         fontWeight: FontWeight.w800,
@@ -243,7 +244,6 @@ class _OnboardingModalState extends State<OnboardingModal> {
                       ),
                     ),
                   ),
-                  const Spacer(),
                   if (_currentSlide < _totalSlides - 1)
                     TextButton(
                       onPressed: () {
@@ -253,8 +253,13 @@ class _OnboardingModalState extends State<OnboardingModal> {
                           curve: Curves.easeOut,
                         );
                       },
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
                       child: const Text(
-                        "Skip to Setup →",
+                        "Skip →",
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -367,8 +372,8 @@ class _OnboardingModalState extends State<OnboardingModal> {
                       ),
                       label: Text(
                         _currentSlide == _totalSlides - 1
-                            ? "Launch Main Interface"
-                            : "Next Step (${_currentSlide + 1}/$_totalSlides)",
+                            ? "Start Studying"
+                            : "Next",
                         style: GoogleFonts.outfit(
                           fontWeight: FontWeight.bold,
                           fontSize: 15,

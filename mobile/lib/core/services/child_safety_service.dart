@@ -89,6 +89,14 @@ class ChildSafetyService extends ChangeNotifier {
     return "🎓 College Mode";
   }
 
+  /// Compact single-line badge text for mobile headers
+  String get shortStageBadgeText {
+    if (_isJuniorMode) return "🐣 Junior (Gr $_gradeLevel)";
+    if (_gradeLevel >= 7 && _gradeLevel <= 10) return "🎒 JHS (Gr $_gradeLevel)";
+    if (_gradeLevel >= 11 && _gradeLevel <= 12) return "🔬 SHS (Gr $_gradeLevel)";
+    return "🎓 College";
+  }
+
   AccessibilityTextScale get textScale => _textScale;
   double get textScaleFactor {
     switch (_textScale) {
