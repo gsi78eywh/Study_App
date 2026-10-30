@@ -141,6 +141,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     if (createdSet != null && mounted) {
       _fetchCoursesAndSync();
+      // Immediately redirect to exams and simulation!
+      _startPracticeForSet(createdSet);
     }
   }
 
@@ -1946,12 +1948,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
               Center(
                 child: Container(
                   width: 36,
@@ -2053,6 +2056,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
+                    color: const Color(0xFF6366F1).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.tune_rounded, color: Color(0xFF6366F1), size: 22),
+                ),
+                title: const Text("Study Mode & Eye Rest", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                subtitle: Text("Level: ${ChildSafetyService.instance.shortStageBadgeText} • 20-20-20 Eye Care", style: const TextStyle(fontSize: 12)),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _showJuniorModeDialog();
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
                     color: const Color(0xFF10B981).withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
@@ -2086,7 +2105,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 
 
@@ -2095,6 +2115,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       listenable: ChildSafetyService.instance,
       builder: (context, _) {
         final cs = ChildSafetyService.instance;
+        if (!cs.isJuniorMode) return const SizedBox.shrink();
         final isDark = context.isDarkMode;
 
         return Container(
@@ -2740,6 +2761,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildSubtlePill({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildUniversalSearchAndQuickHub(bool isDark) {
     final qLower = _universalSearchQuery.trim().toLowerCase();
     final matchingLocalSets = <StudySetModel>[];
@@ -2761,7 +2817,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       children: [
         // UnionBank-Inspired Clean Icon-First Quick Actions Card
         Container(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
           decoration: BoxDecoration(
             color: context.surfaceColor,
             borderRadius: BorderRadius.circular(18),
@@ -2786,7 +2842,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         width: 8,
                         height: 16,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFF6B00),
+                          color: const Color(0xFF2E7D5B),
                           borderRadius: BorderRadius.circular(4),
                         ),
                       ),
@@ -2825,34 +2881,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              // Row 1: Core Study Actions (PDF, Scan, Exam, Cards)
+              const SizedBox(height: 12),
+              // 4 Core Actions in single clean row
               Row(
                 children: [
                   _buildQuickActionTile(
-                    icon: Icons.picture_as_pdf_rounded,
-                    label: "PDF",
-                    color: const Color(0xFFFF6B00),
-                    isDark: isDark,
-                    onTap: () => _openAddMaterial(),
-                  ),
-                  _buildQuickActionTile(
-                    icon: Icons.document_scanner_rounded,
-                    label: "Scan",
-                    color: const Color(0xFF0EA5E9),
+                    icon: Icons.note_add_rounded,
+                    label: "Add Notes",
+                    color: const Color(0xFF2E7D5B),
                     isDark: isDark,
                     onTap: () => _openAddMaterial(),
                   ),
                   _buildQuickActionTile(
                     icon: Icons.quiz_rounded,
-                    label: "Exam",
+                    label: "Take Exam",
                     color: const Color(0xFF6366F1),
                     isDark: isDark,
                     onTap: () => setState(() => _currentTabIndex = 1),
                   ),
                   _buildQuickActionTile(
                     icon: Icons.style_rounded,
-                    label: "Cards",
+                    label: "Flashcards",
                     color: const Color(0xFF10B981),
                     isDark: isDark,
                     onTap: () {
@@ -2868,84 +2917,84 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       );
                     },
                   ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              // Row 2: Tools & Navigation (Course, Grades, Plan, Guide)
-              Row(
-                children: [
                   _buildQuickActionTile(
-                    icon: Icons.add_box_rounded,
-                    label: "Course",
+                    icon: Icons.folder_special_rounded,
+                    label: "Courses",
                     color: const Color(0xFF3B82F6),
                     isDark: isDark,
                     onTap: _showAddCourseDialog,
                   ),
-                  _buildQuickActionTile(
-                    icon: Icons.bar_chart_rounded,
-                    label: "Grades",
-                    color: const Color(0xFF0D9488),
-                    isDark: isDark,
-                    onTap: () => GradeTrackerSheet.show(
-                      context,
-                      widget.apiClient,
-                      onGradesUpdated: () {
-                        _fetchCoursesAndSync(fullFetch: true);
-                        _loadTodayStudyPlan();
-                      },
-                    ),
-                  ),
-                  _buildQuickActionTile(
-                    icon: Icons.calendar_month_rounded,
-                    label: "Plan",
-                    color: const Color(0xFF8B5CF6),
-                    isDark: isDark,
-                    onTap: _openAcademicPlannerModal,
-                  ),
-                  _buildQuickActionTile(
-                    icon: Icons.slideshow_rounded,
-                    label: "Guide",
-                    color: const Color(0xFFF59E0B),
-                    isDark: isDark,
-                    onTap: () => OnboardingModal.showForce(
-                      context,
-                      sessionService: widget.sessionService,
-                      onCompleted: () {
-                        if (mounted) setState(() {});
-                      },
-                    ),
-                  ),
                 ],
               ),
-              if (_courses.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _universalSearchController,
-                  onChanged: (v) => setState(() => _universalSearchQuery = v),
-                  style: TextStyle(fontSize: 13, color: context.textPrimary),
-                  decoration: InputDecoration(
-                    hintText: "Search sets...",
-                    hintStyle: TextStyle(fontSize: 12, color: context.textSecondary),
-                    prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Color(0xFFFF6B00)),
-                    suffixIcon: _universalSearchQuery.isNotEmpty
-                        ? IconButton(
-                            visualDensity: VisualDensity.compact,
-                            icon: Icon(Icons.close_rounded, size: 16, color: context.textSecondary),
-                            onPressed: () {
-                              _universalSearchController.clear();
-                              setState(() => _universalSearchQuery = "");
-                            },
-                          )
-                        : null,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: context.cardBorderColor),
-                    ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _universalSearchController,
+                onChanged: (v) => setState(() => _universalSearchQuery = v),
+                style: TextStyle(fontSize: 13, color: context.textPrimary),
+                decoration: InputDecoration(
+                  hintText: "Search study sets, notes, or topics...",
+                  hintStyle: TextStyle(fontSize: 12, color: context.textSecondary),
+                  prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Color(0xFF2E7D5B)),
+                  suffixIcon: _universalSearchQuery.isNotEmpty
+                      ? IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: Icon(Icons.close_rounded, size: 16, color: context.textSecondary),
+                          onPressed: () {
+                            _universalSearchController.clear();
+                            setState(() => _universalSearchQuery = "");
+                          },
+                        )
+                      : null,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: context.cardBorderColor),
                   ),
                 ),
-              ],
+              ),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: Row(
+                  children: [
+                    _buildSubtlePill(
+                      icon: Icons.bar_chart_rounded,
+                      label: "Grade Tracker",
+                      color: const Color(0xFF0D9488),
+                      onTap: () => GradeTrackerSheet.show(
+                        context,
+                        widget.apiClient,
+                        onGradesUpdated: () {
+                          _fetchCoursesAndSync(fullFetch: true);
+                          _loadTodayStudyPlan();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildSubtlePill(
+                      icon: Icons.calendar_month_rounded,
+                      label: "Study Plan",
+                      color: const Color(0xFF8B5CF6),
+                      onTap: _openAcademicPlannerModal,
+                    ),
+                    const SizedBox(width: 8),
+                    _buildSubtlePill(
+                      icon: Icons.slideshow_rounded,
+                      label: "Guide",
+                      color: const Color(0xFFF59E0B),
+                      onTap: () => OnboardingModal.showForce(
+                        context,
+                        sessionService: widget.sessionService,
+                        onCompleted: () {
+                          if (mounted) setState(() {});
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -3202,14 +3251,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _buildUniversalSearchAndQuickHub(isDark),
               const SizedBox(height: 14),
 
-              // Child Safety & Learner Mode Bar
-              _buildChildSafetyBanner(context),
-              const SizedBox(height: 16),
-
-              // First-Run Checklist for New Users (add course -> add material -> generate set -> first quiz)
-              if (isFirstRun) ...[
-                _buildFirstRunChecklist(isDark, totalSets, hasCompletedQuiz),
-                const SizedBox(height: 16),
+              // Child Safety & Learner Mode Bar (only when Junior Learner Mode is active)
+              if (ChildSafetyService.instance.isJuniorMode) ...[
+                _buildChildSafetyBanner(context),
+                const SizedBox(height: 14),
               ],
 
               // Next Upcoming Exam Card
@@ -3327,6 +3372,86 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ],
 
+              // Your Study Sets (Direct 1-tap exams & flashcards)
+              if (_courses.isNotEmpty && totalSets > 0) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "Your Study Sets",
+                      style: GoogleFonts.outfit(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: context.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      "$totalSets ${totalSets == 1 ? 'Set' : 'Sets'}",
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: context.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ..._courses.expand((course) => course.studySets.map((set) => _buildHomeStudySetCard(context, course, set, isDark))),
+                const SizedBox(height: 16),
+              ],
+
+              // Empty State for First-Time or Empty Sets
+              if (_courses.isEmpty || totalSets == 0) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                  decoration: BoxDecoration(
+                    color: context.surfaceColor,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: context.cardBorderColor),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2E7D5B).withValues(alpha: 0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.note_add_rounded, color: Color(0xFF2E7D5B), size: 28),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        "No Study Sets Yet",
+                        style: GoogleFonts.outfit(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: context.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "Paste lecture notes or upload a PDF to instantly create your first exam simulation.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12, color: context.textSecondary),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2E7D5B),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.add_rounded, size: 18),
+                        label: const Text("Create First Study Set", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        onPressed: () => _openAddMaterial(),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
               if (_courses.isNotEmpty &&
                   (_isLoadingStudyPlan ||
                       (_todayStudyPlan?.totalEstimatedMinutes ?? 0) > 0 ||
@@ -3341,10 +3466,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   onOpenAcademicPlanner: () => _openAcademicPlannerModal(),
                   onShowReadinessBreakdown: (courseId) => _showReadinessBreakdown(courseId),
                   onStepTapped: (step) {
-                    if (step.stepNumber == 1) {
+                    if (step.stepType == "spaced_flashcards" || step.stepNumber == 1) {
                       setState(() => _currentTabIndex = 1);
-                    } else if (step.stepNumber == 4) {
-                      setState(() => _currentTabIndex = 3);
+                    } else if (step.stepType == "mistake_drill") {
+                      _openMistakeBank(_todayStudyPlan?.courseId);
                     } else {
                       _startSmartStudySession(_todayStudyPlan?.courseId);
                     }
@@ -3440,25 +3565,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildFirstRunChecklist(bool isDark, int totalSets, bool hasCompletedQuiz) {
-    final hasCourse = _courses.isNotEmpty;
-    final hasMaterial = totalSets > 0;
-    final hasGeneratedSet = totalSets > 0;
-
+  Widget _buildHomeStudySetCard(BuildContext context, CourseModel course, StudySetModel set, bool isDark) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: context.surfaceColor,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: context.cardBorderColor),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3466,138 +3580,106 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF6366F1).withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
+                  color: const Color(0xFF6366F1).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
                 ),
-                child: const Icon(Icons.checklist_rounded, color: Color(0xFF6366F1), size: 20),
+                child: Text(
+                  course.code,
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF6366F1),
+                  ),
+                ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  "First-Run Setup Checklist",
+                  set.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.outfit(
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: FontWeight.bold,
                     color: context.textPrimary,
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  "${set.questionCount} Qs",
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF10B981),
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            "Quick start:",
-            style: TextStyle(fontSize: 12.5, color: context.textSecondary),
-          ),
-          const SizedBox(height: 16),
-
-          _buildChecklistItem(
-            stepNumber: 1,
-            title: "Add your first course",
-            description: "Organize notes and exams by subject (e.g. CS-101, Bio 101)",
-            isDone: hasCourse,
-            actionLabel: "Add Course",
-            onTap: _showAddCourseDialog,
-          ),
-          const Divider(height: 20),
-          _buildChecklistItem(
-            stepNumber: 2,
-            title: "Add study material",
-            description: "Paste notes, upload PDF, or scan textbook photos",
-            isDone: hasMaterial,
-            actionLabel: "Add Material",
-            onTap: () => _openAddMaterial(),
-          ),
-          const Divider(height: 20),
-          _buildChecklistItem(
-            stepNumber: 3,
-            title: "Generate study set & flashcards",
-            description: "Review notes, make questions.",
-            isDone: hasGeneratedSet,
-            actionLabel: "Generate",
-            onTap: () => _openAddMaterial(),
-          ),
-          const Divider(height: 20),
-          _buildChecklistItem(
-            stepNumber: 4,
-            title: "Take your first practice quiz",
-            description: "Active retrieval updates your Mistake Bank & spaced review",
-            isDone: hasCompletedQuiz,
-            actionLabel: hasGeneratedSet ? "Start Quiz" : "Add Material",
-            onTap: hasGeneratedSet
-                ? () => setState(() => _currentTabIndex = 1)
-                : _openAddMaterial,
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2E7D5B),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 9),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  icon: const Icon(Icons.quiz_rounded, size: 15),
+                  label: const Text(
+                    "Take Exam",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                  onPressed: () => _startPracticeForSet(set),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF10B981),
+                    side: BorderSide(color: const Color(0xFF10B981).withValues(alpha: 0.5)),
+                    padding: const EdgeInsets.symmetric(vertical: 9),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  icon: const Icon(Icons.style_rounded, size: 15),
+                  label: const Text(
+                    "Flashcards",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => FlashcardsScreen(
+                          courses: _courses,
+                          apiClient: widget.apiClient,
+                          onNavigateToStudio: _openAddMaterial,
+                          onCardDeleted: () => _fetchCoursesAndSync(fullFetch: true),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildChecklistItem({
-    required int stepNumber,
-    required String title,
-    required String description,
-    required bool isDone,
-    required String actionLabel,
-    required VoidCallback onTap,
-  }) {
-    return Row(
-      children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: isDone ? const Color(0xFF10B981) : Colors.transparent,
-            border: Border.all(
-              color: isDone ? const Color(0xFF10B981) : context.cardBorderColor,
-              width: 1.5,
-            ),
-            shape: BoxShape.circle,
-          ),
-          child: isDone
-              ? const Icon(Icons.check, size: 14, color: Colors.white)
-              : Center(
-                  child: Text(
-                    "$stepNumber",
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: context.textSecondary),
-                  ),
-                ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  decoration: isDone ? TextDecoration.lineThrough : null,
-                  color: isDone ? context.textSecondary : context.textPrimary,
-                ),
-              ),
-              Text(
-                description,
-                style: TextStyle(fontSize: 11.5, color: context.textSecondary),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-        TextButton(
-          onPressed: onTap,
-          style: TextButton.styleFrom(
-            visualDensity: VisualDensity.compact,
-            foregroundColor: const Color(0xFF6366F1),
-          ),
-          child: Text(isDone ? "Review" : actionLabel, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-        ),
-      ],
     );
   }
 

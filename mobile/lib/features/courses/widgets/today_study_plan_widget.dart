@@ -333,70 +333,74 @@ class TodayStudyPlanWidget extends StatelessWidget {
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: p.priorities.take(3).map((item) {
-                final isHigh = item.status == "High Priority";
-                final isReview = item.status == "Needs Review";
-                final isNew = item.status == "Not practiced";
-                final color = isNew
-                    ? context.textSecondary
-                    : isHigh
-                    ? const Color(0xFFEF4444)
-                    : isReview
-                        ? const Color(0xFFF59E0B)
-                        : const Color(0xFF10B981);
-                final icon = isNew
-                    ? Icons.fiber_new_rounded
-                    : isHigh
-                    ? Icons.error_outline_rounded
-                    : isReview
-                        ? Icons.replay_rounded
-                        : Icons.check_circle_outline_rounded;
+              children: () {
+                final seen = <String>{};
+                final unique = p.priorities.where((item) => seen.add(item.topicName.trim().toLowerCase())).toList();
+                return unique.take(3).map((item) {
+                  final isHigh = item.status == "High Priority";
+                  final isReview = item.status == "Needs Review";
+                  final isNew = item.status == "Not practiced";
+                  final color = isNew
+                      ? context.textSecondary
+                      : isHigh
+                      ? const Color(0xFFEF4444)
+                      : isReview
+                          ? const Color(0xFFF59E0B)
+                          : const Color(0xFF10B981);
+                  final icon = isNew
+                      ? Icons.fiber_new_rounded
+                      : isHigh
+                      ? Icons.error_outline_rounded
+                      : isReview
+                          ? Icons.replay_rounded
+                          : Icons.check_circle_outline_rounded;
 
-                return Container(
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width - 64,
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: color.withValues(alpha: 0.3)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(icon, size: 13, color: color),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          item.topicName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: context.textPrimary,
+                  return Container(
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.of(context).size.width - 64,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: color.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(icon, size: 13, color: color),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            item.topicName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: context.textPrimary,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        isNew ? "New" : "${item.masteryPercent.round()}%",
-                        style: GoogleFonts.outfit(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color: color,
+                        const SizedBox(width: 6),
+                        Text(
+                          isNew ? "New" : "${item.masteryPercent.round()}%",
+                          style: GoogleFonts.outfit(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: color,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
+                      ],
+                    ),
+                  );
+                }).toList();
+              }(),
             ),
             const SizedBox(height: 16),
           ],
 
-          // Structured 4-Step Learning Sequence
+          // Structured Learning Sequence
           Text(
             "YOUR ${p.totalEstimatedMinutes}-MINUTE LEARNING SEQUENCE",
             style: GoogleFonts.outfit(
@@ -407,7 +411,12 @@ class TodayStudyPlanWidget extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          ...p.steps.map((step) => _buildStepTile(context, step)),
+          ...p.steps
+              .where((s) =>
+                  s.stepType != "socratic_tutor" &&
+                  !s.title.toLowerCase().contains("socratic") &&
+                  !s.title.toLowerCase().contains("ai tutor"))
+              .map((step) => _buildStepTile(context, step)),
 
           const SizedBox(height: 14),
 
@@ -485,7 +494,7 @@ class TodayStudyPlanWidget extends StatelessWidget {
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
-                          "Start Priority Session: ${p.courseCode} (${p.totalEstimatedMinutes} min)",
+                          "Start Session • ${p.totalEstimatedMinutes} min",
                           style: GoogleFonts.outfit(
                             fontSize: 15,
                             fontWeight: FontWeight.w800,

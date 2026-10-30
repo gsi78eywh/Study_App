@@ -1,4 +1,4 @@
-using StudyApp.Domain.Common;
+using StudyApp.Domain.Common;
 using System.Data.Common;
 using System.Globalization;
 using System.Security.Claims;
@@ -402,7 +402,8 @@ public sealed class PracticeController : ControllerBase
         var qAccuracy = quizAttempts.Count == 0 ? 0m : Math.Round(quizAttempts.Average(a => a.PartialScore) * 100m, 1);
         var fRetention = flashcardAttempts.Count == 0 ? 0m : Math.Round(flashcardAttempts.Average(a => a.PartialScore) * 100m, 1);
         var activeDays = recentAttempts.Select(a => a.TestSession?.CompletedAt.Date).Distinct().Count(d => d.HasValue);
-        var latestAnswers = GetLatestAnswersByQuestion(recentAttempts);        var unresolvedMistakes = latestAnswers.Count(a => !a.IsCorrect);
+        var latestAnswers = GetLatestAnswersByQuestion(recentAttempts);
+        var unresolvedMistakes = latestAnswers.Count(a => !a.IsCorrect);
         var hasPracticeHistory = recentAttempts.Count > 0;
         var overallReadiness = CalculateReadiness(
             qAccuracy, quizAttempts.Count, fRetention, flashcardAttempts.Count, activeDays, unresolvedMistakes);
@@ -450,16 +451,6 @@ public sealed class PracticeController : ControllerBase
             7,
             $"Review {unresolvedMistakes} questions with recorded incorrect attempts.",
             Math.Min(unresolvedMistakes, 5),
-            lowestSet?.Id,
-            lowestSet?.Title
-        ));
-
-        if (lowestSet is not null && lowestSet.Questions.Count > 0) steps.Add(new StudyPlanStepDto(
-            4, "socratic_tutor",
-            "Socratic AI Tutor Check-in",
-            3,
-            "Interactive guided dialogue explaining the core rationale behind your most challenging concepts.",
-            1,
             lowestSet?.Id,
             lowestSet?.Title
         ));
@@ -743,7 +734,8 @@ public sealed class PracticeController : ControllerBase
         var qAccuracy = quizAttempts.Count == 0 ? 0m : Math.Round(quizAttempts.Average(a => a.PartialScore) * 100m, 1);
         var fRetention = flashcardAttempts.Count == 0 ? 0m : Math.Round(flashcardAttempts.Average(a => a.PartialScore) * 100m, 1);
         var activeDays = attempts.Select(a => a.TestSession?.CompletedAt.Date).Distinct().Count(d => d.HasValue);
-        var latestAnswers = GetLatestAnswersByQuestion(attempts);        var unresolved = latestAnswers.Count(a => !a.IsCorrect);
+        var latestAnswers = GetLatestAnswersByQuestion(attempts);
+        var unresolved = latestAnswers.Count(a => !a.IsCorrect);
         var overall = CalculateReadiness(
             qAccuracy, quizAttempts.Count, fRetention, flashcardAttempts.Count, activeDays, unresolved);
 
@@ -816,7 +808,8 @@ public sealed class PracticeController : ControllerBase
         }
 
         var priorityWhy = topCourse == null
-            ? "No courses enrolled yet. Add your first course and study material to build personalized recommendations."            : daysUntilExam.HasValue && daysUntilExam.Value <= 7
+            ? "No courses enrolled yet. Add your first course and study material to build personalized recommendations."
+            : daysUntilExam.HasValue && daysUntilExam.Value <= 7
                 ? $"You have an upcoming assessment in {daysUntilExam.Value} days, your recent accuracy is {priorityMastery}%, and {Math.Min(pendingReviews, 8)} flashcards are due for review."
                 : $"Current mastery is {priorityMastery}% with {weakConcepts} concepts flagged for active recall reinforcement.";
 
@@ -1179,7 +1172,8 @@ public sealed class PracticeController : ControllerBase
         decimal flashcardRetention,
         int flashcardAttemptCount,
         int activeDays,
-        int unresolvedMistakes)    {
+        int unresolvedMistakes)
+    {
         decimal weightedTotal = 0m;
         decimal includedWeight = 0m;
 
@@ -1205,8 +1199,16 @@ public sealed class PracticeController : ControllerBase
         if (includedWeight == 0m) return 0m;
 
         var evidenceScore = weightedTotal / includedWeight;
-        return Math.Clamp(Math.Round(evidenceScore - (unresolvedMistakes * 1.5m), 1), 0m, 100m);    }
-    private static List<SessionAnswer> GetLatestAnswersByQuestion(IEnumerable<SessionAnswer> answers) =>        answers            .GroupBy(answer => answer.QuestionId)            .Select(group => group                .OrderByDescending(answer => answer.TestSession?.CompletedAt ?? DateTime.MinValue)                .First())            .ToList();
+        return Math.Clamp(Math.Round(evidenceScore - (unresolvedMistakes * 1.5m), 1), 0m, 100m);
+    }
+
+    private static List<SessionAnswer> GetLatestAnswersByQuestion(IEnumerable<SessionAnswer> answers) =>
+        answers
+            .GroupBy(answer => answer.QuestionId)
+            .Select(group => group
+                .OrderByDescending(answer => answer.TestSession?.CompletedAt ?? DateTime.MinValue)
+                .First())
+            .ToList();
     private Guid? GetUserId() => Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId) ? userId : null;
 
     private static TimeSpan GetReviewDelay(int rating, int historyCount)

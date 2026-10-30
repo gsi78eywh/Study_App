@@ -30,21 +30,48 @@ class TodayStudyPlanModel {
   });
 
   factory TodayStudyPlanModel.fromJson(Map<String, dynamic> json) {
+    final rawFilteredSteps = (json["steps"] as List<dynamic>?)
+            ?.map((s) => StudyPlanStepModel.fromJson(s as Map<String, dynamic>))
+            .where((s) =>
+                s.stepType != "socratic_tutor" &&
+                !s.title.toLowerCase().contains("socratic") &&
+                !s.title.toLowerCase().contains("ai tutor"))
+            .toList() ??
+        <StudyPlanStepModel>[];
+
+    final cleanSteps = List<StudyPlanStepModel>.generate(
+      rawFilteredSteps.length,
+      (i) {
+        final s = rawFilteredSteps[i];
+        return StudyPlanStepModel(
+          stepNumber: i + 1,
+          stepType: s.stepType,
+          title: s.title,
+          durationMinutes: s.durationMinutes,
+          reason: s.reason,
+          itemCount: s.itemCount,
+          targetStudySetId: s.targetStudySetId,
+          targetTopic: s.targetTopic,
+        );
+      },
+    );
+
+    final computedMinutes = cleanSteps.isNotEmpty
+        ? cleanSteps.fold<int>(0, (sum, s) => sum + s.durationMinutes)
+        : ((json["totalEstimatedMinutes"] as num?)?.toInt() ?? 20);
+
     return TodayStudyPlanModel(
       courseId: json["courseId"]?.toString(),
       courseName: json["courseName"]?.toString() ?? "General",
       courseCode: json["courseCode"]?.toString() ?? "COURSE",
       examDate: json["examDate"] != null ? DateTime.tryParse(json["examDate"]) : null,
       daysUntilExam: (json["daysUntilExam"] as num?)?.toInt(),
-      totalEstimatedMinutes: (json["totalEstimatedMinutes"] as num?)?.toInt() ?? 25,
+      totalEstimatedMinutes: computedMinutes,
       priorities: (json["priorities"] as List<dynamic>?)
               ?.map((p) => CoursePriorityModel.fromJson(p as Map<String, dynamic>))
               .toList() ??
           [],
-      steps: (json["steps"] as List<dynamic>?)
-              ?.map((s) => StudyPlanStepModel.fromJson(s as Map<String, dynamic>))
-              .toList() ??
-          [],
+      steps: cleanSteps,
       aiRecommendation: json["aiRecommendation"]?.toString() ??
           "Maintain daily spacing consistency to reinforce neural memory traces.",
       readiness: json["readiness"] != null
